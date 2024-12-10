@@ -94,9 +94,11 @@ Proteus is an artificial life and evolution simulator loosely inspired by Tierra
 
 ### Mutation model
 
-- There is a very small chance (1 in 2^16) an instruction is mutated after execution.
-- There is an additional, much higher chance of mutation if the program had 0 free energy and paid the base energy cost of an instruction using background radiation (chance of x in 2^8 if x background radiation was present).
-- Background radiation that hits a cell with no program has a chance (1 in 2^8) of creating a new program composed of a single no-op instruction.
+- Mutation rates
+  - There is a very small chance (1 in 2^16) an instruction is mutated after execution.
+  - There is an additional, much higher chance of mutation if the program had 0 free energy and paid the base energy cost of an instruction using background radiation (chance of x in 2^8 if x background radiation was present).
+  - Background radiation that hits a cell with no program has a chance (1 in 2^8) of creating a new program composed of a single no-op instruction.
+- TODO: details of mutation model. At a basic level we can apply mutations at the bit level to instruction opcodes. Also exploring grouping instructions and using a context-free grammar to handle mutations between groups + insertions and deletions of code. It would be cool if that grammar is also evolvable...
 
 ### Handling cell interactions
 
@@ -137,136 +139,95 @@ Proteus is an artificial life and evolution simulator loosely inspired by Tierra
 
 ### Instruction set
 
-#### No-op
+- "Time" is 0 for immediate instructions and 1 for 1-tick instructions
+- "Energy" is base energy cost, with "+" indicating an additional variable energy/mass cost
 
-| Instruction | Opcode     | Description |
-| ----------- | ---------- | ----------- |
-| `nop`       | `00000000` | Do nothing; no energy cost. |
-
-#### Self inspection and modification
-
-| Instruction | Opcode | Description |
-| ----------- | ------ | ----------- |
-| `move`      | `TBD`  | Move self into adjacent cell, merging the two if successful (see move rules). Uses free m |
-| `clone`     | `TBD`  | Clone self into adjacent cell, merging the two if successful (see move rules). Requires free mass equal to program size. |
-| `split`     | `TBD`  | Split self, moving all ; details TBD. Direction required. |
-| `getSize`   | `TBD`  | Push program size of target cell onto the stack. |
-
-#### Energy and mass
-
-| Instruction | Opcode     | Description |
-| ----------- | ---------- | ----------- |
-| `absorb`    | `00000001` | Capture all radiation as free energy; no energy cost. Sets `Msg`, `MsgDir`, and `Flag` = 1 if directed radiation received. |
-| `emit`      | `TBD`      | Sends radiation with top value from stack in direction `Dir`. |
-| `giveE`     | `TBD`      | Give 1 free energy to target cell; no energy cost. |
-| `giveM`     | `TBD`      | Give 1 free mass to target cell. |
-| `senseE`      | `TBD`      | Read current free energy in target cell onto the stack. |
-| `senseM`      | `TBD`      | Read current free mass in target cell onto the stack. |
-
-#### Misc. cell-cell interaction
-
-| Instruction | Opcode     | Description |
-| ----------- | ---------- | ----------- |
-| `trap`      | `TBD`      | Trap a plasmids that merge into this cell this tick. |
-
-#### Register manipulation
-
-| Instruction | Opcode | Description |
-| ----------- | ------ | ----------- |
-| `this`      | `TBD`  | Set all registers to point to this instruction (including `Adj` = 0). |
-| `reset`     | `TBD`  | Reset all registers except `Dir` and `ID` to 0. |
-| `getPP`     | `TBD`  | Push `PP` register value onto the stack. |
-| `getIP`     | `TBD`  | Push `IP` register value onto the stack. |
-| `getFlag`    | `TBD`  | Push `Flag` register value onto the stack. |
-| `getMsg`    | `TBD`  | Push `Msg` register value onto the stack. Sets `Flag` to 0 if message was present, 1 if no message. |
-| `getMsgDir` | `TBD`  | Push `MsgDir` register value onto the stack. |
-| `getID`     | `TBD`  | Push `ID` register value from target cell onto the stack. This is the only instance where a cell might read another cell's register |
-| `getPO`     | `TBD`  | Push `PO` register value onto the stack. |
-| `getLab`    | `TBD`  | Push `Lab` register value onto the stack. |
-| `getIO`     | `TBD`  | Push `IO` register value onto the stack. |
-| `getDir`    | `TBD`  | Push `Dir` register value onto the stack. |
-| `getAdj`    | `TBD`  | Push `Adj` register value onto the stack. |
-| `setID`     | `TBD`  | Set `ID` register to value from the stack. |
-| `setPO`     | `TBD`  | Set `PO` register to value from the stack. |
-| `setLab`    | `TBD`  | Set `Lab` register to value from the stack. |
-| `setIO`     | `TBD`  | Set `IO` register to value from the stack. |
-| `setDir`    | `TBD`  | Set `Dir` register to value from the stack. |
-| `setAdj`    | `TBD`  | Set `Adj` register to value from the stack. |
-| `cw`        | `TBD`  | Rotate `Dir` register 90 degrees clockwise. |
-| `ccw`       | `TBD`  | Rotate `Dir` register 90 degrees counterclockwise. |
-| `turn`      | `TBD`  | Rotate `Dir` register 180 degrees. |
-
-#### Stack manipulation
-
-| Instruction | Opcode     | Description |
-| ----------- | ---------- | ----------- |
-| `push##`    | `0000xxxx` | Push numeric value onto the stack (TBD). |
-| `rand`      | `TBD`      | Push random value onto the stack. |
-| `drop`      | `TBD`      | Remove top value from the stack. |
-| `dup`       | `TBD`      | Duplicate top value on the stack. |
-| `swap`      | `TBD`      | Swap top two values on the stack. |
-| `clear`     | `TBD`      | Clear the stack. |
-
-#### Arithmetic and logic
-
-| Instruction | Opcode | Description |
-| ----------- | ------ | ----------- |
-| `add`       | `TBD`  | Add top two stack values. |
-| `sub`       | `TBD`  | Subtract first value from second value on stack. |
-| `mul`       | `TBD`  | Multiply top two stack values. |
-| `div`       | `TBD`  | Divide second value by first value on stack. Returns 0 and sets `Flag` if dividing by zero. |
-| `mod`       | `TBD`  | Compute signed remainder from dividing second value by first value. Returns 0 and sets `Flag` if dividing by zero. |
-| `not`       | `TBD`  | Perform logical NOT on top stack value. |
-| `and`       | `TBD`  | Perform logical AND on top two stack values. |
-| `or`        | `TBD`  | Perform logical OR on top two stack values. |
-| `xor`       | `TBD`  | Perform logical XOR on top two stack values. |
-| `eq`        | `TBD`  | Test if top two stack values are equal. |
-| `lt`        | `TBD`  | Test if the second stack value is strictly less than the top value. |
-| `gt`        | `TBD`  | Test if the second stack value is strictly greaterd than the top value. |
-
-#### Control flow
-
-| Instruction | Opcode | Description |
-| ----------- | ------ | ----------- |
-| `for`       | `TBD`  | Begin `for` loop with iterations determined by top value on stack, setting the `LC` register. |
-| `next`      | `TBD`  | If `LC` > 0, decrement it and jump to the instruction following the matching `for` instruction; else move to the next instruction as usual. |
-| `break`     | `TBD`  | Exits the current `for` loop (jumps to instruction after the following `next` statement). |
-| `if`        | `TBD`  | Pop from stack; if zero, move to next instruction; else move to instruction after the matching `else` instruction. |
-| `else`      | `TBD`  | Marker for `if`/`else` block; does nothing if executed. |
-| `endif`     | `TBD`  | Marker for `if`/`else` block; does nothing if executed. |
-| `jmp`       | `TBD`  | Jump to target instruction. |
-| `jmpNZ`     | `TBD`  | Pop from stack and, if nonzero, jump to target instruction. |
-| `jmpZ`      | `TBD`  | Pop from stack and, if zero, jump to target instruction. |
-
-#### Label manipulation
-
-| Instruction | Opcode | Description |
-| ----------- | ------ | ----------- |
-| `newL`      | `TBD`  | Add new label at current target instruction. Pushes the new label's index to the stack. Fails if label already exists or `Lab` = -1. |
-| `delL`      | `TBD`  | Remove the first label at or above the current target instruction. Fails if label doesn't exist or `Lab` ≤ 0. |
-
-#### Instruction manipulation
-
-| Instruction | Opcode | Description |
-| ----------- | ------ | ----------- |
-| `readI`     | `TBD`  | Read instruction at target location to the stack. Increments `IO` (to allow serial reads) unless `Lab` = -1. |
-| `writeI`    | `TBD`  | Write instruction from the stack to target location, moving forward existing instructions. Increments `IO` (to allow serial writes) unless `Lab` = -1. |
-| `delI`      | `TBD`  | Delete instruction at target location. Additional energy cost of 1. If successful, the instruction is converted to 1 free mass at the target cell.|
-
-<!-- TODO edit from here for destination vs target -->
-
-#### Plasmid manipulation
-
-| Instruction | Opcode | Description |
-| ----------- | ------ | ----------- |
-| `newP`      | `TBD`  | Create new empty plasmid immediately before target plasmid, moving forward the following plasmids in the list. (If plasmid 0 is targeted, the new plasmid will be appended rather than prepended.) Modifies `PO` to point the new plasmid. Note that an empty plasmid has no instructions and a single label 0. After writing the first instruction, label 0 is updated.
-| `moveP`     | `TBD`  | Move plasmid from self to target cell (as the last plasmid). Energy cost equal to plasmid size unless targeting self. Will never copy any registers or the stack to destination. |
-| `cloneP`    | `TBD`  | Clone plasmid indicated by `PP` and `PO` from self to destination (as the last plasmid). Energy and mass cost equal to plasmid size. Will potentially copy registers and stack. |
-| `delP`      | `TBD`  | Delete target plasmid. Additional energy cost equal to plasmid size. If successful, the target cell gains free mass equal to the plasmid size. |
-| `writeP`    | `TBD`  | Clone plasmid indicated by `PP` and `PO` from self to destination (as the last plasmid). Energy cost equal to plasmid size. Does not move any registers or the stack. |
-| `mergeP`    | `TBD`  | Pop from stack to get second plasmid offset; concatenate that plasmid to the end of the one indicated by `PO`. |
-| `splitP`    | `TBD`  | Split plasmid at current instruction offset `IO`, creating a new plasmid with the instructions after `IO`. Updates labels accordingly. Pushes the new plasmid offset to the stack. |
-| `getSizeP`  | `TBD`  | Push size of target plasmid onto the stack. |
+| Instruction | Opcode | Time | Energy | Description |
+|-------------|--------|--------|------|-------------|
+| *No-op*
+| `nop` | 00000000 | 0 | 0 | Do nothing; no energy cost. |
+| *Self*
+| `move` | TBD |  1  | 1+ | Move self into adjacent cell, merging the two if successful (see move rules). Uses free m |
+| `clone` | TBD |  1  | 1+ | Clone self into adjacent cell, merging the two if successful (see move rules). Requires free mass equal to program size. |
+| `split` | TBD |  1  | 1+ | Split self, moving all ; details TBD. Direction required. |
+| `getSize` | TBD |  1  | 1 | Push program size of target cell onto the stack. |
+| *Energy/Mass*
+| `absorb` | 00000001 | 0 | 0 | Capture all radiation as free energy; no energy cost. Sets `Msg`, `MsgDir`, and `Flag` = 1 if directed radiation received. |
+| `emit` | TBD |  1  | 1 | Sends radiation with top value from stack in direction `Dir`. |
+| `giveE` | TBD | 0 | 0 | Give 1 free energy to target cell; no energy cost. |
+| `giveM` | TBD | 0 | 0 | Give 1 free mass to target cell. |
+| `senseE` | TBD |  1  | 1 | Read current free energy in target cell onto the stack. |
+| `senseM` | TBD |  1  | 1 | Read current free mass in target cell onto the stack. |
+| `trap` | TBD |  1  | 1 | Trap a plasmids that merge into this cell this tick. |
+| *Registers*
+| `this` | TBD | 0 | 0 | Set all registers to point to this instruction (including `Adj` = 0). |
+| `reset` | TBD | 0 | 0 | Reset all registers except `Dir` and `ID` to 0. |
+| `getPP` | TBD | 0 | 0 | Push `PP` register value onto the stack. |
+| `getIP` | TBD | 0 | 0 | Push `IP` register value onto the stack. |
+| `getFlag` | TBD | 0 | 0 | Push `Flag` register value onto the stack. |
+| `getMsg` | TBD | 0 | 0 | Push `Msg` register value onto the stack. Sets `Flag` to 0 if message was present, 1 if no message. |
+| `getMsgDir` | TBD | 0 | 0 | Push `MsgDir` register value onto the stack. |
+| `getID` | TBD |  1  | 1 | Push `ID` register value from target cell onto the stack. This is the only instance where a cell might read another cell's register |
+| `getPO` | TBD | 0 | 0 | Push `PO` register value onto the stack. |
+| `getLab` | TBD | 0 | 0 | Push `Lab` register value onto the stack. |
+| `getIO` | TBD | 0 | 0 | Push `IO` register value onto the stack. |
+| `getDir` | TBD | 0 | 0 | Push `Dir` register value onto the stack. |
+| `getAdj` | TBD | 0 | 0 | Push `Adj` register value onto the stack. |
+| `setID` | TBD | 0 | 0 | Set `ID` register to value from the stack. |
+| `setPO` | TBD | 0 | 0 | Set `PO` register to value from the stack. |
+| `setLab` | TBD | 0 | 0 | Set `Lab` register to value from the stack. |
+| `setIO` | TBD | 0 | 0 | Set `IO` register to value from the stack. |
+| `setDir` | TBD | 0 | 0 | Set `Dir` register to value from the stack. |
+| `setAdj` | TBD | 0 | 0 | Set `Adj` register to value from the stack. |
+| `cw` | TBD | 0 | 0 | Rotate `Dir` register 90 degrees clockwise. |
+| `ccw` | TBD | 0 | 0 | Rotate `Dir` register 90 degrees counterclockwise. |
+| `turn` | TBD | 0 | 0 | Rotate `Dir` register 180 degrees. |
+| *Stack*
+| `push##` | 0000xxxx | 0 | 0 | Push numeric value onto the stack (TBD). |
+| `rand` | TBD | 0 | 0 | Push random value onto the stack. |
+| `drop` | TBD | 0 | 0 | Remove top value from the stack. |
+| `dup` | TBD | 0 | 0 | Duplicate top value on the stack. |
+| `swap` | TBD | 0 | 0 | Swap top two values on the stack. |
+| `clear` | TBD | 0 | 0 | Clear the stack. |
+| *Math*
+| `add` | TBD | 0 | 0 | Add top two stack values. |
+| `sub` | TBD | 0 | 0 | Subtract first value from second value on stack. |
+| `mul` | TBD | 0 | 0 | Multiply top two stack values. |
+| `div` | TBD | 0 | 0 | Divide second value by first value on stack. Returns 0 and sets `Flag` if dividing by zero. |
+| `mod` | TBD | 0 | 0 | Compute signed remainder from dividing second value by first value. Returns 0 and sets `Flag` if dividing by zero. |
+| `not` | TBD | 0 | 0 | Perform logical NOT on top stack value. |
+| `and` | TBD | 0 | 0 | Perform logical AND on top two stack values. |
+| `or` | TBD | 0 | 0 | Perform logical OR on top two stack values. |
+| `xor` | TBD | 0 | 0 | Perform logical XOR on top two stack values. |
+| `eq` | TBD | 0 | 0 | Test if top two stack values are equal. |
+| `lt` | TBD | 0 | 0 | Test if the second stack value is strictly less than the top value. |
+| `gt` | TBD | 0 | 0 | Test if the second stack value is strictly greaterd than the top value. |
+| *Control Flow*
+| `for` | TBD | 0 | 0 | Begin loop with iterations determined by top value on stack, setting the `LC` register. |
+| `next` | TBD | 0 | 0 | If `LC` > 0, decrement it and jump to the instruction following the matching `for` instruction; else move to the next instruction as usual. |
+| `break` | TBD | 0 | 0 | Exits the current `for` loop (jumps to instruction after the following `next` statement). |
+| `if` | TBD | 0 | 0 | Pop from stack; if zero, move to next instruction; else move to instruction after the matching `else` instruction. |
+| `else` | TBD | 0 | 0 | Marker for `if`/`else` block; does nothing if executed. |
+| `endif` | TBD | 0 | 0 | Marker for `if`/`else` block; does nothing if executed. |
+| `jmp` | TBD | 0 | 0 | Jump to target instruction. |
+| `jmpNZ` | TBD | 0 | 0 | Pop from stack and, if nonzero, jump to target instruction. |
+| `jmpZ` | TBD | 0 | 0 | Pop from stack and, if zero, jump to target instruction. |
+| *Labels*
+| `newL` | TBD |  1  | 1 | Add new label at current target instruction. Pushes the new label's index to the stack. Fails if label already exists or `Lab` = -1. |
+| `delL` | TBD |  1  | 1 | Remove the first label at or above the current target instruction. Fails if label doesn't exist or `Lab` ≤ 0. |
+| *Instructions*
+| `readI` | TBD |  1  | 1 | Read instruction at target location to the stack. Increments `IO` (to allow serial reads) unless `Lab` = -1. |
+| `writeI` | TBD |  1  | 1+ | Write instruction from the stack to target location, moving forward existing instructions. Increments `IO` (to allow serial writes) unless `Lab` = -1. |
+| `delI` | TBD |  1  | 1+ | Delete instruction at target location. Additional energy cost of 1. If successful, the instruction is converted to 1 free mass at the target cell.|
+| *Plasmids*
+| `newP` | TBD |  1  | 1 | Create new empty plasmid immediately before target plasmid, moving forward the following plasmids in the list. (If plasmid 0 is targeted, the new plasmid will be appended rather than prepended.) Modifies `PO` to point the new plasmid. Note that an empty plasmid has no instructions and a single label 0. After writing the first instruction, label 0 is updated. |
+| `moveP` | TBD |  1  | 1+ | Move plasmid from self to target cell (as the last plasmid). Energy cost equal to plasmid size unless targeting self. Will never copy any registers or the stack to destination. |
+| `cloneP` | TBD |  1  | 1+ | Clone plasmid indicated by `PP` and `PO` from self to destination (as the last plasmid). Energy and mass cost equal to plasmid size. Will potentially copy registers and stack. |
+| `delP` | TBD |  1  | 1+ | Delete target plasmid. Additional energy cost equal to plasmid size. If successful, the target cell gains free mass equal to the plasmid size. |
+| `writeP` | TBD |  1  | 1+ | Clone plasmid indicated by `PP` and `PO` from self to destination (as the last plasmid). Energy cost equal to plasmid size. Does not move any registers or the stack. |
+| `mergeP` | TBD |  1  | 1 | Pop from stack to get second plasmid offset; concatenate that plasmid to the end of the one indicated by `PO`. |
+| `splitP` | TBD |  1  | 1 | Split plasmid at current instruction offset `IO`, creating a new plasmid with the instructions after `IO`. Updates labels accordingly. Pushes the new plasmid offset to the stack. |
+| `getSizeP` | TBD |  1  | 1 | Push size of target plasmid onto the stack. |
 
 ## Examples
 
