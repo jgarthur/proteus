@@ -1,0 +1,13 @@
+[package]
+name = "proteus"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "proteus"
+path = "bin/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
