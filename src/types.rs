@@ -2,9 +2,10 @@ use std::fmt::{Debug, Display, Formatter, Result};
 
 pub type Message = i16;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(u8)]
 pub enum Direction {
+    #[default]
     Right = 0,
     Up = 1,
     Left = 2,
@@ -23,16 +24,25 @@ impl Display for Direction {
 }
 
 impl Direction {
-    fn rotate_cw(&self) -> Self {
+    pub fn to_xy(&self) -> (i32, i32) {
         match self {
-            Direction::Right => Direction::Down,
-            Direction::Down => Direction::Left,
-            Direction::Left => Direction::Up,
-            Direction::Up => Direction::Right,
+            Direction::Right => (1, 0),
+            Direction::Up => (0, 1),
+            Direction::Left => (-1, 0),
+            Direction::Down => (0, -1),
         }
     }
 
-    fn rotate_ccw(&self) -> Self {
+    pub fn rotate_cw(&self) -> Self {
+        match self {
+            Direction::Right => Direction::Down,
+            Direction::Up => Direction::Right,
+            Direction::Left => Direction::Up,
+            Direction::Down => Direction::Left,
+        }
+    }
+
+    pub fn rotate_ccw(&self) -> Self {
         match self {
             Direction::Right => Direction::Up,
             Direction::Up => Direction::Left,
@@ -41,11 +51,11 @@ impl Direction {
         }
     }
 
-    fn flip(&self) -> Self {
+    pub fn flip(&self) -> Self {
         match self {
             Direction::Right => Direction::Left,
-            Direction::Left => Direction::Right,
             Direction::Up => Direction::Down,
+            Direction::Left => Direction::Right,
             Direction::Down => Direction::Up,
         }
     }

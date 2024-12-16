@@ -11,3 +11,10 @@ path = "bin/main.rs"
 path = "src/lib.rs"
 
 [dependencies]
+noise = "0.9"
+rand = "0.8"
+
+[profile.dev]
+
+[profile.release]
+# lto = true

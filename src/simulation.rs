@@ -1,5 +1,32 @@
 // NOTE: need global table of program sizes and free energy? may need to compute additional costs in local pass
 // Use rayon for instruction execution. Local instructions execute
+use crate::mutation::MutationParams;
+use crate::world::{Grid, WorldParams};
+
+#[derive(Clone, Debug)]
+pub struct SimulationParams {
+    mutation: MutationParams,
+    world: WorldParams,
+    move_rate: usize,
+    maintenance_scale: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct Simulation {
+    world: Grid,
+    parameters: SimulationParams,
+}
+
+impl Default for SimulationParams {
+    fn default() -> Self {
+        Self {
+            mutation: MutationParams::default(),
+            world: WorldParams::default(),
+            move_rate: 8,
+            maintenance_scale: 64,
+        }
+    }
+}
 
 /*
 // EXAMPLE

@@ -3,8 +3,10 @@ use crate::types::{Direction, Message};
 const INITIAL_STACK_CAPACITY: usize = 8;
 
 // CPU state for a program
+#[derive(Clone, Debug)]
 pub struct CPUState {
     stack: Vec<i16>,
+
     // Program ID
     id: i8,
 
@@ -33,4 +35,24 @@ pub struct CPUState {
     io: i16,
     // Label
     lab: i8,
+}
+
+impl Default for CPUState {
+    fn default() -> Self {
+        Self {
+            stack: Vec::with_capacity(INITIAL_STACK_CAPACITY),
+            id: 0,
+            pp: 0,
+            ip: 0,
+            flag: false,
+            lc: 0,
+            msg: 0,
+            msg_dir: Default::default(),
+            dir: Default::default(),
+            adj: false,
+            po: 0,
+            io: 0,
+            lab: -1,
+        }
+    }
 }

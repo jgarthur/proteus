@@ -1,14 +1,15 @@
 use crate::cpu::CPUState;
 use crate::instruction::Instruction;
 
-// Representation of a program in a cell
+#[derive(Clone, Debug)]
 pub struct Program {
     plasmids: Vec<Plasmid>,
-    cpu: CPUState,
-    size: usize,
+    size: usize, // TODO: in debug mode, check size at each iteration?
+    mutation_counter: u32,
 }
 
+#[derive(Clone, Debug)]
 pub struct Plasmid {
     instructions: Vec<Instruction>,
-    labels: Vec<usize>, /* FIXME */
+    labels: Vec<usize>, // FIXME?
 }
