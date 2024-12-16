@@ -100,8 +100,8 @@ Proteus is an artificial life and evolution simulator loosely inspired by Tierra
 ### Mutation model
 
 - Mutation rates
-  - There is a very small chance (1 in 2^16) an instruction is mutated after execution.
-  - There is an additional, much higher chance of mutation if the program had 0 free energy and paid the base energy cost of an instruction using background radiation (chance of x in 256 if x background radiation was present).
+  - There is a very small probability (1 in 2^16) an instruction is mutated after execution.
+  - There is an additional, much higher probability of mutation if the program had 0 free energy and paid the base energy cost of an instruction using background radiation (probability of `max(x/256, 1)` if x background radiation was present).
   - When excess background radiation (not used to pay an energy cost) is removed at the end of a tick's update, it is converted into mass with a small probability (1 in 256). If there is no program in the cell, a new program with a single no-op instruction is created. Otherwise, 1 free mass is added to the cell.
 - TODO: details of mutation model. At a basic level we can apply mutations at the bit level to instruction opcodes. Also exploring grouping instructions and using a context-free grammar to handle mutations between groups + insertions and deletions of code. It would be cool if that grammar is also evolvable...
 
@@ -201,7 +201,7 @@ Proteus is an artificial life and evolution simulator loosely inspired by Tierra
 | `ccw` | TBD | 0 | 0 | Rotates `Dir` register 90 degrees counterclockwise. |
 | `turn` | TBD | 0 | 0 | Rotates `Dir` register 180 degrees. |
 | *Stack*
-| `push##` | `0000xxxx` | 0 | 0 | Pushes numeric value onto the stack (TBD). |
+| `push##` | `1000xxxx` | 0 | 0 | Pushes numeric value onto the stack (TBD). |
 | `rand` | TBD | 0 | 0 | Pushes random value from 0 to 255onto the stack. |
 | `drop` | TBD | 0 | 0 | Removes top value from the stack. |
 | `dup` | TBD | 0 | 0 | Duplicates top value on the stack. |
