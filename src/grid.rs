@@ -1,16 +1,14 @@
-use crate::types::Direction;
+use crate::types::{Coord, Direction};
 use std::fmt::Debug;
 
-#[derive(Clone, Debug, Default)]
-pub struct Grid<Value> {
-    values: Vec<Value>,
-    size: usize,
-    width: i32,
-    height: i32,
-}
+const DEFAULT_GRID_DIM: i32 = 100;
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-struct Coord(i32, i32);
+#[derive(Clone, Debug)]
+pub struct Grid<Value> {
+    pub values: Vec<Value>,
+    pub width: i32,
+    pub height: i32,
+}
 
 impl<Value> Grid<Value>
 where
@@ -21,13 +19,38 @@ where
             panic!("Grid width and height must be positive");
         }
 
-        let size = (width as usize)
-            .checked_mul(height as usize)
-            .expect("Total number of grid cells exceeds usize::MAX");
+        let size = (width as isize)
+            .checked_mul(height as isize)
+            .expect("Total number of grid cells exceeds isize::MAX");
 
         Grid {
-            values: vec![Value::default(); size],
-            size,
+            values: vec![Value::default(); size as usize],
+            width,
+            height,
+        }
+    }
+
+    fn from_iter_row_major<I>(values: I, width: i32) -> Self
+    where
+        I: IntoIterator<Item = Value>,
+    {
+        let values: Vec<Value> = values.into_iter().collect();
+        let size = values.len();
+
+        if size == 0 {
+            panic!("No values to place in grid")
+        }
+        if width <= 0 {
+            panic!("Grid width must be positive");
+        }
+        if size % (width as usize) != 0 {
+            panic!("Number of values must be divisible by width");
+        }
+
+        let height = (size / width as usize) as i32;
+
+        Grid {
+            values,
             width,
             height,
         }
@@ -45,38 +68,48 @@ where
 
     fn coord_to_idx(&self, coord: Coord) -> u64 {
         // Convert to uncentered coordinates
-        let grid_x = (coord.0 + self.width / 2).rem_euclid(self.width);
-        let grid_y = (coord.1 + self.height / 2).rem_euclid(self.height);
+        let grid_col = (coord.0 + self.width / 2).rem_euclid(self.width);
+        let grid_row = (coord.1 + self.height / 2).rem_euclid(self.height);
 
-        (grid_y as u64) * (self.width as u64) + (grid_x as u64)
+        (grid_row as u64) * (self.width as u64) + (grid_col as u64)
     }
 
     fn idx_to_coord(&self, idx: u64) -> Coord {
-        let grid_x = idx % (self.width as u64);
-        let grid_y = idx / (self.width as u64);
+        let grid_col = idx % (self.width as u64);
+        let grid_row = idx / (self.width as u64);
 
-        let x = (grid_x as i32) - self.width / 2;
-        let y = (grid_y as i32) - self.height / 2;
+        let x = (grid_col as i32) - self.width / 2;
+        let y = (grid_row as i32) - self.height / 2;
 
         Coord(x, y)
     }
 
-    fn offset_dir(&self, coord: Coord, dir: Direction) -> Coord {
-        let dir_xy = dir.to_xy();
-        self.add_offset(coord, dir_xy.0, dir_xy.1)
+    pub fn offset_dir(&self, coord: Coord, dir: Direction) -> Coord {
+        let dir_offset = dir.to_offset();
+        self.add_offset_wrap(coord, dir_offset)
     }
 
-    fn add_offset(&self, coord: Coord, dx: i32, dy: i32) -> Coord {
+    fn add_offset_wrap(&self, coord: Coord, offset: Coord) -> Coord {
+        let sum = coord + offset;
         let half_width = self.width / 2;
         let half_height = self.height / 2;
-        let new_x: i32 = self.wrap(coord.0 + dx, self.width, half_width);
-        let new_y = self.wrap(coord.1 + dy, self.height, half_height);
+        let new_x: i32 = self.wrap(sum.0, self.width, half_width);
+        let new_y = self.wrap(sum.1, self.height, half_height);
         Coord(new_x, new_y)
     }
 
-    /// Wraps a coordinate value around the grid toroidally.
+    /// Wraps a coordinate value around the grid (torus connectivity)
     fn wrap(&self, x_or_y: i32, dim: i32, half_dim: i32) -> i32 {
         (x_or_y + half_dim).rem_euclid(dim) - half_dim
+    }
+}
+
+impl<Value> Default for Grid<Value>
+where
+    Value: Clone + Debug + Default,
+{
+    fn default() -> Self {
+        Self::new(DEFAULT_GRID_DIM, DEFAULT_GRID_DIM)
     }
 }
 

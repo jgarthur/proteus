@@ -1,6 +1,20 @@
-use std::fmt::{Debug, Display, Formatter, Result};
+use std::{
+    fmt::{Debug, Display, Formatter, Result},
+    ops::Add,
+};
 
 pub type Message = i16;
+
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct Coord(pub i32, pub i32);
+
+impl Add for Coord {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Coord(self.0 + other.0, self.1 + other.1)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(u8)]
@@ -24,12 +38,12 @@ impl Display for Direction {
 }
 
 impl Direction {
-    pub fn to_xy(&self) -> (i32, i32) {
+    pub fn to_offset(&self) -> Coord {
         match self {
-            Direction::Right => (1, 0),
-            Direction::Up => (0, 1),
-            Direction::Left => (-1, 0),
-            Direction::Down => (0, -1),
+            Direction::Right => Coord(1, 0),
+            Direction::Up => Coord(0, 1),
+            Direction::Left => Coord(-1, 0),
+            Direction::Down => Coord(0, -1),
         }
     }
 

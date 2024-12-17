@@ -1,10 +1,10 @@
 #[derive(Clone, Debug)]
-pub struct MutationParams {
-    base_mutation_rate_log2: usize,      // -log2(prob)
-    radiation_mutation_rate_log2: usize, // -log2(prob)
+pub struct MutationRules {
+    pub base_mutation_rate_log2: usize,      // -log2(prob)
+    pub radiation_mutation_rate_log2: usize, // -log2(prob)
 }
 
-impl Default for MutationParams {
+impl Default for MutationRules {
     fn default() -> Self {
         Self {
             base_mutation_rate_log2: 16,
@@ -12,3 +12,5 @@ impl Default for MutationParams {
         }
     }
 }
+
+impl MutationRules {}
