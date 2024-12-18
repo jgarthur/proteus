@@ -91,7 +91,8 @@ Proteus is an artificial life and evolution simulator loosely inspired by Tierra
     - `Lab` = -1: `IP + IO` for self, or `IO` for adjacent cell
     - `Lab` = -2: end of plasmid, offset by `IO`
     - (Values are all interpreted module plasmid size.)
-  - Values are always interpreted modulo the number of possible targets. For example, if a targeting another cell with 3 plasmids, `PO` = 4 will target plasmid `4 % 3 = 1`
+  - Values are always interpreted modulo the number of possible targets. For example, if a targeting another cell with 3 plasmids, `PO` = 4 will target plasmid `4 % 3 = 1`.
+  - A program's own PP and IP registers are guaranteed to point to a valid instruction, unless the plasmid is empty. This is to avoid excessive division to perform modular arithmetic.
 - `Flag` register and error handling
   - `Flag` is set to 0 on successful instruction execution and 1 if the instruction fails (e.g. no write access, not enough energy/mass, divide by 0).
   - Operands for failing instructions are still removed from the stack.

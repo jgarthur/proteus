@@ -1,35 +1,24 @@
-use crate::cpu::CPU;
+use std::cmp::min;
+
+use rand::Rng;
+
+use crate::cell::{Cell, DirectedRadiation};
 use crate::grid::Grid;
 use crate::mutation::MutationRules;
-use crate::program::Program;
-use crate::types::{Direction, Message};
-
-#[derive(Clone, Debug)]
-pub struct DirectedRadiation {
-    pub direction: Direction,
-    pub message: Message,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Cell {
-    pub program: Option<Program>,
-    pub cpu: CPU,
-    pub free_energy: u32,
-    pub free_mass: u32,
-    pub background_radiation: u8,
-    pub directed_radiation: Option<DirectedRadiation>,
-    pub mutation_counter: u32,
-}
+use crate::random::geometric_pow2;
 
 #[derive(Clone, Debug)]
 pub struct WorldParams {
+    pub grid_width: i32,
+    pub grid_height: i32,
     pub move_scale: usize,
     pub maintenance_scale: usize,
-    pub radiation_to_mass_rate_log2: usize,
-    pub background_radiation_scale: usize,     // binomial n
-    pub background_radiation_rate_log2: usize, // binomial p
-    pub mutation_rules: MutationRules,
-    // TODO: background_radiation_resolution?
+    pub rad_to_mass_rate_log2: usize,   // -log2(prob)
+    pub bg_rad_update_rate_log2: usize, // -log2(prob)
+    pub bg_rad_scale: usize,            // binomial: n
+    pub bg_rad_rate_log2: usize,        // binomial: -log2(p)
+    pub mutations: MutationRules,
+    // background_radiation_resolution?
     // Seed organisms
     // Solar radiation parameters - xy/time resolution, shift, scale, octaves
 }
@@ -37,18 +26,46 @@ pub struct WorldParams {
 impl Default for WorldParams {
     fn default() -> Self {
         Self {
+            grid_width: 20,
+            grid_height: 20,
             move_scale: 8,
             maintenance_scale: 64,
-            radiation_to_mass_rate_log2: 8,
-            background_radiation_scale: 2,
-            background_radiation_rate_log2: 1,
-            mutation_rules: Default::default(),
+            rad_to_mass_rate_log2: 8,
+            bg_rad_update_rate_log2: 3,
+            bg_rad_scale: 2,
+            bg_rad_rate_log2: 1,
+            mutations: Default::default(),
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct World {
+    pub params: WorldParams,
     pub grid: Grid<Cell>,
-    // radiation rate
+    bg_rad_counter: u32, // time until background radiation update
+}
+
+impl World {
+    pub fn new<R: Rng + ?Sized>(params: WorldParams, rng: &mut R) -> Self {
+        // Initialize cell grid
+        // TODO: Cells and Programs should have their own Rng. Cell needs to update radiation in initialize
+        // TODO: world.update method etc
+        let mut grid: Grid<Cell> = Default::default();
+        for cell in &mut grid.values {
+            cell.initialize(&params, rng);
+        }
+        let bg_rad_counter = 0;
+        let mut world = Self {
+            grid,
+            params,
+            bg_rad_counter,
+        };
+        world.update_radiation_counter(rng);
+        return world;
+    }
+
+    pub fn update_radiation_counter<R: Rng + ?Sized>(&mut self, rng: &mut R) {
+        self.bg_rad_counter = geometric_pow2(rng, self.params.bg_rad_update_rate_log2) as u32;
+    }
 }

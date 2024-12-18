@@ -4,7 +4,7 @@ use rand::Rng;
 ///
 /// Convention used is the total number of trials until a success, including the
 /// successful trial.
-fn geometric_pow2<R: Rng>(rng: &mut R, k: usize) -> u64 {
+pub fn geometric_pow2<R: Rng + ?Sized>(rng: &mut R, k: usize) -> u64 {
     assert!(k > 0 && k <= 64, "k must be a positive integer <= 64",);
     let mut num_trials: u64 = 1;
     let mut bits: u64 = 0;
@@ -30,7 +30,7 @@ fn geometric_pow2<R: Rng>(rng: &mut R, k: usize) -> u64 {
 }
 
 /// Samples from a binomial distribution with probability p = 1 / 2^k
-fn binomial_pow2<R: Rng>(rng: &mut R, n: u64, k: usize) -> u64 {
+pub fn binomial_pow2<R: Rng + Sized>(rng: &mut R, n: u64, k: usize) -> u64 {
     assert!(k > 0 && k <= 64, "k must be a positive integer <= 64",);
     let mut acc = 0;
     let mut bits: u64 = rng.gen();

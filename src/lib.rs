@@ -1,3 +1,4 @@
+pub mod cell;
 pub mod cpu;
 pub mod executor;
 pub mod grid;

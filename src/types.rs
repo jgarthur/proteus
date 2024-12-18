@@ -1,7 +1,35 @@
+use rand::{
+    distributions::{Distribution, Standard},
+    Rng,
+};
 use std::{
     fmt::{Debug, Display, Formatter, Result},
     ops::Add,
 };
+
+// EXAMPLE
+// use rand::{
+//     distributions::{Distribution, Standard},
+//     Rng,
+// }; // 0.8.0
+
+// #[derive(Debug)]
+// enum Spinner {
+//     One,
+//     Two,
+//     Three,
+// }
+
+// impl Distribution<Spinner> for Standard {
+//     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Spinner {
+//         // match rng.gen_range(0, 3) { // rand 0.5, 0.6, 0.7
+//         match rng.gen_range(0..=2) { // rand 0.8
+//             0 => Spinner::One,
+//             1 => Spinner::Two,
+//             _ => Spinner::Three,
+//         }
+//     }
+// }
 
 pub type Message = i16;
 
@@ -71,6 +99,17 @@ impl Direction {
             Direction::Up => Direction::Down,
             Direction::Left => Direction::Right,
             Direction::Down => Direction::Up,
+        }
+    }
+}
+
+impl Distribution<Direction> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Direction {
+        match rng.gen_range(0..=3) {
+            0 => Direction::Right,
+            1 => Direction::Up,
+            2 => Direction::Left,
+            _ => Direction::Down,
         }
     }
 }

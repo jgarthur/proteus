@@ -1,7 +1,7 @@
+use crate::cell::Cell;
 use crate::grid::Grid;
 use crate::instruction::Instruction;
 use crate::types::Coord;
-use crate::world::Cell;
 
 #[derive(Clone, Debug)]
 pub struct PendingInteraction {
@@ -23,8 +23,6 @@ enum ExecutionResult {
 /// None if we completed local execution or encountered an error
 pub fn run_tick_local(
     cell: &mut Cell,
-    coord: Coord,
-    grid: &Grid<Cell>,
 ) -> Option<PendingInteraction> {
     todo!();
 
