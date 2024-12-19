@@ -1,9 +1,11 @@
 use std::cmp::min;
 
+use rand::rngs::SmallRng;
 use rand::Rng;
+use rand::SeedableRng;
 
 use crate::cell::{Cell, DirectedRadiation};
-use crate::grid::Grid;
+use crate::grid::{grid_size_checked, Grid};
 use crate::mutation::MutationRules;
 use crate::random::geometric_pow2;
 
@@ -21,6 +23,7 @@ pub struct WorldParams {
     // background_radiation_resolution?
     // Seed organisms
     // Solar radiation parameters - xy/time resolution, shift, scale, octaves
+    pub rng_seed: u64,
 }
 
 impl Default for WorldParams {
@@ -35,6 +38,7 @@ impl Default for WorldParams {
             bg_rad_scale: 2,
             bg_rad_rate_log2: 1,
             mutations: Default::default(),
+            rng_seed: 0,
         }
     }
 }
@@ -43,29 +47,37 @@ impl Default for WorldParams {
 pub struct World {
     pub params: WorldParams,
     pub grid: Grid<Cell>,
-    bg_rad_counter: u32, // time until background radiation update
+    bg_rad_counter: u32,
+    rng: SmallRng,
 }
 
 impl World {
-    pub fn new<R: Rng + ?Sized>(params: WorldParams, rng: &mut R) -> Self {
-        // Initialize cell grid
-        // TODO: Cells and Programs should have their own Rng. Cell needs to update radiation in initialize
-        // TODO: world.update method etc
-        let mut grid: Grid<Cell> = Default::default();
-        for cell in &mut grid.values {
-            cell.initialize(&params, rng);
-        }
-        let bg_rad_counter = 0;
-        let mut world = Self {
-            grid,
+    pub fn new(params: WorldParams) -> Self {
+        let mut rng = SmallRng::seed_from_u64(params.rng_seed);
+
+        // initialize cells and grid
+        let grid_size = grid_size_checked(params.grid_width, params.grid_height);
+        // each cell has its own rng seeded by the world rng
+        let cells: Vec<Cell> = (0..grid_size)
+            .map(|_| Cell::new(rng.gen(), &params))
+            .collect();
+        let grid = Grid::from_iter_row_major(cells, params.grid_width);
+
+        let bg_rad_counter = Self::generate_counter(&mut rng, &params);
+        Self {
             params,
+            grid,
             bg_rad_counter,
-        };
-        world.update_radiation_counter(rng);
-        return world;
+            rng,
+        }
     }
 
-    pub fn update_radiation_counter<R: Rng + ?Sized>(&mut self, rng: &mut R) {
-        self.bg_rad_counter = geometric_pow2(rng, self.params.bg_rad_update_rate_log2) as u32;
+    #[inline]
+    fn generate_counter(rng: &mut SmallRng, params: &WorldParams) -> u32 {
+        geometric_pow2(rng, params.bg_rad_update_rate_log2) as u32
+    }
+
+    pub fn update_radiation_counter(&mut self) {
+        self.bg_rad_counter = Self::generate_counter(&mut self.rng, &self.params);
     }
 }

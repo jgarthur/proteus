@@ -10,27 +10,45 @@ pub struct Grid<Value> {
     pub height: i32,
 }
 
+pub fn grid_size_checked(width: i32, height: i32) -> isize {
+    if width <= 0 || height <= 0 {
+        panic!("Grid width and height must be positive");
+    }
+
+    (width as isize)
+        .checked_mul(height as isize)
+        .expect("Total number of grid cells exceeds isize::MAX")
+}
+
 impl<Value> Grid<Value>
 where
     Value: Clone + Debug + Default,
 {
-    fn new(width: i32, height: i32) -> Self {
-        if width <= 0 || height <= 0 {
-            panic!("Grid width and height must be positive");
-        }
+    pub fn new_default(width: i32, height: i32) -> Self
+    where
+        Value: Default,
+    {
+        Self::new(width, height, (), |_, _| Value::default())
+    }
+}
 
-        let size = (width as isize)
-            .checked_mul(height as isize)
-            .expect("Total number of grid cells exceeds isize::MAX");
-
+impl<Value> Grid<Value>
+where
+    Value: Clone + Debug,
+{
+    pub fn new<F, P>(width: i32, height: i32, params: P, init: F) -> Self
+    where
+        F: Fn(&P, usize) -> Value,
+    {
+        let size = grid_size_checked(width, height);
         Grid {
-            values: vec![Value::default(); size as usize],
+            values: (0..size).map(|idx| init(&params, idx as usize)).collect(),
             width,
             height,
         }
     }
 
-    fn from_iter_row_major<I>(values: I, width: i32) -> Self
+    pub fn from_iter_row_major<I>(values: I, width: i32) -> Self
     where
         I: IntoIterator<Item = Value>,
     {
@@ -109,7 +127,7 @@ where
     Value: Clone + Debug + Default,
 {
     fn default() -> Self {
-        Self::new(DEFAULT_GRID_DIM, DEFAULT_GRID_DIM)
+        Self::new_default(DEFAULT_GRID_DIM, DEFAULT_GRID_DIM)
     }
 }
 
@@ -121,7 +139,7 @@ mod tests {
     fn test_grid_coordinate_roundtrip() {
         for width in 1..=8 {
             for height in 1..=8 {
-                let grid: Grid<usize> = Grid::new(width, height);
+                let grid: Grid<usize> = Grid::new_default(width, height);
                 let total_size = (grid.width * grid.height) as usize;
                 let mut coords = Vec::with_capacity(total_size);
                 for idx in 0..total_size {
