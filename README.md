@@ -134,10 +134,10 @@ Proteus is an artificial life and evolution simulator loosely inspired by Tierra
     - Details of executing instructions that modify other cells are below under "collision handling".
 4. Update physics:
     - Directed radiation propagates to next cell. When multiple packets of directed radiation arrive in the same cell simultaneously, they are all converted to free energy.
-    - Handle background radiation (disappears if program is present, else chance to create new program).
-    - Energy maintenance is paid
-    - Free energy and free mass above the soft cap decays
-    - Background radiation and directed radiation (possibly created by instruction) propagates to next cell. Background radiation is handled (including any conversion to `nop` instruction or free mass). Energy maintenance is paid. Excess free energy and mass decays.
+    - Local updates:
+        - Chance for background radiation to create a new program. Then background radiation may update
+        - Energy maintenance is paid
+        - Free energy and free mass above the soft cap decays
 
 - **Collision handling**
   - First, execute local instructions simultaneously

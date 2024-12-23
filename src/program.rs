@@ -59,17 +59,38 @@ impl Program {
             *instruction_pointer = 0;
         }
     }
+
+    pub fn remove_last_instruction(&mut self) -> bool {
+        // TODO might need to update labels here
+        self.plasmids
+            .last_mut()
+            .and_then(|plasmid| plasmid.instructions.pop())
+            .is_some()
+    }
+}
+
+impl Default for Program {
+    fn default() -> Self {
+        let mut plasmid = Plasmid::default();
+        plasmid.instructions.push(Instruction::Nop);
+        Self {
+            plasmids: vec![plasmid],
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct Plasmid {
     pub instructions: Vec<Instruction>,
-    pub labels: Vec<usize>, // FIXME?
+    pub labels: Vec<usize>, // TODO implement label handling
 }
 
 impl Default for Plasmid {
     fn default() -> Self {
-        todo!()
+        Self {
+            instructions: Vec::new(),
+            labels: vec![0],
+        }
     }
 }
 

@@ -14,6 +14,7 @@ pub struct Stack {
 pub enum CPUError {
     StackOverflow,
     StackUnderflow,
+    IntegerOverflow,
     // Add other specific variants as needed
 }
 
@@ -127,8 +128,8 @@ impl CPU {
     pub fn add(&mut self) -> CPUResult<()> {
         let b = self.pop()?;
         let a = self.pop()?;
-        // TODO: handle arithmetic overflow?
-        self.push(a + b)
+        let result = a.checked_add(b).ok_or(CPUError::IntegerOverflow)?;
+        self.push(result)
     }
 }
 

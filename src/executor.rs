@@ -17,14 +17,14 @@ pub enum ExecutionResult {
 
 #[derive(Debug)]
 pub enum ExecutionError {
-    Stack(CPUError),
+    CPU(CPUError),
     NoEnergy,
     Halted,
 }
 
 impl From<CPUError> for ExecutionError {
     fn from(err: CPUError) -> Self {
-        ExecutionError::Stack(err)
+        ExecutionError::CPU(err)
     }
 }
 

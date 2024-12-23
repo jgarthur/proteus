@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rand::{Rng, SeedableRng};
 
 use crate::cell::Cell;
@@ -11,7 +13,7 @@ pub struct WorldParams {
     pub grid_width: i32,
     pub grid_height: i32,
     pub move_scale: usize,
-    pub maintenance_scale: usize,
+    pub maintenance_scale: u32,
     pub rad_to_mass_rate_log2: usize,   // -log2(prob)
     pub bg_rad_update_rate_log2: usize, // -log2(prob)
     pub bg_rad_scale: u64,              // binomial: n
@@ -77,13 +79,42 @@ impl World {
         geometric_pow2(rng, params.bg_rad_update_rate_log2) as u32
     }
 
-    pub fn update_bg_radiation(&mut self) {
+    pub fn update_physics(&mut self) {
+        self.update_directed_radiation();
+
+        for cell in self.grid.values_mut() {
+            // background radiation may be converted to free mass or new program
+            cell.handle_bg_radiation(&self.params);
+            cell.handle_program_maintenance(&self.params);
+            cell.free_resource_decay();
+        }
+
         self.bg_rad_counter -= 1;
         if self.bg_rad_counter == 0 {
             for cell in self.grid.values_mut() {
                 cell.bg_rad.update(&mut self.rng, &self.params);
             }
             self.bg_rad_counter = Self::generate_radiation_counter(&mut self.rng, &self.params)
+        }
+    }
+
+    pub fn update_directed_radiation(&mut self) {
+        let mut updated_rad = HashMap::new();
+        for (cell, coord) in self.grid.iter_mut() {
+            let rad = cell.directed_rad.take();
+            if let Some(rad) = rad {
+                updated_rad
+                    .entry(coord + rad.direction.to_offset())
+                    .or_insert(vec![])
+                    .push(rad);
+            }
+        }
+        for (coord, rads) in updated_rad.into_iter() {
+            if rads.len() == 1 {
+                self.grid[coord].directed_rad = Some(rads[0]);
+            } else {
+                self.grid[coord].free_energy += rads.len() as u32;
+            }
         }
     }
 }
@@ -108,7 +139,7 @@ impl BackgroundRadiation {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct DirectedRadiation {
     pub direction: Direction,
     pub message: Message,

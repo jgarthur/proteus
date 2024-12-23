@@ -36,8 +36,7 @@ impl Simulation {
         }
 
         // Update physics
-        // self.world.update_directed_radiation();
-        self.world.update_bg_radiation();
+        self.world.update_physics();
     }
 
     fn execute_nonlocal(&mut self, _instruction: Instruction, _source: Coord, _target: Coord) {

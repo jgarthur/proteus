@@ -1,5 +1,6 @@
 use std::cmp::min;
 
+use log::debug;
 use rand::{Rng, SeedableRng};
 
 use crate::cpu::CPU;
@@ -11,16 +12,16 @@ use crate::world::{BackgroundRadiation, DirectedRadiation, WorldParams};
 #[derive(Clone, Debug)]
 pub struct Cell {
     pub program: Option<Program>,
+    pub rng: FastRng,
     pub free_energy: u32,
     pub free_mass: u32,
     pub cpu: CPU,
-    pub bg_rad: BackgroundRadiation,
     pub directed_rad: Option<DirectedRadiation>,
     pub mutation_counter: u32,
     pub rad_to_mass_counter: u32,
+    pub bg_rad: BackgroundRadiation,
     pub is_passable: bool,
     pub is_trapped: bool,
-    pub rng: FastRng,
 }
 
 impl Cell {
@@ -42,6 +43,62 @@ impl Cell {
             is_passable: true,
             is_trapped: false,
             rng,
+        }
+    }
+
+    pub fn handle_bg_radiation(&mut self, params: &WorldParams) {
+        if self.bg_rad.0 > 0 {
+            self.rad_to_mass_counter -= 1;
+            if self.rad_to_mass_counter == 0 {
+                self.bg_rad.0 -= 1;
+                if let Some(_) = &self.program {
+                    debug!("bg radiation to free mass");
+                    self.free_mass += 1;
+                } else {
+                    debug!("bg radiation to new program");
+                    self.program = Some(Default::default());
+                }
+                self.rad_to_mass_counter =
+                    Self::generate_rad_to_mass_counter(&mut self.rng, params);
+            }
+        }
+    }
+
+    pub fn handle_program_maintenance(&mut self, params: &WorldParams) {
+        let mut maintenance_cost = self.program_size() / params.maintenance_scale;
+        if maintenance_cost > 0 {
+            // Try to pay with free energy
+            if self.free_energy >= maintenance_cost {
+                self.free_energy -= maintenance_cost;
+                return;
+            } else {
+                maintenance_cost -= self.free_energy;
+                self.free_energy = 0;
+            }
+            // Try to pay with free mass
+            // TODO: there might be a mass:energy ratio here
+            if self.free_mass >= maintenance_cost {
+                self.free_mass -= maintenance_cost;
+                return;
+            } else {
+                maintenance_cost -= self.free_mass;
+                self.free_mass = 0;
+            }
+            // Last resort: destroy instructions from the end of the last plasmid
+            let program = self.program.as_mut().unwrap();
+            while maintenance_cost > 0 && program.remove_last_instruction() {
+                maintenance_cost -= 1;
+            }
+        }
+    }
+
+    pub fn free_resource_decay(&mut self) {
+        let soft_cap = self.program_size();
+        if self.free_energy > soft_cap {
+            self.free_energy = soft_cap + (self.free_energy - soft_cap) / 2;
+        }
+        if self.free_mass > soft_cap {
+            self.free_mass = soft_cap + (self.free_mass - soft_cap) / 2;
         }
     }
 
@@ -93,7 +150,9 @@ impl Cell {
 
     /// Check if mutation should occur based on the mutation counter and background radiation used
     pub fn check_mutation(&mut self, params: &WorldParams, background_rad: Option<u8>) -> bool {
-        self.mutation_counter -= params.mutations.get_counter_decrement(background_rad);
+        self.mutation_counter = self
+            .mutation_counter
+            .saturating_sub(params.mutations.get_counter_decrement(background_rad));
         if self.mutation_counter == 0 {
             self.mutation_counter = Self::generate_mutation_counter(&mut self.rng, params);
             return true;

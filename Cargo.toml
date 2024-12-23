@@ -13,9 +13,10 @@ path = "bin/main.rs"
 path = "src/lib.rs"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
 fastrand = "2"
 log = "0.4"
-env_logger = "0.11"
 noise = "0.9"
 rand = { version = "0.8" }
 rayon = "1"
