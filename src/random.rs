@@ -1,4 +1,50 @@
-use rand::Rng;
+use rand::{Rng, RngCore, SeedableRng};
+
+/// Wrapper around fastrand::Rng to implement traits from rand
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FastRng(fastrand::Rng);
+
+impl FastRng {
+    #[inline]
+    pub fn new() -> Self {
+        Self(fastrand::Rng::new())
+    }
+}
+
+impl RngCore for FastRng {
+    #[inline]
+    fn next_u32(&mut self) -> u32 {
+        self.0.u32(..)
+    }
+
+    #[inline]
+    fn next_u64(&mut self) -> u64 {
+        self.0.u64(..)
+    }
+
+    #[inline]
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        for byte in dest {
+            *byte = self.0.u8(..);
+        }
+    }
+
+    #[inline]
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl SeedableRng for FastRng {
+    type Seed = [u8; 8];
+
+    #[inline]
+    fn from_seed(seed: Self::Seed) -> Self {
+        let seed_u64 = u64::from_ne_bytes(seed);
+        Self(fastrand::Rng::with_seed(seed_u64))
+    }
+}
 
 /// Samples from a geometric distribution with success probability p = 1 / 2^k.
 ///
@@ -57,12 +103,12 @@ pub fn binom_pow2<R: Rng + ?Sized>(rng: &mut R, n: u64, k: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rand::rngs::SmallRng;
     use rand::SeedableRng;
 
+    use super::*;
+
     fn test_geometric_pow2(k: usize, num_samples: usize) {
-        let mut rng = SmallRng::seed_from_u64(17);
+        let mut rng = FastRng::seed_from_u64(17);
         let mut sum = 0.0;
         let mut sum_of_squares = 0.0;
         let p = 1.0 / (1 << k) as f64;
@@ -97,7 +143,7 @@ mod tests {
     }
 
     fn test_binom_pow2(n: u64, k: usize, num_samples: u64) {
-        let mut rng = SmallRng::seed_from_u64(17);
+        let mut rng = FastRng::seed_from_u64(17);
         let mut sum = 0.0;
         let mut sum_of_squares = 0.0;
         let p = 1.0 / (1 << k) as f64;

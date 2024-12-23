@@ -1,26 +1,13 @@
-use std::cmp::min;
 use std::ops::{Index, IndexMut};
 
-use rand::Rng;
-
 use crate::instruction::Instruction;
-use crate::random::geometric_pow2;
-use crate::world::WorldParams;
 
 #[derive(Clone, Debug)]
 pub struct Program {
     pub plasmids: Vec<Plasmid>, // TODO: max length i8::MAX
-    pub mutation_counter: u32,
 }
 
 impl Program {
-    pub fn initialize<R: Rng + ?Sized>(&mut self, params: &WorldParams, rng: &mut R) {
-        self.mutation_counter = min(
-            geometric_pow2(rng, params.mutations.mut_rate_log2) as u32,
-            u32::MAX,
-        );
-    }
-
     pub fn size(&self) -> u32 {
         // TODO max?
         self.plasmids
@@ -29,22 +16,31 @@ impl Program {
             .sum()
     }
 
-    /// Get instruction. Return None if no instruction to return.
-    /// Panics on an invalid pointer
-    /// TODO: consider inlining
-    pub fn next_instruction(
-        &self,
+    /// Check if a plasmid has instructions
+    pub fn has_nonempty_plasmid(&self, plasmid_pointer: i8) -> bool {
+        self.plasmids.len() > 0 && self.plasmids[plasmid_pointer as usize].len() > 0
+    }
+
+    /// Get immutable reference to current instruction. Returns None if instruction doesn't exist.
+    /// Panics if pointers are out of bounds.
+    pub fn get(&self, plasmid_pointer: i8, instruction_pointer: i16) -> Option<Instruction> {
+        if !self.has_nonempty_plasmid(plasmid_pointer) {
+            return None;
+        }
+        Some(self.plasmids[plasmid_pointer as usize][instruction_pointer as usize])
+    }
+
+    /// Get mutable reference to current instruction. Returns None if instruction doesn't exist.
+    /// Panics if pointers are out of bounds.
+    pub fn get_mut(
+        &mut self,
         plasmid_pointer: i8,
         instruction_pointer: i16,
-    ) -> Option<Instruction> {
-        if self.plasmids.len() == 0 {
+    ) -> Option<&mut Instruction> {
+        if !self.has_nonempty_plasmid(plasmid_pointer) {
             return None;
         }
-        let plasmid = &self.plasmids[plasmid_pointer as usize];
-        if plasmid.len() == 0 {
-            return None;
-        }
-        Some(plasmid[instruction_pointer as usize])
+        Some(&mut self.plasmids[plasmid_pointer as usize][instruction_pointer as usize])
     }
 
     /// Increment instruction pointer register
@@ -80,14 +76,6 @@ impl Default for Plasmid {
 impl Plasmid {
     fn len(&self) -> usize {
         self.instructions.len()
-    }
-
-    fn get(&self, idx: usize) -> Option<&Instruction> {
-        self.instructions.get(idx)
-    }
-
-    fn get_mut(&mut self, idx: usize) -> Option<&mut Instruction> {
-        self.instructions.get_mut(idx)
     }
 }
 

@@ -1,151 +1,138 @@
 use crate::cell::Cell;
-use crate::grid::Grid;
+use crate::cpu::CPUError;
 use crate::instruction::Instruction;
 use crate::types::Coord;
+use crate::world::WorldParams;
 
-#[derive(Clone, Debug)]
-pub struct PendingInteraction {
-    pub target: Coord,
-    pub source: Coord,
-    pub instruction: Instruction,
-}
-
-#[derive(Clone, Debug)]
-enum ExecutionResult {
+pub enum ExecutionResult {
     Complete,
-    NonLocal(PendingInteraction),
-    NoProgram,
-    OutOfEnergy,
+    Immediate,
+    NonLocal {
+        instruction: Instruction,
+        target: Coord,
+    },
+    Error(ExecutionError),
+    NoInstruction,
 }
 
-/// Execute for 1 tick, stopping when we hit a nonlocal instruction.
-/// Returns Some(PendingInteraction) if we hit a nonlocal instruction,
-/// None if we completed local execution or encountered an error
-pub fn run_tick_local(
-    cell: &mut Cell,
-) -> Option<PendingInteraction> {
-    todo!();
-
-    // // First execute immediate instructions until we hit a 1-tick instruction
-    // let mut immediate_count = 0;
-    // let program_size = cell.program.as_ref().map(|p| p.size).unwrap_or(0);
-
-    // loop {
-    //     match execute_instruction_local(cell) {
-    //         Ok(ExecutionResult::Complete) => {
-    //             // If this was an immediate instruction, continue executing
-    //             if immediate_count < program_size {
-    //                 immediate_count += 1;
-    //                 continue;
-    //             } else {
-    //                 // We've executed too many immediate instructions, halt
-    //                 cell.cpu.flag = true;
-    //                 return None;
-    //             }
-    //         }
-    //         Ok(ExecutionResult::NonLocal(interaction)) => {
-    //             return Some(interaction);
-    //         }
-    //         Ok(ExecutionResult::NoProgram) => return None,
-    //         Ok(ExecutionResult::OutOfEnergy) => return None,
-    //         Err(_) => {
-    //             cell.cpu.flag = true;
-    //             return None;
-    //         }
-    //     }
-    // }
+#[derive(Debug)]
+pub enum ExecutionError {
+    Stack(CPUError),
+    NoEnergy,
+    Halted,
 }
 
-/// Execute the next instruction. Assumes there is a program in Cell.
-/// Returns Ok(ExecutionResult) on successful execution or error handling,
-/// Err on unrecoverable errors
+impl From<CPUError> for ExecutionError {
+    fn from(err: CPUError) -> Self {
+        ExecutionError::Stack(err)
+    }
+}
+
+/// Execute for 1 tick
+pub fn run_tick_local(cell: &mut Cell, coord: Coord, params: &WorldParams) -> ExecutionResult {
+    let mut immediate_count = 0;
+
+    loop {
+        let result = execute_instruction_local(cell, coord, params);
+        match result {
+            ExecutionResult::Complete => {
+                // cell.is_passable = instruction.makes_passable(); TODO
+            }
+            ExecutionResult::Immediate => {
+                immediate_count += 1;
+                if immediate_count == cell.program_size() {
+                    cell.is_passable = true;
+                    return ExecutionResult::Error(ExecutionError::Halted);
+                } else {
+                    continue;
+                }
+            }
+            ExecutionResult::Error(_) => {
+                // cell.is_passable = true; TODO
+            }
+            _ => {}
+        };
+        return result;
+    }
+}
+
+/// Execute a single instruction and potentially mutate it
 fn execute_instruction_local(
     cell: &mut Cell,
     coord: Coord,
-) -> Result<ExecutionResult, &'static str> {
-    todo!();
-    // // Check if we have a program
-    // let program = match &cell.program {
-    //     Some(p) => p,
-    //     None => return Ok(ExecutionResult::NoProgram),
-    // };
+    params: &WorldParams,
+) -> ExecutionResult {
+    let Some(instruction) = cell.next_instruction() else {
+        return ExecutionResult::NoInstruction;
+    };
+    let energy_cost = instruction.base_energy_cost() as u32;
 
-    // // Get current plasmid and instruction
-    // let plasmid = program
-    //     .plasmids
-    //     .get(cell.cpu.pp as usize)
-    //     .ok_or("Invalid plasmid pointer")?;
+    // Try to pay with free energy or else background radiation
+    // The type of energy used affects the chance of mutation
+    let bg_rad_for_mutation: Option<u8>;
+    if cell.free_energy >= energy_cost {
+        cell.free_energy -= energy_cost;
+        bg_rad_for_mutation = None;
+    } else if cell.bg_rad.0 >= instruction.base_energy_cost() {
+        bg_rad_for_mutation = Some(cell.bg_rad.0);
+        cell.bg_rad.0 -= instruction.base_energy_cost();
+    } else {
+        return ExecutionResult::Error(ExecutionError::NoEnergy);
+    }
 
-    // let instruction = plasmid
-    //     .instructions
-    //     .get(cell.cpu.ip as usize)
-    //     .ok_or("Invalid instruction pointer")?;
+    // Base energy is now paid and instruction will be executed
 
-    // // Check if instruction is local
-    // if !instruction.is_local() {
-    //     // Calculate target based on CPU state
-    //     let target = if cell.cpu.adj {
-    //         // TODO: Calculate adjacent coordinate based on cell.cpu.dir
-    //         todo!()
-    //     } else {
-    //         // Target self
-    //         todo!() // Need current coordinates
-    //     };
+    // Potentially mutate the instruction in the current program
+    // Note this does not affect execution of the current instruction!
+    if cell.check_mutation(params, bg_rad_for_mutation) {
+        let new_instruction = params
+            .mutations
+            .mutate_instruction(&mut cell.rng, instruction);
+        *cell.next_instruction_mut().unwrap() = new_instruction;
+    }
 
-    //     return Ok(ExecutionResult::NonLocal(PendingInteraction {
-    //         target,
-    //         source: todo!(), // Need current coordinates
-    //         instruction: *instruction,
-    //     }));
-    // }
+    // Increment instruction pointer after mutation
+    cell.inc_inst_ptr();
 
-    // // Check if we have enough energy for non-immediate instructions
-    // if instruction.execution_time() > 0 {
-    //     let cost = instruction.base_energy_cost();
-    //     if cell.free_energy < cost as u32 && cell.background_radiation == 0 {
-    //         return Ok(ExecutionResult::OutOfEnergy);
-    //     }
+    if !instruction.is_local() {
+        return ExecutionResult::NonLocal {
+            instruction: instruction,
+            target: coord + cell.cpu.dir.to_offset(),
+        };
+    }
 
-    //     // Deduct energy cost
-    //     if cell.free_energy >= cost as u32 {
-    //         cell.free_energy -= cost as u32;
-    //     } else {
-    //         cell.background_radiation -= 1;
-    //         // TODO: Increase mutation probability
-    //     }
-    // }
+    let result: Result<(), ExecutionError> = match instruction {
+        Instruction::Nop => Ok(()),
+        Instruction::Absorb => {
+            cell.free_energy += cell.bg_rad.0 as u32;
+            cell.bg_rad.0 = 0;
+            if let Some(radiation) = cell.directed_rad.take() {
+                cell.free_energy += 1;
+                cell.cpu.msg = radiation.message;
+                cell.cpu.msg_dir = radiation.direction;
+                cell.cpu.flag = true;
+            }
+            Ok(())
+        }
+        Instruction::Push0 => cell.cpu.push(0).map_err(|e| e.into()),
+        Instruction::Push1 => cell.cpu.push(1).map_err(|e| e.into()),
+        Instruction::Add => cell.cpu.add().map_err(|e| e.into()),
+        Instruction::CW => {
+            cell.cpu.dir = cell.cpu.dir.rotate_cw();
+            Ok(())
+        }
+        _ => unreachable!("Non-local instructions should be handled earlier"),
+    };
 
-    // // Execute the instruction
-    // match instruction {
-    //     Instruction::Nop => {
-    //         // Do nothing
-    //         cell.cpu.ip += 1;
-    //     }
-    //     Instruction::Push0 => {
-    //         cell.cpu.stack.push(0);
-    //         cell.cpu.ip += 1;
-    //     }
-    //     Instruction::Push1 => {
-    //         cell.cpu.stack.push(1);
-    //         cell.cpu.ip += 1;
-    //     }
-    //     Instruction::Add => {
-    //         if cell.cpu.stack.len() < 2 {
-    //             cell.cpu.flag = true;
-    //         } else {
-    //             let b = cell.cpu.stack.pop().unwrap();
-    //             let a = cell.cpu.stack.pop().unwrap();
-    //             cell.cpu.stack.push(a.wrapping_add(b));
-    //         }
-    //         cell.cpu.ip += 1;
-    //     }
-    //     Instruction::CW => {
-    //         cell.cpu.dir = cell.cpu.dir.rotate_cw();
-    //         cell.cpu.ip += 1;
-    //     }
-    //     // TODO: Implement other instructions
-    //     _ => return Err("Instruction not implemented"),
-    // }
-
-    // Ok(ExecutionResult::Complete)
+    match result {
+        Ok(()) if instruction.execution_time() == 0 => ExecutionResult::Immediate,
+        Ok(()) => {
+            cell.is_passable = instruction.makes_passable();
+            ExecutionResult::Complete
+        }
+        Err(e) => {
+            cell.is_passable = true;
+            ExecutionResult::Error(e)
+        }
+    }
 }

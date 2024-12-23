@@ -1,8 +1,11 @@
-use crate::types::{Coord, Direction};
 use std::fmt::Debug;
+use std::ops::{Index, IndexMut};
+
+use crate::types::{Coord, Direction};
 
 const DEFAULT_GRID_DIM: i32 = 100;
 
+/// Two-dimensional grid of values backed by Vec
 #[derive(Clone, Debug)]
 pub struct Grid<Value> {
     pub values: Vec<Value>,
@@ -10,6 +13,7 @@ pub struct Grid<Value> {
     pub height: i32,
 }
 
+// Separate function to simplify calling, no generic type
 pub fn grid_size_checked(width: i32, height: i32) -> isize {
     if width <= 0 || height <= 0 {
         panic!("Grid width and height must be positive");
@@ -74,32 +78,28 @@ where
         }
     }
 
-    pub fn value(&self, coord: Coord) -> &Value {
-        let idx = self.coord_to_idx(coord);
-        &self.values[idx as usize]
+    pub fn values(&self) -> std::slice::Iter<'_, Value> {
+        self.values.iter()
     }
 
-    pub fn value_mut(&mut self, coord: Coord) -> &mut Value {
-        let idx = self.coord_to_idx(coord);
-        &mut self.values[idx as usize]
+    pub fn values_mut(&mut self) -> std::slice::IterMut<'_, Value> {
+        self.values.iter_mut()
     }
 
-    fn coord_to_idx(&self, coord: Coord) -> u64 {
-        // Convert to uncentered coordinates
-        let grid_col = (coord.0 + self.width / 2).rem_euclid(self.width);
-        let grid_row = (coord.1 + self.height / 2).rem_euclid(self.height);
-
-        (grid_row as u64) * (self.width as u64) + (grid_col as u64)
+    pub fn iter(&self) -> impl Iterator<Item = (&Value, Coord)> {
+        self.values
+            .iter()
+            .enumerate()
+            .map(|(idx, val)| (val, self.idx_to_coord(idx as u64)))
     }
 
-    fn idx_to_coord(&self, idx: u64) -> Coord {
-        let grid_col = idx % (self.width as u64);
-        let grid_row = idx / (self.width as u64);
-
-        let x = (grid_col as i32) - self.width / 2;
-        let y = (grid_row as i32) - self.height / 2;
-
-        Coord(x, y)
+    pub fn iter_mut(&mut self) -> GridIterMut<'_, Value> {
+        GridIterMut {
+            iter: self.values.iter_mut(),
+            grid_width: self.width,
+            grid_height: self.height,
+            cur_idx: 0,
+        }
     }
 
     pub fn offset_dir(&self, coord: Coord, dir: Direction) -> Coord {
@@ -120,6 +120,14 @@ where
     fn wrap(&self, x_or_y: i32, dim: i32, half_dim: i32) -> i32 {
         (x_or_y + half_dim).rem_euclid(dim) - half_dim
     }
+
+    pub fn coord_to_idx(&self, coord: Coord) -> u64 {
+        grid_coord_to_idx(coord, self.width, self.height)
+    }
+
+    pub fn idx_to_coord(&self, idx: u64) -> Coord {
+        grid_idx_to_coord(idx, self.width, self.height)
+    }
 }
 
 impl<Value> Default for Grid<Value>
@@ -128,6 +136,67 @@ where
 {
     fn default() -> Self {
         Self::new_default(DEFAULT_GRID_DIM, DEFAULT_GRID_DIM)
+    }
+}
+
+pub fn grid_coord_to_idx(coord: Coord, grid_width: i32, grid_height: i32) -> u64 {
+    // Convert to uncentered coordinates
+    let grid_col = (coord.0 + grid_width / 2).rem_euclid(grid_width);
+    let grid_row = (coord.1 + grid_height / 2).rem_euclid(grid_height);
+
+    (grid_row as u64) * (grid_width as u64) + (grid_col as u64)
+}
+
+pub fn grid_idx_to_coord(idx: u64, grid_width: i32, grid_height: i32) -> Coord {
+    let grid_col = idx % (grid_width as u64);
+    let grid_row = idx / (grid_width as u64);
+
+    let x = (grid_col as i32) - grid_width / 2;
+    let y = (grid_row as i32) - grid_height / 2;
+
+    Coord(x, y)
+}
+
+pub struct GridIterMut<'a, T> {
+    iter: std::slice::IterMut<'a, T>,
+    cur_idx: u64,
+    grid_width: i32,
+    grid_height: i32,
+}
+
+impl<'a, T> Iterator for GridIterMut<'a, T> {
+    type Item = (&'a mut T, Coord);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(value) = self.iter.next() {
+            let coord = grid_idx_to_coord(self.cur_idx, self.grid_width, self.grid_height);
+            self.cur_idx += 1;
+            Some((value, coord))
+        } else {
+            None
+        }
+    }
+}
+
+impl<Value> Index<Coord> for Grid<Value>
+where
+    Value: Clone + Debug,
+{
+    type Output = Value;
+
+    fn index(&self, coord: Coord) -> &Self::Output {
+        let idx = self.coord_to_idx(coord);
+        &self.values[idx as usize]
+    }
+}
+
+impl<Value> IndexMut<Coord> for Grid<Value>
+where
+    Value: Clone + Debug,
+{
+    fn index_mut(&mut self, coord: Coord) -> &mut Self::Output {
+        let idx = self.coord_to_idx(coord);
+        &mut self.values[idx as usize]
     }
 }
 

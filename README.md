@@ -172,7 +172,7 @@ Proteus is an artificial life and evolution simulator loosely inspired by Tierra
 | `senseE` | TBD |  1  | 0 | Reads current free energy in adjacent cell onto the stack. |
 | `senseM` | TBD |  1  | 0 | Reads current free mass in adjacent cell onto the stack. |
 | *Energy/Mass*
-| `absorb` | `00000001` | 1 | 0 | Captures all radiation in this cell as free energy. Sets `Msg`, `MsgDir`, and `Flag` = 1 if directed radiation was received. |
+| `absorb` | `00000001` | 1 | 0 | Captures all background and directed radiation in this cell as free energy. Sets `Msg`, `MsgDir`, and `Flag` = 1 if directed radiation was received. |
 | `emit` | TBD |  1  | 1 | Sends radiation containing the top value from the stack in direction `Dir`. |
 | `giveE` | TBD | 1 | 0+ | Transfers half of free energy, rounded up, to target adjacent cell. The energy transferred counts as an additional cost |
 | `giveM` | TBD | 1 | 0+ | Transfers half of free mass, rounded up, to adjacent cell. The mass transferred counts as an additional cost, and there is an additional cost of energy equal to the amount of mass transferred. |

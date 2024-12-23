@@ -1,51 +1,49 @@
-// NOTE: need global table of program sizes and free energy? may need to compute additional costs in local pass
-// Use rayon for instruction execution. Local instructions execute
-// use crate::mutation::MutationRules;
-// use crate::world::{World, WorldParams};
+use crate::executor::{run_tick_local, ExecutionResult};
+use crate::instruction::Instruction;
+use crate::types::Coord;
+use crate::world::{World, WorldParams};
 
-/*
-// EXAMPLE
-use crossbeam::queue::SegQueue;
-use std::sync::Arc;
-use std::thread;
-
-fn main() {
-    // Create a thread-safe, lock-free queue
-    let queue = Arc::new(SegQueue::new());
-
-    // Number of worker threads
-    let num_workers = 4;
-
-    // Create worker threads to generate numbers and push them onto the queue
-    let mut handles = vec![];
-
-    for i in 0..num_workers {
-        let queue_clone = Arc::clone(&queue);
-
-        let handle = thread::spawn(move || {
-            // Each worker pushes some numbers to the queue
-            for j in 0..10 {
-                let value = i * 10 + j;
-                queue_clone.push(value);
-                println!("Worker {} pushed {}", i, value);
-            }
-        });
-
-        handles.push(handle);
-    }
-
-    // Wait for all threads to complete
-    for handle in handles {
-        handle.join().expect("Thread panicked");
-    }
-
-    // Once all production is complete, consume the queue
-    let mut total_sum = 0;
-
-    while let Some(value) = queue.pop() {
-        total_sum += value;
-    }
-
-    println!("Total sum: {}", total_sum);
+pub struct Simulation {
+    pub world: World,
 }
- */
+
+impl Simulation {
+    pub fn new(params: WorldParams) -> Self {
+        Self {
+            world: World::new(params),
+        }
+    }
+
+    pub fn tick(&mut self) {
+        // First pass: Execute local instructions and collect nonlocal ones
+        let mut nonlocal_instructions = Vec::new();
+
+        for (cell, coord) in self.world.grid.iter_mut() {
+            match run_tick_local(cell, coord, &self.world.params) {
+                ExecutionResult::NonLocal {
+                    instruction,
+                    target,
+                } => {
+                    nonlocal_instructions.push((instruction, coord, target));
+                }
+                _ => {}
+            }
+        }
+
+        // Second pass: Execute nonlocal instructions
+        for (instruction, source, target) in nonlocal_instructions {
+            self.execute_nonlocal(instruction, source, target);
+        }
+
+        // Update physics
+        // self.world.update_directed_radiation();
+        self.world.update_bg_radiation();
+    }
+
+    fn execute_nonlocal(&mut self, _instruction: Instruction, _source: Coord, _target: Coord) {
+        // Implementation of nonlocal instruction execution
+        // This would handle things like Move, Emit, etc.
+        // You'll need to implement this based on your requirements
+        return;
+    }
+}

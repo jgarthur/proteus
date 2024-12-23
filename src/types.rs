@@ -1,11 +1,8 @@
-use rand::{
-    distributions::{Distribution, Standard},
-    Rng,
-};
-use std::{
-    fmt::{Debug, Display, Formatter, Result},
-    ops::Add,
-};
+use std::fmt::{Debug, Display, Formatter, Result};
+use std::ops::Add;
+
+use rand::distributions::{Distribution, Standard};
+use rand::Rng;
 
 // EXAMPLE
 // use rand::{

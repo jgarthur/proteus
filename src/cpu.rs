@@ -3,15 +3,18 @@ use crate::types::{Direction, Message};
 const INITIAL_STACK_CAPACITY: usize = 8;
 const MAX_STACK_CAPACITY: usize = i16::MAX as usize;
 
+pub type CPUResult<T> = Result<T, CPUError>;
+
 #[derive(Clone, Debug)]
 pub struct Stack {
     values: Vec<i16>,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum StackError {
-    Overflow,
-    Underflow,
+pub enum CPUError {
+    StackOverflow,
+    StackUnderflow,
+    // Add other specific variants as needed
 }
 
 impl Stack {
@@ -21,16 +24,16 @@ impl Stack {
         }
     }
 
-    pub fn push(&mut self, value: i16) -> Result<(), StackError> {
+    pub fn push(&mut self, value: i16) -> CPUResult<()> {
         if self.values.len() >= MAX_STACK_CAPACITY {
-            return Err(StackError::Overflow);
+            return Err(CPUError::StackOverflow);
         }
         self.values.push(value);
         Ok(())
     }
 
-    pub fn pop(&mut self) -> Result<i16, StackError> {
-        self.values.pop().ok_or(StackError::Underflow)
+    pub fn pop(&mut self) -> CPUResult<i16> {
+        self.values.pop().ok_or(CPUError::StackUnderflow)
     }
 
     pub fn len(&self) -> usize {
@@ -41,17 +44,14 @@ impl Stack {
         self.values.clear();
     }
 
-    pub fn dup(&mut self) -> Result<(), StackError> {
-        if let Some(&value) = self.values.last() {
-            self.push(value)
-        } else {
-            Err(StackError::Underflow)
-        }
+    pub fn dup(&mut self) -> CPUResult<()> {
+        let value = self.values.last().ok_or(CPUError::StackUnderflow)?;
+        self.push(*value)
     }
 
-    pub fn swap(&mut self) -> Result<(), StackError> {
+    pub fn swap(&mut self) -> CPUResult<()> {
         if self.values.len() < 2 {
-            return Err(StackError::Underflow);
+            return Err(CPUError::StackUnderflow);
         }
         let len = self.values.len();
         self.values.swap(len - 1, len - 2);
@@ -114,6 +114,24 @@ impl Default for CPU {
         }
     }
 }
+
+impl CPU {
+    pub fn push(&mut self, value: i16) -> CPUResult<()> {
+        self.stack.push(value)
+    }
+
+    pub fn pop(&mut self) -> CPUResult<i16> {
+        self.stack.pop()
+    }
+
+    pub fn add(&mut self) -> CPUResult<()> {
+        let b = self.pop()?;
+        let a = self.pop()?;
+        // TODO: handle arithmetic overflow?
+        self.push(a + b)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,13 +141,13 @@ mod tests {
         let mut stack = Stack::new();
 
         // Test push and pop
-        assert_eq!(stack.pop(), Err(StackError::Underflow));
+        assert_eq!(stack.pop(), Err(CPUError::StackUnderflow));
         assert_eq!(stack.push(42), Ok(()));
         assert_eq!(stack.pop(), Ok(42));
-        assert_eq!(stack.pop(), Err(StackError::Underflow));
+        assert_eq!(stack.pop(), Err(CPUError::StackUnderflow));
 
         // Test dup
-        assert_eq!(stack.dup(), Err(StackError::Underflow)); // Empty stack
+        assert_eq!(stack.dup(), Err(CPUError::StackUnderflow)); // Empty stack
         assert_eq!(stack.push(123), Ok(()));
         assert_eq!(stack.dup(), Ok(()));
         assert_eq!(stack.pop(), Ok(123));
@@ -137,7 +155,7 @@ mod tests {
 
         // Test swap
         assert_eq!(stack.push(1), Ok(()));
-        assert_eq!(stack.swap(), Err(StackError::Underflow)); // Need 2 elements
+        assert_eq!(stack.swap(), Err(CPUError::StackUnderflow)); // Need 2 elements
         assert_eq!(stack.push(2), Ok(()));
         assert_eq!(stack.swap(), Ok(()));
         assert_eq!(stack.pop(), Ok(1));
@@ -150,7 +168,7 @@ mod tests {
         for _ in 0..MAX_STACK_CAPACITY {
             assert_eq!(stack.push(0), Ok(()));
         }
-        assert_eq!(stack.push(0), Err(StackError::Overflow));
+        assert_eq!(stack.push(0), Err(CPUError::StackOverflow));
         assert_eq!(stack.pop(), Ok(0));
     }
 }

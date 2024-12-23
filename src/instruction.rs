@@ -1,7 +1,11 @@
+use rand::distributions::{Distribution, Standard};
+use rand::Rng;
+
 pub struct InstructionProperties {
     pub execution_time: u8,
     pub base_energy_cost: u8,
     pub is_local: bool,
+    pub makes_passable: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -43,41 +47,49 @@ impl Instruction {
                 execution_time: 1,
                 base_energy_cost: 0,
                 is_local: true,
+                makes_passable: true,
             },
             Self::Move => InstructionProperties {
                 execution_time: 1,
                 base_energy_cost: 1,
                 is_local: false,
+                makes_passable: false,
             },
             Self::Clone => InstructionProperties {
                 execution_time: 1,
                 base_energy_cost: 1,
                 is_local: false,
+                makes_passable: false,
             },
             Self::Absorb => InstructionProperties {
                 execution_time: 1,
                 base_energy_cost: 0,
                 is_local: true,
+                makes_passable: true,
             },
             Self::Push0 => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
+                makes_passable: false,
             },
             Self::Push1 => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
+                makes_passable: false,
             },
             Self::Add => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
+                makes_passable: false,
             },
             Self::CW => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
+                makes_passable: false,
             },
         }
     }
@@ -92,5 +104,25 @@ impl Instruction {
 
     pub const fn is_local(&self) -> bool {
         self.properties().is_local
+    }
+
+    pub const fn makes_passable(&self) -> bool {
+        self.properties().makes_passable
+    }
+}
+
+impl Distribution<Instruction> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Instruction {
+        match rng.gen_range(0..=7) {
+            0 => Instruction::Nop,
+            1 => Instruction::Move,
+            2 => Instruction::Clone,
+            3 => Instruction::Absorb,
+            4 => Instruction::Push0,
+            5 => Instruction::Push1,
+            6 => Instruction::Add,
+            7 => Instruction::CW,
+            _ => unreachable!(),
+        }
     }
 }
