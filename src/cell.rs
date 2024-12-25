@@ -21,7 +21,7 @@ pub struct Cell {
     pub rad_to_mass_counter: u32,
     pub program_size: i16,
     pub bg_rad: BackgroundRadiation,
-    pub is_passable: bool,
+    pub is_vulnerable: bool,
     pub is_trapped: bool,
 }
 
@@ -42,7 +42,7 @@ impl Cell {
             directed_rad: None,
             mutation_counter: Self::generate_mutation_counter(&mut rng, params),
             rad_to_mass_counter: Self::generate_rad_to_mass_counter(&mut rng, params),
-            is_passable: true,
+            is_vulnerable: true,
             is_trapped: false,
             rng,
         }

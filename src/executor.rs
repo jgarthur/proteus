@@ -37,19 +37,19 @@ pub fn run_tick_local(cell: &mut Cell, coord: Coord, params: &WorldParams) -> Ex
         let result = execute_instruction_local(cell, coord, params);
         match result {
             ExecutionResult::Complete => {
-                // cell.is_passable = instruction.makes_passable(); TODO
+                // cell.is_vulnerable = instruction.makes_vulnerable(); TODO
             }
             ExecutionResult::Immediate => {
                 immediate_count += 1;
                 if immediate_count == cell.program_size() {
-                    cell.is_passable = true;
+                    cell.is_vulnerable = true;
                     return ExecutionResult::Error(ExecutionError::Halted);
                 } else {
                     continue;
                 }
             }
             ExecutionResult::Error(_) => {
-                // cell.is_passable = true; TODO
+                // cell.is_vulnerable = true; TODO
             }
             _ => {}
         };
@@ -128,11 +128,11 @@ fn execute_instruction_local(
     match result {
         Ok(()) if instruction.execution_time() == 0 => ExecutionResult::Immediate,
         Ok(()) => {
-            cell.is_passable = instruction.makes_passable();
+            cell.is_vulnerable = instruction.makes_vulnerable();
             ExecutionResult::Complete
         }
         Err(e) => {
-            cell.is_passable = true;
+            cell.is_vulnerable = true;
             ExecutionResult::Error(e)
         }
     }

@@ -7,7 +7,7 @@ pub struct InstructionProperties {
     pub execution_time: u8,
     pub base_energy_cost: u8,
     pub is_local: bool,
-    pub makes_passable: bool,
+    pub makes_vulnerable: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -49,49 +49,49 @@ impl Instruction {
                 execution_time: 1,
                 base_energy_cost: 0,
                 is_local: true,
-                makes_passable: true,
+                makes_vulnerable: true,
             },
             Self::Move => InstructionProperties {
                 execution_time: 1,
                 base_energy_cost: 1,
                 is_local: false,
-                makes_passable: false,
+                makes_vulnerable: false,
             },
             Self::Clone => InstructionProperties {
                 execution_time: 1,
                 base_energy_cost: 1,
                 is_local: false,
-                makes_passable: false,
+                makes_vulnerable: false,
             },
             Self::Absorb => InstructionProperties {
                 execution_time: 1,
                 base_energy_cost: 0,
                 is_local: true,
-                makes_passable: true,
+                makes_vulnerable: true,
             },
             Self::Push0 => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
-                makes_passable: false,
+                makes_vulnerable: false,
             },
             Self::Push1 => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
-                makes_passable: false,
+                makes_vulnerable: false,
             },
             Self::Add => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
-                makes_passable: false,
+                makes_vulnerable: false,
             },
             Self::CW => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
-                makes_passable: false,
+                makes_vulnerable: false,
             },
         }
     }
@@ -108,8 +108,8 @@ impl Instruction {
         self.properties().is_local
     }
 
-    pub const fn makes_passable(&self) -> bool {
-        self.properties().makes_passable
+    pub const fn makes_vulnerable(&self) -> bool {
+        self.properties().makes_vulnerable
     }
 }
 

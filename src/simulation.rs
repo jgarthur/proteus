@@ -22,7 +22,7 @@ impl Simulation {
             .world
             .grid
             .par_iter_mut()
-            .flat_map(
+            .filter_map(
                 |(cell, coord)| match run_tick_local(cell, coord, &self.world.params) {
                     ExecutionResult::NonLocal {
                         instruction,
@@ -34,6 +34,14 @@ impl Simulation {
             .collect();
 
         // Second pass: Execute nonlocal instructions
+        // For each nonlocal instruction:
+        // 1. Compute any additional costs based on the target cell. If source cell has enough free
+        //    energy and mass, pay and advance the IP. Instruction will attempt to execute.
+        //    Otherwise, skip the instruction and set the error flag (TODO: currently takeM and
+        //    takeE have cost based on target cell's strength, which is circular)
+        // 2. Sort executed instructions by target cell
+        // 3. Resolve collisions
+        // 4. Execute instructions simultaneously. Take care to handle cycles.
         for (instruction, source, target) in nonlocal_instructions {
             self.execute_nonlocal(instruction, source, target);
         }
