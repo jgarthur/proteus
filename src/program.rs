@@ -1,18 +1,23 @@
 use std::ops::{Index, IndexMut};
 
+use smallvec::{smallvec, SmallVec};
+
 use crate::instruction::Instruction;
+
+const INITIAL_PLASMIDS_CAPACITY: usize = 2;
+const INITIAL_INSTRUCTIONS_CAPACITY: usize = 16;
+const INITIAL_LABELS_CAPACITY: usize = 1;
 
 #[derive(Clone, Debug)]
 pub struct Program {
-    pub plasmids: Vec<Plasmid>, // TODO: max length i8::MAX
+    pub plasmids: SmallVec<[Plasmid; INITIAL_PLASMIDS_CAPACITY]>, // TODO: max length i8::MAX
 }
 
 impl Program {
-    pub fn size(&self) -> u32 {
-        // TODO max?
+    pub fn size(&self) -> i16 {
         self.plasmids
             .iter()
-            .map(|plasmid| plasmid.len() as u32)
+            .map(|plasmid| plasmid.len() as i16)
             .sum()
     }
 
@@ -69,34 +74,43 @@ impl Program {
     }
 }
 
+// Note: must match Default::default().size() !
+pub const DEFAULT_PROGRAM_SIZE: i16 = 1;
+// Note: must match DEFAULT_PROGRAM_SIZE !
 impl Default for Program {
     fn default() -> Self {
         let mut plasmid = Plasmid::default();
-        plasmid.instructions.push(Instruction::Nop);
+        plasmid.add_instruction(Instruction::Nop);
         Self {
-            plasmids: vec![plasmid],
+            plasmids: smallvec![plasmid],
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Plasmid {
-    pub instructions: Vec<Instruction>,
-    pub labels: Vec<usize>, // TODO implement label handling
+    instructions: SmallVec<[Instruction; INITIAL_INSTRUCTIONS_CAPACITY]>,
+    _labels: SmallVec<[usize; INITIAL_LABELS_CAPACITY]>, // TODO implement label handling
 }
 
 impl Default for Plasmid {
     fn default() -> Self {
         Self {
-            instructions: Vec::new(),
-            labels: vec![0],
+            instructions: smallvec![],
+            _labels: smallvec![0],
         }
     }
 }
 
 impl Plasmid {
+    #[inline]
     fn len(&self) -> usize {
         self.instructions.len()
+    }
+
+    #[inline]
+    pub fn add_instruction(&mut self, instruction: Instruction) {
+        self.instructions.push(instruction);
     }
 }
 

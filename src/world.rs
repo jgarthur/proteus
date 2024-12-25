@@ -80,6 +80,7 @@ impl World {
         geometric_pow2(rng, params.bg_rad_update_rate_log2) as u32
     }
 
+    #[inline(never)]
     pub fn update_physics(&mut self) {
         self.bg_rad_counter -= 1;
         let bg_rad_update = self.bg_rad_counter == 0;

@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng};
 
 use crate::cpu::CPU;
 use crate::instruction::Instruction;
-use crate::program::Program;
+use crate::program::{Program, DEFAULT_PROGRAM_SIZE};
 use crate::random::{geometric_pow2, FastRng};
 use crate::world::{BackgroundRadiation, DirectedRadiation, WorldParams};
 
@@ -19,6 +19,7 @@ pub struct Cell {
     pub directed_rad: Option<DirectedRadiation>,
     pub mutation_counter: u32,
     pub rad_to_mass_counter: u32,
+    pub program_size: i16,
     pub bg_rad: BackgroundRadiation,
     pub is_passable: bool,
     pub is_trapped: bool,
@@ -32,6 +33,7 @@ impl Cell {
             free_energy: 0,
             free_mass: 0,
             program: None,
+            program_size: 0,
             cpu: CPU {
                 dir: rng.gen(),
                 ..Default::default()
@@ -57,6 +59,7 @@ impl Cell {
                 } else {
                     debug!("bg radiation to new program");
                     self.program = Some(Default::default());
+                    self.program_size = DEFAULT_PROGRAM_SIZE;
                 }
                 self.rad_to_mass_counter =
                     Self::generate_rad_to_mass_counter(&mut self.rng, params);
@@ -65,7 +68,7 @@ impl Cell {
     }
 
     pub fn handle_program_maintenance(&mut self, params: &WorldParams) {
-        let mut maintenance_cost = self.program_size() / params.maintenance_scale;
+        let mut maintenance_cost = (self.program_size() as u32) / params.maintenance_scale;
         if maintenance_cost > 0 {
             // Try to pay with free energy
             if self.free_energy >= maintenance_cost {
@@ -87,13 +90,15 @@ impl Cell {
             // Last resort: destroy instructions from the end of the last plasmid
             let program = self.program.as_mut().unwrap();
             while maintenance_cost > 0 && program.remove_last_instruction() {
+                self.program_size -= 1;
                 maintenance_cost -= 1;
             }
         }
     }
 
+    #[inline]
     pub fn free_resource_decay(&mut self) {
-        let soft_cap = self.program_size();
+        let soft_cap = self.program_size() as u32;
         if self.free_energy > soft_cap {
             self.free_energy = soft_cap + (self.free_energy - soft_cap) / 2;
         }
@@ -120,12 +125,15 @@ impl Cell {
         )
     }
 
-    pub fn program_size(&self) -> u32 {
-        self.program.as_ref().map_or(0, |p| p.size())
+    #[inline]
+    pub fn program_size(&self) -> i16 {
+        debug_assert!(self.program_size == self.program.as_ref().map_or(0, |p| p.size()));
+        self.program_size
     }
 
+    #[inline]
     pub fn program_strength(&self) -> u32 {
-        min(self.program_size(), self.free_energy)
+        min(self.program_size() as u32, self.free_energy)
     }
 
     /// Get instruction. Return None if no instruction to return

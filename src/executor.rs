@@ -29,6 +29,7 @@ impl From<CPUError> for ExecutionError {
 }
 
 /// Execute for 1 tick
+#[inline(never)]
 pub fn run_tick_local(cell: &mut Cell, coord: Coord, params: &WorldParams) -> ExecutionResult {
     let mut immediate_count = 0;
 

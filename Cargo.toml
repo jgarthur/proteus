@@ -20,6 +20,7 @@ log = "0.4"
 noise = "0.9"
 rand = { version = "0.8" }
 rayon = "1"
+smallvec = "1"
 
 [dev-dependencies]
 criterion = "0.5"
@@ -29,6 +30,7 @@ proptest = "1"
 strip = false
 
 [profile.release]
+# debug = true
 lto = true
 codegen-units = 1
 panic = "abort"
