@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use rand::{Rng, SeedableRng};
+use rayon::prelude::*;
 
 use crate::cell::Cell;
 use crate::grid::{grid_size_checked, Grid};
@@ -80,36 +81,36 @@ impl World {
     }
 
     pub fn update_physics(&mut self) {
-        self.update_directed_radiation();
-
-        for cell in self.grid.values_mut() {
-            // background radiation may be converted to free mass or new program
-            cell.handle_bg_radiation(&self.params);
-            cell.handle_program_maintenance(&self.params);
-            cell.free_resource_decay();
-        }
-
         self.bg_rad_counter -= 1;
-        if self.bg_rad_counter == 0 {
-            for cell in self.grid.values_mut() {
-                cell.bg_rad.update(&mut self.rng, &self.params);
-            }
-            self.bg_rad_counter = Self::generate_radiation_counter(&mut self.rng, &self.params)
+        let bg_rad_update = self.bg_rad_counter == 0;
+        if bg_rad_update {
+            self.bg_rad_counter = Self::generate_radiation_counter(&mut self.rng, &self.params);
         }
-    }
 
-    pub fn update_directed_radiation(&mut self) {
+        let dir_rad_updates: Vec<_> = self
+            .grid
+            .par_iter_mut()
+            .flat_map(|(cell, coord)| {
+                // background radiation may be converted to free mass or new program
+                cell.handle_bg_radiation(&self.params);
+                cell.handle_program_maintenance(&self.params);
+                cell.free_resource_decay();
+                if bg_rad_update {
+                    cell.bg_rad.update(&mut cell.rng, &self.params);
+                }
+                cell.directed_rad.take().map(|rad| (coord, rad))
+            })
+            .collect();
+
+        // Group radiation by destination coordinate and apply effects
         let mut updated_rad = HashMap::new();
-        for (cell, coord) in self.grid.iter_mut() {
-            let rad = cell.directed_rad.take();
-            if let Some(rad) = rad {
-                updated_rad
-                    .entry(coord + rad.direction.to_offset())
-                    .or_insert(vec![])
-                    .push(rad);
-            }
+        for (coord, rad) in dir_rad_updates {
+            updated_rad
+                .entry(coord + rad.direction.to_offset())
+                .or_insert(vec![])
+                .push(rad);
         }
-        for (coord, rads) in updated_rad.into_iter() {
+        for (coord, rads) in updated_rad {
             if rads.len() == 1 {
                 self.grid[coord].directed_rad = Some(rads[0]);
             } else {

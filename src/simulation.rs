@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 use crate::executor::{run_tick_local, ExecutionResult};
 use crate::instruction::Instruction;
 use crate::types::Coord;
@@ -16,19 +18,20 @@ impl Simulation {
 
     pub fn tick(&mut self) {
         // First pass: Execute local instructions and collect nonlocal ones
-        let mut nonlocal_instructions = Vec::new();
-
-        for (cell, coord) in self.world.grid.iter_mut() {
-            match run_tick_local(cell, coord, &self.world.params) {
-                ExecutionResult::NonLocal {
-                    instruction,
-                    target,
-                } => {
-                    nonlocal_instructions.push((instruction, coord, target));
-                }
-                _ => {}
-            }
-        }
+        let nonlocal_instructions: Vec<_> = self
+            .world
+            .grid
+            .par_iter_mut()
+            .flat_map(
+                |(cell, coord)| match run_tick_local(cell, coord, &self.world.params) {
+                    ExecutionResult::NonLocal {
+                        instruction,
+                        target,
+                    } => Some((instruction, coord, target)),
+                    _ => None,
+                },
+            )
+            .collect();
 
         // Second pass: Execute nonlocal instructions
         for (instruction, source, target) in nonlocal_instructions {

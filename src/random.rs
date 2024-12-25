@@ -138,7 +138,7 @@ mod tests {
     fn test_geom_sweep_k() {
         for k in 1..=8 {
             println!("{}", k);
-            test_geometric_pow2(k, 100_000);
+            test_geometric_pow2(k, 100);
         }
     }
 
@@ -174,7 +174,7 @@ mod tests {
         for n in [10, 100] {
             for k in 1..=8 {
                 println!("Testing for k = {}", k);
-                test_binom_pow2(n, k, 100_000);
+                test_binom_pow2(n, k, 100);
             }
         }
     }

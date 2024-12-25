@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 
@@ -8,7 +10,7 @@ pub struct InstructionProperties {
     pub makes_passable: bool,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Instruction {
     #[default]
@@ -124,5 +126,11 @@ impl Distribution<Instruction> for Standard {
             7 => Instruction::CW,
             _ => unreachable!(),
         }
+    }
+}
+
+impl Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
