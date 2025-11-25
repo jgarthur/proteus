@@ -5,8 +5,6 @@ use rayon::prelude::*;
 
 use crate::types::{Coord, Direction};
 
-const DEFAULT_GRID_DIM: i32 = 100;
-
 /// Two-dimensional grid of values backed by Vec
 #[derive(Clone, Debug)]
 pub struct Grid<Value> {
@@ -18,8 +16,8 @@ pub struct Grid<Value> {
 // Separate function to simplify calling, no generic type
 #[inline]
 pub fn grid_size_checked(width: i32, height: i32) -> isize {
-    if width <= 0 || height <= 0 {
-        panic!("Grid width and height must be positive");
+    if width <= 1 || height <= 1 {
+        panic!("Grid width and height must be greater than 1");
     }
 
     (width as isize)
@@ -145,14 +143,14 @@ impl<Value> Grid<Value>
 where
     Value: Clone + Debug + Send + Sync,
 {
-    pub fn par_iter(&self) -> impl ParallelIterator<Item = (&Value, Coord)> {
+    pub fn par_iter(&self) -> impl IndexedParallelIterator<Item = (&Value, Coord)> {
         self.values
             .par_iter()
             .enumerate()
             .map(|(idx, val)| (val, grid_idx_to_coord(idx as u64, self.width, self.height)))
     }
 
-    pub fn par_iter_mut(&mut self) -> impl ParallelIterator<Item = (&mut Value, Coord)> {
+    pub fn par_iter_mut(&mut self) -> impl IndexedParallelIterator<Item = (&mut Value, Coord)> {
         self.values
             .par_iter_mut()
             .enumerate()
@@ -169,15 +167,6 @@ where
         Value: Default,
     {
         Self::new(width, height, (), |_, _| Value::default())
-    }
-}
-
-impl<Value> Default for Grid<Value>
-where
-    Value: Clone + Debug + Sync + Default,
-{
-    fn default() -> Self {
-        Self::new_default(DEFAULT_GRID_DIM, DEFAULT_GRID_DIM)
     }
 }
 

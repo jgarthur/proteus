@@ -34,3 +34,9 @@ strip = false
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+lto = false
+opt-level = 2        # respect inline(always) but no other inlining

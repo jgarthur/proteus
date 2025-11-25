@@ -1,3 +1,4 @@
+use log::debug;
 use rand::Rng;
 
 use crate::instruction::Instruction;
@@ -23,9 +24,11 @@ impl MutationRules {
     pub fn mutate_instruction<R: Rng + ?Sized>(
         &self,
         rng: &mut R,
-        _instruction: Instruction,
+        instruction: Instruction,
     ) -> Instruction {
-        rng.gen()
+        let new_instruction = rng.gen();
+        debug!("mutated {} -> {}", instruction, new_instruction);
+        new_instruction
     }
 
     /// Get amount to decrement mutation counter

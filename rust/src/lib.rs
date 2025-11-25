@@ -6,6 +6,7 @@ pub mod instruction;
 pub mod mutation;
 pub mod program;
 pub mod random;
+pub mod simple_grid_world;
 pub mod simulation;
 pub mod types;
 pub mod world;

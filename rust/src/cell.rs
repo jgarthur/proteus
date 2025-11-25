@@ -19,10 +19,20 @@ pub struct Cell {
     pub directed_rad: Option<DirectedRadiation>,
     pub mutation_counter: u32,
     pub rad_to_mass_counter: u32,
-    pub program_size: i16,
+    pub program_size: u16,
     pub bg_rad: BackgroundRadiation,
     pub is_vulnerable: bool,
     pub is_trapped: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CostPayment {
+    /// Cost was paid using only free energy
+    FreeEnergy,
+    /// Cost was paid using some background radiation (may have also used free energy)
+    UsedRadiation,
+    /// Not enough resources to pay the cost
+    Insufficient,
 }
 
 impl Cell {
@@ -79,7 +89,6 @@ impl Cell {
                 self.free_energy = 0;
             }
             // Try to pay with free mass
-            // TODO: there might be a mass:energy ratio here
             if self.free_mass >= maintenance_cost {
                 self.free_mass -= maintenance_cost;
                 return;
@@ -126,7 +135,7 @@ impl Cell {
     }
 
     #[inline]
-    pub fn program_size(&self) -> i16 {
+    pub fn program_size(&self) -> u16 {
         debug_assert!(self.program_size == self.program.as_ref().map_or(0, |p| p.size()));
         self.program_size
     }
@@ -137,6 +146,7 @@ impl Cell {
     }
 
     /// Get instruction. Return None if no instruction to return
+    /// Does not advance the instruction pointer
     pub fn next_instruction(&self) -> Option<Instruction> {
         self.program
             .as_ref()
@@ -144,12 +154,14 @@ impl Cell {
     }
 
     /// Get instruction mutably. Return None if no instruction to return
+    /// Does not advance the instruction pointer
     pub fn next_instruction_mut(&mut self) -> Option<&mut Instruction> {
         self.program
             .as_mut()
             .and_then(|p| p.get_mut(self.cpu.pp, self.cpu.ip))
     }
 
+    /// Increment the instruction pointer
     pub fn inc_inst_ptr(&mut self) {
         if let Some(p) = &self.program {
             p.inc_inst_ptr(&self.cpu.pp, &mut self.cpu.ip);
@@ -166,5 +178,30 @@ impl Cell {
             return true;
         }
         false
+    }
+
+    /// Attempts to pay the given cost using free energy first, then background radiation if needed.
+    /// Returns how the cost was paid, or Insufficient if it couldn't be paid.
+    pub fn pay_cost(&mut self, energy: u32, mass: u32) -> CostPayment {
+        let total_energy = self.free_energy + self.bg_rad.0 as u32;
+        if self.free_mass >= mass && total_energy >= energy {
+            let bg_rad_payment = energy.saturating_sub(self.free_energy) as u8;
+            self.free_mass -= mass;
+            self.free_energy = self.free_energy.saturating_sub(energy);
+            self.bg_rad.0 -= bg_rad_payment;
+            if bg_rad_payment > 0 {
+                CostPayment::UsedRadiation
+            } else {
+                CostPayment::FreeEnergy
+            }
+        } else {
+            CostPayment::Insufficient
+        }
+    }
+
+    /// Check if the cell can pay the given cost using free energy and background radiation
+    pub fn can_pay_cost(&self, energy: u32, mass: u32) -> bool {
+        let total_energy = self.free_energy + self.bg_rad.0 as u32;
+        self.free_mass >= mass && total_energy >= energy
     }
 }

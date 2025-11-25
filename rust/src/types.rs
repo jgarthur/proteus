@@ -30,7 +30,7 @@ use rand::Rng;
 
 pub type Message = i16;
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Coord(pub i32, pub i32);
 
 impl Add for Coord {

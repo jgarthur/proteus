@@ -10,14 +10,14 @@ const INITIAL_LABELS_CAPACITY: usize = 1;
 
 #[derive(Clone, Debug)]
 pub struct Program {
-    pub plasmids: SmallVec<[Plasmid; INITIAL_PLASMIDS_CAPACITY]>, // TODO: max length i8::MAX
+    pub plasmids: SmallVec<[Plasmid; INITIAL_PLASMIDS_CAPACITY]>,
 }
 
 impl Program {
-    pub fn size(&self) -> i16 {
+    pub fn size(&self) -> u16 {
         self.plasmids
             .iter()
-            .map(|plasmid| plasmid.len() as i16)
+            .map(|plasmid| plasmid.len() as u16)
             .sum()
     }
 
@@ -66,7 +66,7 @@ impl Program {
     }
 
     pub fn remove_last_instruction(&mut self) -> bool {
-        // TODO might need to update labels here
+        // might need to update labels here
         self.plasmids
             .last_mut()
             .and_then(|plasmid| plasmid.instructions.pop())
@@ -75,7 +75,7 @@ impl Program {
 }
 
 // Note: must match Default::default().size() !
-pub const DEFAULT_PROGRAM_SIZE: i16 = 1;
+pub const DEFAULT_PROGRAM_SIZE: u16 = 1;
 // Note: must match DEFAULT_PROGRAM_SIZE !
 impl Default for Program {
     fn default() -> Self {
@@ -90,7 +90,7 @@ impl Default for Program {
 #[derive(Clone, Debug)]
 pub struct Plasmid {
     instructions: SmallVec<[Instruction; INITIAL_INSTRUCTIONS_CAPACITY]>,
-    _labels: SmallVec<[usize; INITIAL_LABELS_CAPACITY]>, // TODO implement label handling
+    _labels: SmallVec<[usize; INITIAL_LABELS_CAPACITY]>,
 }
 
 impl Default for Plasmid {

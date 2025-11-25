@@ -1,4 +1,4 @@
-use crate::cell::Cell;
+use crate::cell::{Cell, CostPayment};
 use crate::cpu::CPUError;
 use crate::instruction::Instruction;
 use crate::types::Coord;
@@ -8,8 +8,8 @@ pub enum ExecutionResult {
     Complete,
     Immediate,
     NonLocal {
-        instruction: Instruction,
         target: Coord,
+        instruction: Instruction,
     },
     Error(ExecutionError),
     NoInstruction,
@@ -29,76 +29,61 @@ impl From<CPUError> for ExecutionError {
 }
 
 /// Execute for 1 tick
-#[inline(never)]
 pub fn run_tick_local(cell: &mut Cell, coord: Coord, params: &WorldParams) -> ExecutionResult {
     let mut immediate_count = 0;
 
     loop {
-        let result = execute_instruction_local(cell, coord, params);
+        let result = try_execute_local(cell, coord, params);
         match result {
-            ExecutionResult::Complete => {
-                // cell.is_vulnerable = instruction.makes_vulnerable(); TODO
-            }
             ExecutionResult::Immediate => {
                 immediate_count += 1;
-                if immediate_count == cell.program_size() {
+                if immediate_count == cell.program_size() as usize {
                     cell.is_vulnerable = true;
                     return ExecutionResult::Error(ExecutionError::Halted);
-                } else {
-                    continue;
                 }
+                continue;
             }
-            ExecutionResult::Error(_) => {
-                // cell.is_vulnerable = true; TODO
-            }
-            _ => {}
-        };
-        return result;
+            other => return other,
+        }
     }
 }
 
-/// Execute a single instruction and potentially mutate it
-fn execute_instruction_local(
-    cell: &mut Cell,
-    coord: Coord,
-    params: &WorldParams,
-) -> ExecutionResult {
+/// Execute a single instruction and potentially mutate it.
+/// If the instruction is nonlocal, it is returned as ExecutionResult::NonLocal, but the base
+/// energy cost is still paid and a mutation may occur.
+fn try_execute_local(cell: &mut Cell, coord: Coord, params: &WorldParams) -> ExecutionResult {
     let Some(instruction) = cell.next_instruction() else {
         return ExecutionResult::NoInstruction;
     };
     let energy_cost = instruction.base_energy_cost() as u32;
 
     // Try to pay with free energy or else background radiation
-    // The type of energy used affects the chance of mutation
-    let bg_rad_for_mutation: Option<u8>;
-    if cell.free_energy >= energy_cost {
-        cell.free_energy -= energy_cost;
-        bg_rad_for_mutation = None;
-    } else if cell.bg_rad.0 >= instruction.base_energy_cost() {
-        bg_rad_for_mutation = Some(cell.bg_rad.0);
-        cell.bg_rad.0 -= instruction.base_energy_cost();
-    } else {
-        return ExecutionResult::Error(ExecutionError::NoEnergy);
-    }
-
-    // Base energy is now paid and instruction will be executed
+    let initial_bg_rad = cell.bg_rad.0;
+    let payment = cell.pay_cost(energy_cost, 0);
+    let rad_for_mutation = match payment {
+        CostPayment::FreeEnergy => None,
+        CostPayment::UsedRadiation => Some(initial_bg_rad),
+        CostPayment::Insufficient => {
+            return ExecutionResult::Error(ExecutionError::NoEnergy);
+        }
+    };
 
     // Potentially mutate the instruction in the current program
     // Note this does not affect execution of the current instruction!
-    if cell.check_mutation(params, bg_rad_for_mutation) {
+    if cell.check_mutation(params, rad_for_mutation) {
         let new_instruction = params
             .mutations
             .mutate_instruction(&mut cell.rng, instruction);
         *cell.next_instruction_mut().unwrap() = new_instruction;
     }
 
-    // Increment instruction pointer after mutation
+    // Increment instruction pointer after any mutation
     cell.inc_inst_ptr();
 
     if !instruction.is_local() {
         return ExecutionResult::NonLocal {
-            instruction: instruction,
             target: coord + cell.cpu.dir.to_offset(),
+            instruction: instruction,
         };
     }
 
@@ -112,6 +97,8 @@ fn execute_instruction_local(
                 cell.cpu.msg = radiation.message;
                 cell.cpu.msg_dir = radiation.direction;
                 cell.cpu.flag = true;
+            } else {
+                cell.cpu.flag = false;
             }
             Ok(())
         }
@@ -125,15 +112,19 @@ fn execute_instruction_local(
         _ => unreachable!("Non-local instructions should be handled earlier"),
     };
 
+    if instruction != Instruction::Absorb {
+        cell.cpu.flag = result.is_err();
+    }
+
     match result {
-        Ok(()) if instruction.execution_time() == 0 => ExecutionResult::Immediate,
+        Ok(()) if instruction.execution_time() == 0 => return ExecutionResult::Immediate,
         Ok(()) => {
             cell.is_vulnerable = instruction.makes_vulnerable();
-            ExecutionResult::Complete
+            return ExecutionResult::Complete;
         }
         Err(e) => {
             cell.is_vulnerable = true;
-            ExecutionResult::Error(e)
+            return ExecutionResult::Error(e);
         }
     }
 }

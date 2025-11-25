@@ -3,11 +3,21 @@ use std::fmt::Display;
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 
+use crate::cell::Cell;
+use crate::world::WorldParams;
+
 pub struct InstructionProperties {
     pub execution_time: u8,
     pub base_energy_cost: u8,
     pub is_local: bool,
     pub makes_vulnerable: bool,
+    pub has_additional_cost: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdditionalCost {
+    pub energy: u32,
+    pub mass: u32,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -50,48 +60,56 @@ impl Instruction {
                 base_energy_cost: 0,
                 is_local: true,
                 makes_vulnerable: true,
+                has_additional_cost: false,
             },
             Self::Move => InstructionProperties {
                 execution_time: 1,
                 base_energy_cost: 1,
                 is_local: false,
                 makes_vulnerable: false,
+                has_additional_cost: true,
             },
             Self::Clone => InstructionProperties {
                 execution_time: 1,
                 base_energy_cost: 1,
                 is_local: false,
                 makes_vulnerable: false,
+                has_additional_cost: true,
             },
             Self::Absorb => InstructionProperties {
                 execution_time: 1,
                 base_energy_cost: 0,
                 is_local: true,
                 makes_vulnerable: true,
+                has_additional_cost: false,
             },
             Self::Push0 => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
                 makes_vulnerable: false,
+                has_additional_cost: false,
             },
             Self::Push1 => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
                 makes_vulnerable: false,
+                has_additional_cost: false,
             },
             Self::Add => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
                 makes_vulnerable: false,
+                has_additional_cost: false,
             },
             Self::CW => InstructionProperties {
                 execution_time: 0,
                 base_energy_cost: 0,
                 is_local: true,
                 makes_vulnerable: false,
+                has_additional_cost: false,
             },
         }
     }
@@ -110,6 +128,27 @@ impl Instruction {
 
     pub const fn makes_vulnerable(&self) -> bool {
         self.properties().makes_vulnerable
+    }
+
+    pub fn additional_cost(
+        &self,
+        origin_cell: &Cell,
+        _target_cell: &Cell,
+        params: &WorldParams,
+    ) -> AdditionalCost {
+        let origin_program_size = origin_cell.program_size as u32;
+        match self {
+            Self::Move => AdditionalCost {
+                // equivalent to ceil(origin_program_size / params.move_scale)
+                energy: (origin_program_size + params.move_scale - 1) / params.move_scale,
+                mass: 0,
+            },
+            Self::Clone => AdditionalCost {
+                energy: (origin_program_size + params.move_scale - 1) / params.move_scale,
+                mass: origin_program_size,
+            },
+            _ => AdditionalCost { energy: 0, mass: 0 },
+        }
     }
 }
 

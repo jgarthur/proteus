@@ -13,7 +13,7 @@ use crate::types::{Direction, Message};
 pub struct WorldParams {
     pub grid_width: i32,
     pub grid_height: i32,
-    pub move_scale: usize,
+    pub move_scale: u32,
     pub maintenance_scale: u32,
     pub rad_to_mass_rate_log2: usize,   // -log2(prob)
     pub bg_rad_update_rate_log2: usize, // -log2(prob)
@@ -80,7 +80,6 @@ impl World {
         geometric_pow2(rng, params.bg_rad_update_rate_log2) as u32
     }
 
-    #[inline(never)]
     pub fn update_physics(&mut self) {
         self.bg_rad_counter -= 1;
         let bg_rad_update = self.bg_rad_counter == 0;
