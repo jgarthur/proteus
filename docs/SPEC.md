@@ -1,320 +1,389 @@
-# Proteus
+# Proteus v0 Specification
 
-Proteus is an artificial life and evolution simulator loosely inspired by Tierra and Life Engine.
+An artificial life simulator where self-replicating programs emerge, compete, and evolve on a 2D grid with conserved mass and energy.
 
-## Design goals
+## Design Philosophy
 
-- Emergent complexity of organism behavior and ecosystem dynamics, beginning either with a "primordial soup" of random instructions or with minimal self-replicators
-- Believable, elegant physics system where organisms "fit in" to the rest of the world rather than being completely separate entities
-- Massively scalable with easily distributed data and computation
-- Inspiration from existing biology as well as computers, but not tied to particular aspects of either
+Proteus v0 prioritizes a minimal substrate that enables emergent complexity. The instruction set is small enough that most single-point mutations produce functional programs, and the minimal self-replicator is short enough (10 instructions) that evolution has a smooth fitness landscape to explore. Complex behaviors — movement, predation, cooperation, communication — emerge from generic read/write primitives rather than dedicated opcodes.
 
-## The World
+The physics layer provides real resource constraints (conserved mass and energy, spatial locality, maintenance costs) that drive ecological dynamics without prescribing what those dynamics should look like. All physics is deterministic (no randomness outside of mutation), fully discrete, and translation-invariant under 90° rotations and reflections.
 
-- 2D space with square "cells", discrete time steps ("ticks"), and spatial interactions between adjacent cells (no diagonal interaction)
-- "Speed of light" for information propagation of 1 grid cell/tick; physical laws are ideally invariant under 90 degree rotations and reflections
-- Each grid cell can contain mass, energy, and non-physical elements related to computing
-- Rules of physics are fully discrete with integer and fixed-point math
-- Fundamental constants:
-  - `T_m`: maintenance cost is paid every `T_m` ticks
-  - `M_m`: maintenance cost is `ceil(program_size / M_m)` energy whenever maintenance is paid
-  - `M_v`: movement cost for N instructions is `ceil(N / M_v)` energy
-  - `M_t`: transmutation cost for N instructions is `ceil(N / M_t)` energy
-  
-## Mass and Energy
+## Physics
 
-- Mass and energy are fundamental, conserved quantities. They are quantized and located within a single cell at a time. Energy may have velocity, but mass does not
-- Mass consists entirely of program instructions
-  - The collection of all instructions present in a cell is called a program, which may or may not be "alive" (e.g. capable of self-replicating). Only a single program can be present in a cell.
-  - Instructions in a program are organized into plasmids – loops of code with circular topology. Only a single plasmid is executing at a time
-  - Each program (i.e., collection of plasmids in the same cell) has a single CPU containing registers and a stack. 
-  - While plasmids are circular, there is a definite "start" used for the program counter. When instructions are appended or deleted from a plasmid, this often occurs at the end of the plasmid.
-  - Program size and plasmid size are defined by the total number of instructions they contain.
-  - Program strength is defined as the minimum of program size and free energy. Strength is important for interactions with other programs.
-- Energy consists of free energy, directed radiation, and background radiation
-  - Free energy is stationary, considered attached to the program in a cell (if a program is present)
-  - Directed radiation is a packet of energy that propagates at 1 cell/tick. It carries a numeric value (16-bit signed integer) and so doubles as energy transfer and long-range communication.
-  - Background radiation is the only energy input to the system from outside, having some probability of updating each tick. Background radiation can also decay into mass with a small probability (see below).
-  - Energy is required to execute most program instructions that interact with the wider world, and can come from either free energy or background radiation (thought the latter brings a higher cost of instruction mutation).
-  - Energy is also required to transmute mass from one instruction to another
-  - Each program has a maintenance cost of `floor(program_size / C_m)` per tick. If there is not enough free energy, then maintenance is paid with mass from the end of the last plasmid
-- Mass and energy limits:
-  - Program size is hard-capped at `2^15 - 1` (signed 16-bit integer max).
-  - Free energy is soft-capped at twice the program size. The excess decays exponentially (half-life of 1 tick) and is permanently removed from the system.
-  - Cells without programs can still contain free energy, but it will decay to 0.
-- Program execution is simultaneous in all cells, with special rules for handling instructions that modify other cells.
+### Grid
 
+- 2D space with square cells, discrete time steps ("ticks")
+- Spatial interactions between adjacent cells only (no diagonal; 4-connected grid)
+- Speed of light: 1 cell/tick for information propagation (directed radiation)
+- Physical laws invariant under 90° rotations and reflections; no preferred grid position
 
-## Programs and mutations
+### Mass and Energy
 
-### Language and execution environment
+Mass and energy are fundamental, conserved, quantized quantities located within a single cell at a time.
 
-- Stack-based memory model with specialized registers, 8-bit fixed length instructions, and no operands. (Inspired by Tierra, Forth, and the work from Blaise Aguera y Arcas et al).
-- Each program has instructions along with its own CPU, registers, and stack. This is in addition to any attached free energy
-- Instructions in a program are organized into an ordered list of circular plasmids containing labels for jumps
-  - Plasmids are simply a way of organizing and manipulating chunks of related code.
-  - There is a hard cap of 128 plasmids and 128 labels per plasmid.
-  - Each plasmid has a permanent label 0 marking its "start".
-- Instructions come in two types:
-  - Immediate instructions cost no energy to execute, and multiple immediate instructions can be executed in a single tick. Most register/stack manipulation and control flow instructions are immediate. Endless loops are prevented by capping the total number of instructions that can be executed in a single tick by the program size.
-  - Timed instructions cost at least 1 energy to execute, after which program execution is suspended until the next tick. Timed instructions typically involve interaction with the wider world.
+**Mass** exists in two forms:
 
-- Additional costs are paid with a combination of free energy and background radiation. Details are in the instruction table, but the following principles are applied
-  - Transferring some amount mass from one cell to another costs a proportional amount of energy
-  - Writing new instructions costs 1 free mass per instruction
-  - Attempting to directly modify another program's code costs free energy equal to that program's strength (minimum of program size and free energy)
-- Rules for labels
-  - Labels are pointers to instructions and are not themselves instructions.
-  - If there are L total labels, they are always numbered 0 to L - 1.
-  - If a labeled instruction is deleted, the label moves to the next unlabeled instruction (edge case: delete label if all other instructions are labeled and rename other labels 0 through L - 1).
-- The stack (LIFO memory storage) contains signed 16-bit integers which do not have mass. Max stack size is `2^15 - 1`.
-  - Instructions (8-bit) use 0 padding when present on the stack.
-- Read-only registers/flags
-  - Initial values are all 0
-  - `PP` = current plasmid pointer (8-bit signed)
-  - `IP` = current instruction pointer (16-bit signed)
-  - `Flag` = generally an error flag, but also indicates "message received" (boolean)
-  - `LC` = loop counter (16-bit signed)
-  - `Msg` = last received message (16-bit signed)
-  - `MsgDir` = direction of last received message (0/1/2/3 = right/up/left/down)
-- Identification register (read-write, can be read by other cells)
-  - `ID` = cell identifier, initialized randomly (8-bit signed)
-- Target registers (used to define operands for certain instructions)
-  - Default values are all 0 except where indicated.
-  - `Dir` = 2-bit directional heading (0/1/2/3 = right/up/left/down). Initialized randomly at the beginning of the simulation.
-  - `Adj` = boolean indicating whether to target adjacent cell (1) or self (0)
-  - `PO` = plasmid offset (8-bit signed)
-  - `IO` = instruction offset (16-bit signed)
-  - `Lab` = label (8-bit signed)
-    - Values 0 or greater for labeled instructions
-    - Value of -1 (initial/default value) indicates current instruction in this cell, or end of plasmid for adjacent cells.
-    - Value of -2 indicates end of plasmid
-- Use of target registers
-  - Certain instructions target cells, plasmids, labels, or instructions using target registers to define the operand
-  - Target cell is self if `Adj` = 0, else adjacent cell in direction `Dir`
-    - `Adj` is ignored by instructions that can only target other cells or can never target other cells
-  - Target plasmid is `PP` + `PO` if targeting self, else `PO`
-  - Target label is `Lab` on target plasmid
-  - Target instruction on target plasmid depends on `Lab`
-    - `Lab` ≥ 0: labeled instruction, offset by `IO`
-    - `Lab` = -1: `IP + IO` for self, or `IO` for adjacent cell
-    - `Lab` = -2: end of plasmid, offset by `IO`
-    - (Values are all interpreted module plasmid size.)
-  - Values are always interpreted modulo the number of possible targets. For example, if a targeting another cell with 3 plasmids, `PO` = 4 will target plasmid `4 % 3 = 1`.
-  - A program's own PP and IP registers are guaranteed to point to a valid instruction, unless the plasmid is empty. This is to avoid excessive division to perform modular arithmetic.
-- `Flag` register and error handling
-  - `Flag` is set to 0 on successful instruction execution and 1 if the instruction fails (e.g. no write access, not enough energy/mass, divide by 0).
-  - Operands for failing instructions are still removed from the stack.
-  - Instructions that can receive messages (currently only `absorb`) set `Flag` to 1 if a message was received and 0 otherwise.
+- **Free mass**: loose raw material in a cell. Used by programs to create new instructions. Attached to the program if one is present.
+- **Instructions**: each instruction in a program has mass 1. Instructions are created from free mass and can be destroyed back into free mass.
 
-### Mutation model
+**Energy** exists in three forms:
 
-- Mutation rates
-  - There is a very small probability (1 in 2^16) an instruction is mutated after execution.
-  - There is an additional, much higher probability of mutation if the program had 0 free energy and paid the base energy cost of an instruction using background radiation (probability of `max(x/256, 1)` if x background radiation was present).
-  - When excess background radiation (not used to pay an energy cost) is removed at the end of a tick's update, it is converted into mass with a small probability (1 in 256). If there is no program in the cell, a new program with a single no-op instruction is created. Otherwise, 1 free mass is added to the cell.
-- TODO: details of mutation model. At a basic level we can apply mutations at the bit level to instruction opcodes. Also exploring grouping instructions and using a context-free grammar to handle mutations between groups + insertions and deletions of code. It would be cool if that grammar is also evolvable...
+- **Free energy**: stationary, attached to the program in a cell (if present). Used to pay for instruction execution.
+- **Directed radiation**: a packet of energy propagating at 1 cell/tick in a cardinal direction. Carries a 16-bit signed integer value, doubling as energy transfer and long-range communication.
+- **Background radiation**: the only external energy input to the system. Each cell has a probability of 1/8 of receiving 1 unit of background radiation each tick.
 
-### Handling cell interactions
+### Conservation and Caps
 
-- Instructions that only modify the host program or its grid cell are called "local". Other instructions are "nonlocal". All immediate instructions are local and have no base energy cost.
-- A program and its grid cell is protected from nonlocal instructions executed by other programs *except when*:
-  - A `nop`, `absorb`, or `trap` instruction was just executed by the targeted program (happens before instructions that interact, see below).
-  - The targeted program was halted after executing too many immediate instructions.
-  - The targeted program failed to pay the base cost or additional cost for instruction execution
-- Merge rules applying to `move`, `clone`, `split`
-  - These instructions involve one or more plasmids merging from a parent (source) cell to a target cell
-  - "Control" of the merged cell goes to the program with the higher strength (ties favor the program with higher size, and then the target cell).
-    - Exception: If the target cell just executed a `trap` instruction, then it maintains control.
-  - Free mass and free energy from the two merged programs are combined
-  - If the incoming program wins control: [TODO only applies to reproduction]
-    - Stack is cleared
-    - `PP` is set to the first plasmid moved from the source (parent) cell
-    - `Msg` is set to `ID` of source cell
-    - `Dir` is set to point to the parent cell
-    - Other registers are re-initialized to 0
+- **Program size** hard-capped at 2^15 − 1 instructions.
+- **Free energy** soft-capped at program size. Excess decays exponentially (half-life of 1 tick) and is permanently removed from the system.
+- **Free mass** soft-capped at program size. Excess decays exponentially (half-life of 1 tick) into an equal quantity of free energy.
+- **Cells without programs** can contain free energy and mass, but both decay to 0 over time.
 
-### Global execution order
+### Maintenance
 
-1. Local instruction pass:
-   1. Execute immediate instructions in each cell until either reaching a 1-tick instruction or max number of immediate instructions have been executed (in which case the program is halted for this tick).
-   2. If a 1-tick instruction is reached, pay the base energy cost or else halt and do not advance the instruction pointer. If the base cost is paid, then execute the instruction if it is local, else add it to the nonlocal instruction queue. In either case, the instruction has a chance to mutate (not affecting execution this tick) and the instruction pointer is incremented by 1.
-2. Nonlocal instruction pass:
-   1. Calculate and pay additional costs for nonlocal instructions. If the cost cannot be paid, the instruction fails.
-   2. Nonlocal instructions targeting a protected cell fail.
-   3. If two programs target one another, then only a single instruction can execute and the others fail. The winner is decided by the program with the highest strength. Ties are broken based on program size, and further ties result in both instructions failing.
-   4. If a program/cell is targeted by multiple adjacent programs, then only a single instruction can execute and the others fail. The winner is decided by the program with the highest strength. Ties are broken based on program size. Further ties are broken if the targeted program is pointing (via its `Dir` register) to one of the targeting programs, else all instructions targeting that program fail.
-   5. Execute the successful nonlocal instructions simultaneously. Note that there may be cycles.
-3. Update physics:
-   1. Directed radiation propagates to next cell. When multiple packets of directed radiation arrive in the same cell simultaneously, they are all converted to free energy.
-   2. Background radiation decays into free mass with a small probability (1 in 256). If there is no program in the cell, a new program with a single no-op instruction is created. Otherwise, 1 free mass is added to the cell.
-   3. Energy maintenance is paid
-   4. Free energy and free mass above the soft cap decays
+Each program pays a maintenance cost of `floor(program_size / 64)` energy per tick. If free energy is insufficient, maintenance is paid with free mass. If both are exhausted, instructions are destroyed from the end of the program.
 
-### Instruction set
+### Program Strength
 
-- "Time" is 0 for immediate instructions and 1 for 1-tick instructions
-- "Cost" is base energy cost, with "+" indicating an additional energy/mass cost
-- Consider `MOVE_SCALE = 8`
+A program's **strength** is `min(program_size, free_energy)`. Strength determines the cost of hostile actions targeting the program.
 
-| Instruction | Opcode | Time | Cost | Description |
-|-------------|--------|--------|------|-------------|
-| *Self*
-| `nop` | `00000000` | 1 | 0 | Does nothing. |
-| `move` | TBD |  1  | 1+ | Targets adjacent cell and attempts to move self (all plasmids) into that cell, initiating a merge if successful. Additional energy cost of `ceil(program_size / MOVE_SCALE)`. |
-| `clone` | TBD |  1  | 1+ | Targets adjacent cell and attempts to clone self (all plasmids) into that cell, initiating a merge if successful. Additional energy cost of `ceil(program_size / MOVE_SCALE)` and mass cost of `program_size`. |
-| `split` | TBD |  1  | 1+ | Targets adjacent cell as well as a plasmid in this cell. Attempts to move that plasmid and all following plasmids into the target cell, initiating a merge if successful. Additional energy cost of `ceil(moved_plasmids_size / MOVE_SCALE)` and mass cost of `moved_plasmids_size`.
-| `getSize` | TBD |  0  | 0 | Pushes this cell's program size onto the stack. |
-| `getSizeP` | TBD |  0  | 0 | Pushes size of target plasmid in this cell onto the stack. |
-| `trap` | TBD |  1  | 1 | Attempts to trap all plasmids that merge into this cell this tick. |
-| `getStrength` | TBD |  0  | 0 | Pushes this cell's program strength onto the stack. |
-| *Sensing*
-| `senseID` | TBD |  1  | 0 | Pushes `ID` register of adjacent cell onto the stack. |
-| `senseSize` | TBD |  1  | 0 | Pushes program size of adjacent cell onto the stack. |
-| `senseSizeP` | TBD |  1 | 0 | Pushes size of target plasmid in adjacent cell onto the stack. |
-| `senseStrength` | TBD |  1  | 0 | Pushes strength of program in adjacent cell onto the stack. |
-| `senseE` | TBD |  1  | 0 | Reads current free energy in adjacent cell onto the stack. |
-| `senseM` | TBD |  1  | 0 | Reads current free mass in adjacent cell onto the stack. |
-| *Energy/Mass*
-| `absorb` | `00000001` | 1 | 0 | Captures all background and directed radiation in this cell as free energy. Sets `Msg`, `MsgDir`, and `Flag` = 1 if directed radiation was received. |
-| `emit` | TBD |  1  | 1 | Sends radiation containing the top value from the stack in direction `Dir`. |
-| `giveE` | TBD | 1 | 0+ | Transfers half of free energy, rounded up, to target adjacent cell. The energy transferred counts as an additional cost |
-| `giveM` | TBD | 1 | 0+ | Transfers half of free mass, rounded up, to adjacent cell. The mass transferred counts as an additional cost, and there is an additional cost of energy equal to the amount of mass transferred. |
-| `takeE` | TBD | 1 | 0+ | Takes half of the free energy, rounded up, from target adjacent cell. Additional cost of free energy equal to adjacent program's strength. |
-| `takeM` | TBD | 1 | 0+ | Takes half of the free mass, rounded up, from target adjacent cell. Additional cost of free energy equal to adjacent program's strength plus amount of mass transferred. |
-| *Registers*
-| `this` | TBD | 0 | 0 | Sets registers to point to this instruction (including `Adj` = 0). |
-| `reset` | TBD | 0 | 0 | Re-initializes all registers except `Dir` and `ID`. |
-| `getPP` | TBD | 0 | 0 | Pushes `PP` register value onto the stack. |
-| `getIP` | TBD | 0 | 0 | Pushes `IP` register value onto the stack. |
-| `getFlag` | TBD | 0 | 0 | Pushes `Flag` register value onto the stack. |
-| `getMsg` | TBD | 0 | 0 | Pushes `Msg` register value onto the stack. Sets `Flag` to 0 if message was present, 1 if no message. |
-| `getMsgDir` | TBD | 0 | 0 | Pushes `MsgDir` register value onto the stack. |
-| `getID` | TBD |  0  | 0 | Pushes `ID` register value from target cell onto the stack. This is the only instance where a cell might read another cell's register |
-| `getPO` | TBD | 0 | 0 | Pushes `PO` register value onto the stack. |
-| `getLab` | TBD | 0 | 0 | Pushes `Lab` register value onto the stack. |
-| `getIO` | TBD | 0 | 0 | Pushes `IO` register value onto the stack. |
-| `getDir` | TBD | 0 | 0 | Pushes `Dir` register value onto the stack. |
-| `getAdj` | TBD | 0 | 0 | Pushes `Adj` register value onto the stack. |
-| `setID` | TBD | 0 | 0 | Sets `ID` register to value from the stack. |
-| `setPO` | TBD | 0 | 0 | Sets `PO` register to value from the stack. |
-| `setLab` | TBD | 0 | 0 | Sets `Lab` register to value from the stack. |
-| `setIO` | TBD | 0 | 0 | Sets `IO` register to value from the stack. |
-| `setDir` | TBD | 0 | 0 | Sets `Dir` register to value from the stack. |
-| `setAdj` | TBD | 0 | 0 | Sets `Adj` register to value from the stack. |
-| `cw` | TBD | 0 | 0 | Rotates `Dir` register 90 degrees clockwise. |
-| `ccw` | TBD | 0 | 0 | Rotates `Dir` register 90 degrees counterclockwise. |
-| `turn` | TBD | 0 | 0 | Rotates `Dir` register 180 degrees. |
-| *Stack*
-| `push##` | `1000xxxx` | 0 | 0 | Pushes numeric value onto the stack (TBD). |
-| `rand` | TBD | 0 | 0 | Pushes random value from 0 to 255onto the stack. |
-| `drop` | TBD | 0 | 0 | Removes top value from the stack. |
-| `dup` | TBD | 0 | 0 | Duplicates top value on the stack. |
-| `swap` | TBD | 0 | 0 | Swaps top two values on the stack. |
-| `clear` | TBD | 0 | 0 | Clears the stack. |
-| *Math*
-| `add` | TBD | 0 | 0 | Adds top two stack values. |
-| `sub` | TBD | 0 | 0 | Subtracts first value from second value on stack. |
-| `mul` | TBD | 0 | 0 | Multiplies top two stack values. |
-| `div` | TBD | 0 | 0 | Divides second value by first value on stack, ignoring the remainder. Returns 0 and sets `Flag` if dividing by zero. |
-| `mod` | TBD | 0 | 0 | Computes signed remainder from dividing second value by first value. Returns 0 and sets `Flag` if dividing by zero. |
-| `neg` | TBD | 0 | 0 | Negates top stack value. |
-| `not` | TBD | 0 | 0 | Performs logical NOT on top stack value. |
-| `and` | TBD | 0 | 0 | Performs logical AND on top two stack values. |
-| `or` | TBD | 0 | 0 | Performs logical OR on top two stack values. |
-| `xor` | TBD | 0 | 0 | Performs logical XOR on top two stack values. |
-| `eq` | TBD | 0 | 0 | Tests if top two stack values are equal. |
-| `lt` | TBD | 0 | 0 | Tests if the second stack value is strictly less than the top value. |
-| `gt` | TBD | 0 | 0 | Tests if the second stack value is strictly greaterd than the top value. |
-| *Control Flow*
-| `for` | TBD | 0 | 0 | Begins loop with iterations determined by top value on stack, setting the `LC` register. |
-| `next` | TBD | 0 | 0 | If `LC` > 0, decrements it and jumps to the instruction following the matching `for` instruction; else moves to the next instruction as usual. |
-| `break` | TBD | 0 | 0 | Exits the current `for` loop (jumps to instruction after the following `next` statement). |
-| `if` | TBD | 0 | 0 | Pops from stack; if zero, moves to next instruction; else moves to instruction after the matching `else` instruction. |
-| `else` | TBD | 0 | 0 | Marker for `if`/`else` block; does nothing if executed. |
-| `endif` | TBD | 0 | 0 | Marker for `if`/`else` block; does nothing if executed. |
-| `jmp` | TBD | 0 | 0 | Jumps to target instruction. |
-| `jmpNZ` | TBD | 0 | 0 | Pops from stack and, if nonzero, jumps to target instruction. |
-| `jmpZ` | TBD | 0 | 0 | Pops from stack and, if zero, jumps to target instruction. |
-| *Labels*
-| `newL` | TBD |  1  | 1 | Adds new label at current target instruction. Pushes the new label's index to the stack. Fails if label already exists or `Lab` < 0. |
-| `delL` | TBD |  1  | 1 | Removes the first label at or above the current target instruction. Fails if label doesn't exist or `Lab` ≤ 0. |
-| *Instructions*
-| `readI` | TBD |  1  | 1 | Reads target instruction to the stack. Increments `IO` (to allow serial reads) unless `Lab` < 0. |
-| `writeI` | TBD |  1  | 1+ | <!-- EDIT FROM HERE --> Writes instruction from the stack to target location, moving forward existing instructions. Increments `IO` (to allow serial writes) unless `Lab` < 0. Additional cost of 1 free mass. |
-| `delI` | TBD |  1  | 1+ | Deletes target instruction. If targeting an adjecent cell, there is an additional energy cost equal to `min(free_energy, program_size)` in that cell. If successful, the instruction is converted to 1 free mass at the target cell. |
-| *Plasmids*
-| `newP` | TBD |  1  | 1 | Creates new empty plasmid immediately before target plasmid, moving forward the following plasmids in the list. (If plasmid 0 is targeted, the new plasmid will be appended rather than prepended.) Modifies `PO` to point the new plasmid. Note that an empty plasmid has no instructions and a single label 0. After writing the first instruction, label 0 is updated. |
-| `delP` | TBD |  1  | 1+ | Deletes target plasmid. Additional energy cost equal to plasmid size. If successful, the target cell gains free mass equal to the plasmid size. |
-| `copyP` | TBD |  1  | 1+ | Copies target plasmid from self to destination (either self or adjacent cell) as the last plasmid. Mass cost equal to plasmid size. Energy cost equal to plasmid size unless targeting self. This instruction does not attempt a merge when copying to an adjacent cell. |
-| `shuffleP` | TBD |  1  | 1 | Moves target plasmid from this program to be the last plasmid. Modifies `PO` to point to the plasmid's new location. |
-| `mergeP` | TBD |  1  | 1 | Pops from stack to get second plasmid offset; concatenates that plasmid to the end of the one indicated by `PO`. |
-| `splitP` | TBD |  1  | 1 | Splits plasmid at current instruction offset `IO`, creating a new plasmid with the instructions after `IO`. Updates labels accordingly. Pushes the new plasmid offset to the stack. |
+### Background Radiation Decay
 
-## Examples
+When excess background radiation is removed at the end of a tick, it converts to mass with probability 1/256. If no program is present in the cell, a new program consisting of a single `nop` instruction is created. Otherwise, 1 free mass is added to the cell.
 
-### Minimal self-replicator
+## Programs
+
+### Structure
+
+A program is a flat sequence of 8-bit instructions occupying a single cell. There is no sub-structure (no plasmids, no segments). Programs are circular: the instruction pointer wraps modulo program size.
+
+Only one program may occupy a cell at a time.
+
+### CPU and Registers
+
+Each program has its own CPU with the following registers:
+
+| Register | Bits | Access | Default | Description |
+|----------|------|--------|---------|-------------|
+| `IP` | 16 | read-only | 0 | Instruction pointer (current position in program) |
+| `Dir` | 2 | read-write | random | Direction heading: 0=right, 1=up, 2=left, 3=down. The only register initialized with randomness (at simulation start only). |
+| `Src` | 16 | read-write | 0 | Source cursor. Auto-increments on read operations. Interpreted modulo target program size when used. |
+| `Dst` | 16 | read-write | 0 | Destination cursor. Auto-increments on write operations. Interpreted modulo target program size when used. |
+| `Flag` | 1 | read-only | 0 | 0 = last instruction succeeded; 1 = last instruction failed or message received via `absorb`. |
+| `Msg` | 16 | read-only | 0 | Value carried by last received directed radiation. |
+| `ID` | 8 | read-write | random | Cell identifier. Initialized with randomness at simulation start only. Readable by neighbors via `senseID` is not available — neighbors can inspect code via `readAdj` instead. |
+| `LC` | 16 | hidden | 0 | Loop counter, used internally by `for`/`next`. Not directly accessible. |
+
+### Stack
+
+LIFO stack of signed 16-bit integers. Maximum size: 2^15 − 1. Instructions (8-bit) are zero-padded to 16 bits when placed on the stack. Stack underflow/overflow sets `Flag` to 1; the failing operation is otherwise skipped.
+
+## Execution Model
+
+### Instruction Timing
+
+Instructions come in two types:
+
+- **Immediate** (0-tick): execute instantly, cost no energy. Includes all stack, arithmetic, control flow, direction, and register instructions. The total number of immediate instructions per tick is capped at program size to prevent infinite loops.
+- **1-tick**: cost 0 or more energy. A program executes immediate instructions until it reaches a 1-tick instruction. It then pays the base energy cost (or halts if unable), executes the instruction, advances `IP` by 1, and the tick ends for that program.
+
+If a program has 0 free energy for a 1-tick instruction, it may pay using background radiation present in its cell. This carries a significantly higher mutation probability (see Mutations).
+
+### Protection Model
+
+Cells are **protected by default**. A cell becomes **open** (unprotected) for the current tick if its program:
+
+- Executed `absorb` this tick
+- Executed `nop` this tick
+- Failed to pay the energy cost for any instruction this tick
+- Was halted after exceeding the immediate instruction limit
+
+**Empty cells are always open.**
+
+Only two instructions check protection:
+
+- `delAdj` — fails against a protected cell
+- `takeE` — fails against a protected cell
+
+All other nonlocal instructions (`readAdj`, `writeAdj`, `appendAdj`, `senseSize`, `senseE`, `senseM`, `giveE`, `giveM`, `takeM`) work regardless of protection status.
+
+Rationale: `writeAdj` and `appendAdj` do not check protection because multi-tick replication into a cell would otherwise be impossible — the partially-written offspring becomes protected after its first tick, blocking further writes. Unrestricted writing also enables code injection as an emergent parasitic strategy, at a real energy and mass cost to the attacker.
+
+### Global Execution Order
+
+Each tick proceeds in three passes. All physics is deterministic and translation-invariant.
+
+**Pass 1 — Local execution (all cells simultaneously):**
+
+1. Each program executes immediate instructions until reaching a 1-tick instruction, or until the immediate instruction limit (equal to program size) is exceeded, in which case the program is halted and the cell becomes open.
+2. If a 1-tick instruction is reached, pay its base energy cost. If payment fails, halt, do not advance `IP`, and mark cell as open. If paid, determine whether the instruction is local or nonlocal.
+3. Local 1-tick instructions execute immediately.
+4. Nonlocal 1-tick instructions are placed in the nonlocal queue for Pass 2.
+5. `IP` advances by 1. The executed instruction has a chance to mutate (not affecting this tick's execution).
+
+Pass 1 requires no inter-cell communication and is trivially parallelizable.
+
+**Pass 2 — Nonlocal execution (snapshot-and-apply):**
+
+All nonlocal instructions are resolved against a snapshot of the grid state taken after Pass 1.
+
+1. Pay additional costs for each nonlocal instruction. If costs cannot be paid, the instruction fails.
+2. Check protection on target cells. `delAdj` and `takeE` targeting a protected cell fail.
+3. Group remaining instructions by target cell. For each target cell:
+   - If one instruction targets it: that instruction succeeds.
+   - If multiple instructions target it: resolve using the conflict resolution rule (see below).
+4. Execute all winning instructions simultaneously against the snapshot. Each winner reads pre-resolution state and writes to its target cell. Since each target cell has at most one winner, there are no write conflicts.
+
+**Conflict resolution** (multiple instructions targeting the same cell):
+
+1. Highest program strength wins.
+2. Ties: highest program size wins.
+3. Ties: scan clockwise starting from the target cell's `Dir` register. The first direction containing an attacker wins.
+
+This rule is deterministic, local, and translation-invariant. It depends only on the target's `Dir` register, which organisms can evolve to control.
+
+Note: mutual targeting (A targets B while B targets A) does not require special handling. These instructions target different cells and both can succeed independently. No conflict graph or cycle detection is needed.
+
+**Pass 3 — Physics update:**
+
+1. Directed radiation propagates to its next cell. When multiple packets of directed radiation arrive in the same cell simultaneously, all are converted to free energy.
+2. Background radiation: each cell receives 1 unit with probability 1/8.
+3. Unused background radiation decays into free mass with probability 1/256. If no program exists, a single `nop` program is created. Otherwise, 1 free mass is added.
+4. Maintenance costs are paid: `floor(program_size / 64)` per program, deducted from free energy, then free mass, then instructions from end of program.
+5. Excess free energy and free mass above soft caps decay (half-life of 1 tick).
+
+## Instruction Set
+
+65 opcodes out of 256 possible byte values. All other byte values are no-ops: immediate, free, and they do **not** open the cell. They are simply skipped during execution.
+
+### Encoding
+
+| Range | Category | Count |
+|-------|----------|-------|
+| `0000 xxxx` | Push literals (−8 to +7) | 16 |
+| `0001 0000` – `0001 0100` | Stack operations | 5 |
+| `0010 0000` – `0010 1000` | Arithmetic / logic | 9 |
+| `0011 0000` – `0011 0100` | Control flow | 5 |
+| `0100 0000` – `0100 1100` | Direction and register access | 13 |
+| `0101 0000` – `0110 0000` | World interaction | 17 |
+| All other values | No-op (immediate, free, does not open cell) | 191 |
+
+The 75% no-op space provides generous neutral territory for mutations: most random bit flips land on no-ops, providing genetic drift without lethality.
+
+### Push Literals (16 opcodes, immediate)
+
+| Instruction | Opcode | Description |
+|-------------|--------|-------------|
+| `push N` | `0000 xxxx` | Push sign-extended 4-bit value (−8 to +7) onto stack. `xxxx` encodes the value in two's complement. |
+
+### Stack Operations (5 opcodes, immediate)
+
+| Instruction | Opcode | Description |
+|-------------|--------|-------------|
+| `dup` | `0001 0000` | Duplicate top of stack. |
+| `drop` | `0001 0001` | Remove top of stack. |
+| `swap` | `0001 0010` | Swap top two stack values. |
+| `over` | `0001 0011` | Copy second element to top of stack. |
+| `rand` | `0001 0100` | Push random value (0–255) onto stack. |
+
+### Arithmetic / Logic (9 opcodes, immediate)
+
+All binary operations pop two operands and push one result. Unary operations pop one and push one. Operands are consumed even if the operation fails (e.g., division by zero).
+
+| Instruction | Opcode | Description |
+|-------------|--------|-------------|
+| `add` | `0010 0000` | Push `second + top`. |
+| `sub` | `0010 0001` | Push `second − top`. |
+| `neg` | `0010 0010` | Push `−top`. |
+| `eq` | `0010 0011` | Push 1 if `second == top`, else 0. |
+| `lt` | `0010 0100` | Push 1 if `second < top`, else 0. |
+| `gt` | `0010 0101` | Push 1 if `second > top`, else 0. |
+| `not` | `0010 0110` | Push 1 if top is 0, else 0. |
+| `and` | `0010 0111` | Push 1 if both operands are nonzero, else 0. |
+| `or` | `0010 1000` | Push 1 if either operand is nonzero, else 0. |
+
+### Control Flow (5 opcodes, immediate)
+
+| Instruction | Opcode | Description |
+|-------------|--------|-------------|
+| `for` | `0011 0000` | Pop count from stack into `LC`. If `LC` ≤ 0, skip forward past the matching `next`. |
+| `next` | `0011 0001` | Decrement `LC`. If `LC` > 0, jump to instruction after matching `for`. Else continue. |
+| `jmp` | `0011 0010` | Pop offset from stack. Jump to `IP + offset`. |
+| `jmpNZ` | `0011 0011` | Pop value, then pop offset. If value ≠ 0, jump to `IP + offset`. |
+| `jmpZ` | `0011 0100` | Pop value, then pop offset. If value = 0, jump to `IP + offset`. |
+
+`for`/`next` pairs are matched by nesting depth during execution, analogous to bracket matching. Unmatched `for` (no `next` found) sets `Flag` to 1 and continues. Unmatched `next` is a no-op.
+
+### Direction and Register Access (13 opcodes, immediate)
+
+| Instruction | Opcode | Description |
+|-------------|--------|-------------|
+| `cw` | `0100 0000` | Rotate `Dir` 90° clockwise. |
+| `ccw` | `0100 0001` | Rotate `Dir` 90° counterclockwise. |
+| `getSize` | `0100 0010` | Push this program's instruction count. |
+| `getIP` | `0100 0011` | Push `IP` value. |
+| `getFlag` | `0100 0100` | Push `Flag` value (0 or 1). |
+| `getMsg` | `0100 0101` | Push `Msg` value. |
+| `getID` | `0100 0110` | Push `ID` value. |
+| `getSrc` | `0100 0111` | Push `Src` value. |
+| `getDst` | `0100 1000` | Push `Dst` value. |
+| `setDir` | `0100 1001` | Pop value, set `Dir` to `value mod 4`. |
+| `setSrc` | `0100 1010` | Pop value, set `Src`. |
+| `setDst` | `0100 1011` | Pop value, set `Dst`. |
+| `setID` | `0100 1100` | Pop value, set `ID` (truncated to 8 bits). |
+
+### World Interaction (17 opcodes, 1-tick)
+
+#### Local (target self)
+
+| Instruction | Opcode | Base Cost | Add'l Cost | Description |
+|-------------|--------|-----------|------------|-------------|
+| `nop` | `0101 0000` | 0 | — | No operation. **Opens cell.** |
+| `absorb` | `0101 0001` | 0 | — | Capture all background and directed radiation in this cell as free energy. If directed radiation was received: set `Msg` to its value, set `Dir` to the direction it arrived from, set `Flag` to 1. **Opens cell.** |
+| `emit` | `0101 0010` | 1 | — | Pop value from stack. Send directed radiation carrying that value in direction `Dir`. |
+| `read` | `0101 0011` | 0 | — | Push instruction at `self[Src mod size]` onto stack. Increment `Src`. |
+| `write` | `0101 0100` | 1 | — | Pop value. Overwrite instruction at `self[Dst mod size]` with value. Increment `Dst`. Does not change program size. |
+| `del` | `0101 0101` | 1 | — | Delete instruction at `self[Dst mod size]`. Program size decreases by 1. Freed as 1 free mass in this cell. |
+
+#### Nonlocal (target adjacent cell in direction `Dir`)
+
+| Instruction | Opcode | Base Cost | Add'l Cost | Protection | Description |
+|-------------|--------|-----------|------------|------------|-------------|
+| `readAdj` | `0101 0110` | 0 | — | No | Push instruction at `neighbor[Src mod size]` onto stack. Increment `Src`. If neighbor cell is empty, push 0 and set `Flag` to 1. |
+| `writeAdj` | `0101 0111` | 1 | — | No | Pop value. Overwrite instruction at `neighbor[Dst mod size]`. The old instruction is recycled (no net mass cost). Increment `Dst`. Fails if neighbor cell is empty (nothing to overwrite). |
+| `appendAdj` | `0101 1000` | 1 | 1 mass | No | Pop value. Append instruction to end of neighbor's program (or create new program if cell is empty). Costs 1 free mass. Does not use or modify `Dst`. |
+| `delAdj` | `0101 1001` | 1 | E = target strength | **Yes** | Delete instruction at `neighbor[Dst mod size]`. Target program size decreases by 1. Freed mass (1) goes to **this** cell (the attacker). |
+| `senseSize` | `0101 1010` | 0 | — | No | Push program size of adjacent cell (0 if empty). |
+| `senseE` | `0101 1011` | 0 | — | No | Push free energy of adjacent cell. |
+| `senseM` | `0101 1100` | 0 | — | No | Push free mass of adjacent cell. |
+| `giveE` | `0101 1101` | 0 | — | No | Transfer half of own free energy (rounded up) to adjacent cell. |
+| `giveM` | `0101 1110` | 1 | E = mass transferred | No | Transfer half of own free mass (rounded up) to adjacent cell. Energy cost equal to the mass transferred. |
+| `takeE` | `0101 1111` | 1 | E = target strength | **Yes** | Take half of target's free energy (rounded up). |
+| `takeM` | `0110 0000` | 1 | — | No | Take half of free mass (rounded up) from adjacent cell. Takes only loose mass, not instructions. |
+
+#### Instruction Deletion Semantics
+
+When an instruction at index `i` is deleted from a program (via `del` or `delAdj`):
+
+- All instructions after index `i` shift down by 1.
+- If the affected program's `IP > i`, decrement `IP` by 1. This prevents the program from skipping an instruction or executing past its end.
+- `Src` and `Dst` are **not** adjusted. These are raw cursor values with no fixed association to self or neighbor — they are interpreted modulo program size at the point of use. If a deletion shifts instructions around, the cursor may land on a different instruction next time it is used. This is a natural consequence of code disruption, not a bug.
+- If the program reaches size 0, it is removed and the cell becomes empty.
+
+### Instruction Count Summary
+
+| Category | Count |
+|----------|-------|
+| Push literals | 16 |
+| Stack operations | 5 |
+| Arithmetic / logic | 9 |
+| Control flow | 5 |
+| Direction + registers | 13 |
+| World interaction (local) | 6 |
+| World interaction (nonlocal) | 11 |
+| **Total opcodes** | **65** |
+| No-op byte values | **191** (75% of opcode space) |
+
+## Mutations
+
+### Mutation Rates
+
+- After any 1-tick instruction is executed, there is a 1 in 2^16 probability that the instruction mutates. A mutation consists of a random bit flip in its 8-bit opcode. The mutation does not affect the current tick's execution.
+- If the program had 0 free energy and paid the base cost using background radiation, the mutation probability increases to `min(x/256, 1)` where `x` is the amount of background radiation present in the cell.
+
+### Background Radiation to Mass
+
+When excess background radiation is removed during the physics update, it converts to mass with probability 1/256. If no program exists in the cell, a new single-`nop` program is created. Otherwise, 1 free mass is added.
+
+## Seed Replicator
+
+The following 10-instruction program is the recommended initial organism:
 
 ```
-;;;; Minimal organism with
-; Plasmid 0
-; Label 0
-absorb      ; collect energy
-getE
-getSize
-push4
-add
-lt          ;; E < Size + 4?
-jmpNZ       ; if yes go back to start
-push1
-setAdj      ; Adj = 1, target adjacent cells
-push4
-for         ; do 4 times:
-delI        ;; deconstruct mass
-takeM       ;; take mass
-cw          ; turn clockwise
-next        ; repeat
-push0
-setAdj      ; Adj = 0, target self
-getM
-getSize
-lt          ; M < size?
-jmpNZ       ; if yes, go back to label 0
-clone       ;; reproduce
+; === Seed Replicator (10 instructions) ===
+;
+absorb          ; Tick 1:  gather energy (opens cell — vulnerability tradeoff)
+takeM           ; Tick 2:  forage free mass from neighbor
+cw              ;          rotate Dir (covers different neighbors over cycles)
+push 0          ;
+setSrc          ;          reset Src to 0
+getSize         ;          push program size (10) for loop count
+for             ;          begin loop
+  read          ; Tick 3+: read self[Src], Src++
+  appendAdj     ; Tick 4+: append to neighbor in Dir
+next            ;          decrement LC, loop if > 0
+;
+; After the loop, IP wraps to 0 and the cycle repeats.
+;
+; Timing:  2 + (2 × 10) = 22 ticks per replication cycle
+; Energy:  1 (takeM) + 10 (appendAdj base costs) = 11 energy
+; Mass:    10 (one per appended instruction)
+;
+; The offspring receives no energy or mass. It will begin executing
+; its own code on the next tick, starting with absorb.
 ```
 
-### Even more minimal self-replicator
+### Why This Replicator is Plausible as a First Evolver
 
-```
-;;;; Super minimal organism powered by radiation
-; Plasmid 0
-; Label 0
-cw          ; turn clockwise
-delI        ;; deconstruct mass
-takeM       ;; take mass
-clone       ;; reproduce
-```
+The seed replicator uses only three distinct 1-tick instructions (`absorb`, `takeM`, `read`, `appendAdj`) and three immediate instructions (`cw`, `push`, `setSrc`, `getSize`, `for`, `next`). It requires no knowledge of the target cell's state — `appendAdj` works on both empty and occupied cells. The `Dst` register is never used. The only cursor management is resetting `Src` to 0 each cycle.
 
-## Next steps:
+### Evolutionary Optimization Opportunities
 
-- Clarify ownership of the CPU and other computing elements -- are they attached to the program or the cell?
-- Clarify ownership of free energy -- is it attached to the program or the cell?
-- Clarify maintenance cost payment and mass:energy ratio
-- Handle edge cases in interaction resolution (cycles, etc.)
-  - Consider exact order of local execution, payment of additional costs, and interactions, with an eye on performance.
-  - Keep in mind case where A moves to B and B moves to empty cell. Does A pay a large cost?
-- Go back to review simple self-replicators
-- Mutation System: set instruction opcodes, mutation rates, mechanisms (e.g., mutations during execution vs. replication), and effects on different instruction types.
-- Define environmental variation
-  - Shifted 3d simplex noise as log-intensity of background radiation (varying over two spatial dimensions and one time dimension)
-  - Come up with some cool non-living but semi-stable programs.
-- Implementation!
-- Revisit communication mechanisms? Long-range sensing and pheromones?
-- Revisit defense mechanisms and read/write permissions?
-  - Consider adding more cases where write access is granted, e.g. failing to pay energy costs
+The seed replicator is intentionally unoptimized. Evolution can discover improvements such as:
 
-## Further tentative ideas:
+- **Energy gating**: check energy/mass levels before attempting replication to avoid wasting resources on failed writes
+- **Offspring provisioning**: `giveE`/`giveM` after replication to help offspring survive
+- **Directional awareness**: `senseSize` to find empty cells before choosing replication direction
+- **Predation**: `delAdj` to consume neighbor instructions as mass, `takeE` to steal energy (requires target to be open)
+- **Defense**: minimize time spent in open states (`absorb`, `nop`) to reduce vulnerability to `delAdj` and `takeE`
+- **Communication**: `emit`/`absorb` to coordinate with kin
+- **Code injection**: `writeAdj` to modify neighbor programs (parasitism, mutualism)
+- **Streamlining**: eliminate unnecessary instructions to reduce maintenance cost and replication time
+- **Movement**: copy self to neighbor, then allow original to decay via maintenance costs (emergent relocation)
 
-- There is a lack of multiple space/time scales. What's the impact of this? How could it be elegantly improved?
-  - Could increase speed of light for information transfer?
-- Consider function call system, would need to implement call stack
+## Implementation Notes
+
+### Snapshot-and-Apply Pattern
+
+Pass 2 (nonlocal execution) uses a snapshot-and-apply pattern to ensure translation invariance and avoid order-dependent results:
+
+1. After Pass 1 completes, take a logical snapshot of the grid state.
+2. Resolve all nonlocal instruction conflicts (grouping by target cell, applying the strength → size → clockwise tiebreaker).
+3. Each winning instruction reads from the snapshot and writes to its target cell.
+4. Since each target cell has at most one winner, all writes target distinct cells and can be applied in any order (or simultaneously).
+
+In practice, this does not require copying the entire grid. Most cells are not targeted on any given tick. An implementation can:
+
+- Collect all nonlocal instructions into a sparse list.
+- Group by target cell (a sort or hash map).
+- Resolve each group independently (trivially parallel).
+- Apply changes. Only cells that are targeted need snapshotted values, which can be saved when the instruction is queued.
+
+### Parallelization
+
+The execution model is designed for parallelism:
+
+- **Pass 1** is embarrassingly parallel: each cell executes independently with no inter-cell communication.
+- **Pass 2** conflict resolution is independent per target cell and trivially parallel after grouping.
+- **Pass 3** physics update is a local stencil operation (radiation propagation) plus per-cell decay, both parallel.
+
+No grid coloring, checkerboard decomposition, or symmetry-breaking structure is needed. The snapshot-and-apply pattern eliminates data races and preserves translation invariance.
+
+### Grid Boundary
+
+For finite grids, use periodic (toroidal) boundary conditions to maintain translation invariance. Directed radiation wraps around grid edges.
+
+## Future Directions (post-v0)
+
+These features are intentionally deferred. They may be added if the v0 ecosystem demonstrates a need or reaches a complexity plateau.
+
+- **Plasmids**: modular code organization, enabling horizontal gene transfer
+- **Move instruction**: atomic relocation (currently emergent via copy + maintenance decay)
+- **Insert instruction**: insert (rather than overwrite) at a target position, shifting subsequent instructions
+- **Evolvable instruction sets**: organisms define their own opcode-to-behavior mapping
+- **Environmental variation**: spatially and temporally varying background radiation intensity (e.g., 3D simplex noise over x, y, t)
+- **Labels**: named jump targets for more structured control flow
+- **mul/div/mod**: complex arithmetic (currently achievable via loops)
+- **Trap instruction**: active defense mechanism (capture or redirect incoming writes)
+- **Function calls**: call stack for subroutine reuse
+- **Long-range sensing**: detect programs or energy gradients beyond adjacent cells
