@@ -4,36 +4,44 @@ Proteus is an artificial life and evolution simulator loosely inspired by Tierra
 
 ## Design goals
 
-- Emergent complexity of organism behavior and ecosystem dynamics, beginning with simple self-replicating organisms
+- Emergent complexity of organism behavior and ecosystem dynamics, beginning either with a "primordial soup" of random instructions or with minimal self-replicators
 - Believable, elegant physics system where organisms "fit in" to the rest of the world rather than being completely separate entities
 - Massively scalable with easily distributed data and computation
 - Inspiration from existing biology as well as computers, but not tied to particular aspects of either
 
-## Physics system
+## The World
 
 - 2D space with square "cells", discrete time steps ("ticks"), and spatial interactions between adjacent cells (no diagonal interaction)
-- "Speed of light" for information propagation of 1 grid cell/tick; physical laws invariant under 90 degree rotations and reflections
-- Mass and energy are fundamental, conserved quantities. They are quantized and located within a single cell at a time. Energy may have velocity, but mass does not
-- Fully discrete physics with no floating point calculations (except for probabilities, which are always rational values)
+- "Speed of light" for information propagation of 1 grid cell/tick; physical laws are ideally invariant under 90 degree rotations and reflections
 - Each grid cell can contain mass, energy, and non-physical elements related to computing
-- Mass consists of program instructions and free mass
+- Rules of physics are fully discrete with integer and fixed-point math
+- Fundamental constants:
+  - `T_m`: maintenance cost is paid every `T_m` ticks
+  - `M_m`: maintenance cost is `ceil(program_size / M_m)` energy whenever maintenance is paid
+  - `M_v`: movement cost for N instructions is `ceil(N / M_v)` energy
+  - `M_t`: transmutation cost for N instructions is `ceil(N / M_t)` energy
+  
+## Mass and Energy
+
+- Mass and energy are fundamental, conserved quantities. They are quantized and located within a single cell at a time. Energy may have velocity, but mass does not
+- Mass consists entirely of program instructions
   - The collection of all instructions present in a cell is called a program, which may or may not be "alive" (e.g. capable of self-replicating). Only a single program can be present in a cell.
-  - The CPU and other computing elements can be considered to be attached to the program rather than the cell. (They will move with the program between cells.)
-  - Free mass is used by programs to write new instructions
-  - Instructions in a program are organized into plasmids – loops of code with circular topology. Only a single plasmid is executing at a time.
+  - Instructions in a program are organized into plasmids – loops of code with circular topology. Only a single plasmid is executing at a time
+  - Each program (i.e., collection of plasmids in the same cell) has a single CPU containing registers and a stack. 
+  - While plasmids are circular, there is a definite "start" used for the program counter. When instructions are appended or deleted from a plasmid, this often occurs at the end of the plasmid.
   - Program size and plasmid size are defined by the total number of instructions they contain.
   - Program strength is defined as the minimum of program size and free energy. Strength is important for interactions with other programs.
 - Energy consists of free energy, directed radiation, and background radiation
   - Free energy is stationary, considered attached to the program in a cell (if a program is present)
   - Directed radiation is a packet of energy that propagates at 1 cell/tick. It carries a numeric value (16-bit signed integer) and so doubles as energy transfer and long-range communication.
-  - Background radiation is the only energy input to the system from outside, having a probability of 1/8 of updating each tick. Background radiation can also decay into mass with a small probability (see below).
-  - Energy is required to execute most program instructions that interact with the wider world, and can come from either free energy or background radiation (which brings a higher cost of instruction mutation).
-  - Each program has a maintenance cost of `floor(program_size / 64)` per tick. If there is not enough free energy, then maintenance is paid with free mass or, as a last resort, instructions are destroyed (from the end of the last plasmid).
+  - Background radiation is the only energy input to the system from outside, having some probability of updating each tick. Background radiation can also decay into mass with a small probability (see below).
+  - Energy is required to execute most program instructions that interact with the wider world, and can come from either free energy or background radiation (thought the latter brings a higher cost of instruction mutation).
+  - Energy is also required to transmute mass from one instruction to another
+  - Each program has a maintenance cost of `floor(program_size / C_m)` per tick. If there is not enough free energy, then maintenance is paid with mass from the end of the last plasmid
 - Mass and energy limits:
   - Program size is hard-capped at `2^15 - 1` (signed 16-bit integer max).
-  - Free energy is soft-capped at program size. The excess decays exponentially (half-life of 1 tick) and is permanently removed from the system.
-  - Free mass is soft-capped at program size. The excess decays exponentially (half-life of 1 tick) into the same quantity of free energy.
-  - Cells without programs can still contain free energy and mass, but both will decay to 0.
+  - Free energy is soft-capped at twice the program size. The excess decays exponentially (half-life of 1 tick) and is permanently removed from the system.
+  - Cells without programs can still contain free energy, but it will decay to 0.
 - Program execution is simultaneous in all cells, with special rules for handling instructions that modify other cells.
 
 
@@ -41,16 +49,17 @@ Proteus is an artificial life and evolution simulator loosely inspired by Tierra
 
 ### Language and execution environment
 
-- Stack-based memory model with specialized registers, 8-bit fixed length instructions, and no operands. Inspired by both Tierra and Forth.
-- Each program has instructions along with its own CPU, registers, and stack. This is in addition to free energy and free mass.
+- Stack-based memory model with specialized registers, 8-bit fixed length instructions, and no operands. (Inspired by Tierra, Forth, and the work from Blaise Aguera y Arcas et al).
+- Each program has instructions along with its own CPU, registers, and stack. This is in addition to any attached free energy
 - Instructions in a program are organized into an ordered list of circular plasmids containing labels for jumps
   - Plasmids are simply a way of organizing and manipulating chunks of related code.
   - There is a hard cap of 128 plasmids and 128 labels per plasmid.
   - Each plasmid has a permanent label 0 marking its "start".
 - Instructions come in two types:
-  - Immediate instructions execute instantly and cost nothing. Most register/stack manipulation and control flow instructions are immediate. However, the total number of instructions that can be executed in a single tick is capped by the program size.
-  - 1-tick instructions cost 1 energy from free energy or background radiation. Instructions that modify neighboring cells will fail unless an additional energy and/or mass cost is paid
-- Additional costs are paid with a combination of free energy, background radiation, and free mass. Details are in the instruction table, but the following principles are applied
+  - Immediate instructions cost no energy to execute, and multiple immediate instructions can be executed in a single tick. Most register/stack manipulation and control flow instructions are immediate. Endless loops are prevented by capping the total number of instructions that can be executed in a single tick by the program size.
+  - Timed instructions cost at least 1 energy to execute, after which program execution is suspended until the next tick. Timed instructions typically involve interaction with the wider world.
+
+- Additional costs are paid with a combination of free energy and background radiation. Details are in the instruction table, but the following principles are applied
   - Transferring some amount mass from one cell to another costs a proportional amount of energy
   - Writing new instructions costs 1 free mass per instruction
   - Attempting to directly modify another program's code costs free energy equal to that program's strength (minimum of program size and free energy)
@@ -288,7 +297,8 @@ clone       ;; reproduce
 
 ## Next steps:
 
-- Clarify ownership of free mass and free energy
+- Clarify ownership of the CPU and other computing elements -- are they attached to the program or the cell?
+- Clarify ownership of free energy -- is it attached to the program or the cell?
 - Clarify maintenance cost payment and mass:energy ratio
 - Handle edge cases in interaction resolution (cycles, etc.)
   - Consider exact order of local execution, payment of additional costs, and interactions, with an eye on performance.
