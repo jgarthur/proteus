@@ -50,7 +50,7 @@ Program size is hard-capped at 2^15 − 1 instructions.
 
 ### Maintenance
 
-Each instruction in a program independently requires 1 energy payment with probability `M` per tick. This applies to both live and inert programs. The expected cost is exactly `program_size × M` per tick. Implementation: draw from `Binomial(program_size, M)` to determine the total energy cost for the tick.
+Each instruction in a **live** program independently requires 1 energy payment with probability `M` per tick. Inert programs use the same maintenance rule scaled by `inert_maintenance_scale`, so their expected cost is `program_size × M × inert_maintenance_scale` per tick. Implementation: draw from `Binomial(program_size, maintenance_rate)` where `maintenance_rate` is `M` for live programs and `M × inert_maintenance_scale` for inert programs.
 
 If free energy is insufficient, maintenance is paid with free mass. If both are exhausted, instructions are destroyed from the end of the program.
 
@@ -67,13 +67,13 @@ Each live program tracks its **age**: the number of ticks since it became live. 
 Programs exist in two states:
 
 - **Live**: the program executes, pays maintenance, ages, and its cell follows normal protection rules.
-- **Inert**: the program does not execute and does not age, but **does pay maintenance**. Its cell is **always open**. If maintenance destroys all instructions, the program is removed and the cell becomes empty.
+- **Inert**: the program does not execute and does not age. Its cell is **always open**. While inert, maintenance is scaled by `inert_maintenance_scale` (default 0, meaning no maintenance while inert). If maintenance destroys all instructions, the program is removed and the cell becomes empty.
 
-Inert maintenance creates a natural time pressure on construction: the parent must complete writing and boot the offspring before maintenance erodes it from the tail. For small programs at the default maintenance rate (`M` = 1/64), this pressure is mild — a 6-instruction program under construction for 20 ticks expects ~1.9 energy in maintenance costs, easily covered by ambient cell resources. For larger programs, parents that provision offspring with energy (via `giveE`) early in construction produce more intact offspring — a key evolutionary pressure toward parental investment.
+Each inert program also tracks **ticks since last incoming write**. Any successful `appendAdj` or `writeAdj` targeting the inert program resets this timer to 0. If the timer reaches `inert_auto_boot_ticks`, the inert program automatically transitions to live. If `inert_auto_boot_ticks = 0`, automatic boot is disabled and explicit `boot` is required.
 
 **Spontaneous creation** (background mass nucleation in an empty cell): the program is created **live**. This is the primordial bootstrap — no parent required.
 
-**Constructed creation** (first `appendAdj` into an empty cell): the program is created **inert**. It remains inert until a `boot` instruction transitions it to live. While inert, the cell is open, allowing continued construction by the parent or interference by others.
+**Constructed creation** (first `appendAdj` into an empty cell): the program is created **inert**. It remains inert until a `boot` instruction transitions it to live, or until abandonment triggers automatic boot. While inert, the cell is open, allowing continued construction by the parent or interference by others.
 
 ### Spontaneous Program Creation
 
@@ -204,13 +204,14 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 2. **Background radiation**: each cell receives 1 unit with probability `R_energy`. This accumulates in the cell. Each existing unit of background radiation independently decays with probability `D_energy`.
 3. **Absorb resolution**: for each cell containing accumulated background radiation, distribute it equally (floor division) among all programs that executed `absorb` this tick and are adjacent to or occupying that cell. Remainder stays in the cell. Background radiation captured this way becomes free energy in the absorbing program's cell.
 4. **Background mass**: each cell receives 1 free mass with probability `R_mass`. If the cell has no program, the arriving mass has an additional probability `P_spawn` of nucleating a new live `nop` program (see Spontaneous Program Creation).
-5. **Maintenance**: for each program (live and inert), draw from `Binomial(program_size, M)` to determine energy cost. Deducted from free energy, then free mass, then instructions from end of program.
-6. **Decay**: for each cell, compute excess energy and mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). For each resource, draw from `Binomial(excess, D)` to determine units removed permanently.
-7. All live program ages increment by 1.
+5. **Inert lifecycle update**: for each inert program, if it received an incoming `appendAdj` or `writeAdj` this tick, reset its abandonment timer to 0. Otherwise increment the timer by 1. If the timer reaches `inert_auto_boot_ticks`, the program becomes live immediately before maintenance/aging. If `inert_auto_boot_ticks = 0`, skip this step.
+6. **Maintenance**: for each program, draw from `Binomial(program_size, maintenance_rate)` where `maintenance_rate = M` for live programs and `maintenance_rate = M × inert_maintenance_scale` for inert programs. Deduct from free energy, then free mass, then instructions from end of program.
+7. **Decay**: for each cell, compute excess energy and mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). For each resource, draw from `Binomial(excess, D)` to determine units removed permanently.
+8. All live program ages increment by 1.
 
 ## Instruction Set
 
-69 opcodes out of 256 possible byte values. All other byte values are no-ops: immediate, free, and they do **not** open the cell. They are simply skipped during execution.
+71 opcodes out of 256 possible byte values. All other byte values are no-ops: immediate, free, and they do **not** open the cell. They are simply skipped during execution.
 
 ### Encoding
 
@@ -220,11 +221,11 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 | `0001 0000` – `0001 0100` | Stack operations | 5 |
 | `0010 0000` – `0010 1000` | Arithmetic / logic | 9 |
 | `0011 0000` – `0011 0100` | Control flow | 5 |
-| `0100 0000` – `0100 1100` | Direction and register access | 13 |
+| `0100 0000` – `0100 1110` | Direction, register, and local resource access | 15 |
 | `0101 0000` – `0110 0100` | World interaction | 21 |
-| All other values | No-op (immediate, free, does not open cell) | 187 |
+| All other values | No-op (immediate, free, does not open cell) | 185 |
 
-The 73% no-op space provides generous neutral territory for mutations: most random bit flips land on no-ops, providing genetic drift without lethality.
+The 72% no-op space provides generous neutral territory for mutations: most random bit flips land on no-ops, providing genetic drift without lethality.
 
 ### Push Literals (16 opcodes, immediate)
 
@@ -270,7 +271,7 @@ All binary operations pop two operands and push one result. Unary operations pop
 
 `for`/`next` do not nest. There is a single `LC` register. A `for` matches the next `next` found by forward scan; a `next` matches the nearest `for` found by backward scan. Both scans wrap modulo program size. This is a deliberate v0 simplification.
 
-### Direction and Register Access (13 opcodes, immediate)
+### Direction, Register, and Local Resource Access (15 opcodes, immediate)
 
 | Instruction | Opcode | Description |
 |-------------|--------|-------------|
@@ -287,8 +288,10 @@ All binary operations pop two operands and push one result. Unary operations pop
 | `setSrc` | `0100 1010` | Pop value, set `Src`. |
 | `setDst` | `0100 1011` | Pop value, set `Dst`. |
 | `setID` | `0100 1100` | Pop value, set `ID` (truncated to 8 bits). |
+| `getE` | `0100 1101` | Push this cell's free energy. Does not include background radiation. |
+| `getM` | `0100 1110` | Push this cell's free mass. |
 
-### World Interaction (20 opcodes, 1-tick)
+### World Interaction (21 opcodes, 1-tick)
 
 #### Local (target self)
 
@@ -338,18 +341,18 @@ When an instruction at index `i` is deleted from a program (via `del` or `delAdj
 | Stack operations | 5 |
 | Arithmetic / logic | 9 |
 | Control flow | 5 |
-| Direction + registers | 13 |
+| Direction + registers + local resource access | 15 |
 | World interaction (local) | 7 |
 | World interaction (nonlocal) | 14 |
-| **Total opcodes** | **69** |
-| No-op byte values | **187** (73% of opcode space) |
+| **Total opcodes** | **71** |
+| No-op byte values | **185** (72% of opcode space) |
 
 ## Mutations
 
 ### Mutation Rates
 
-- After any 1-tick instruction is executed, there is a 1 in 2^16 probability that the instruction mutates. A mutation consists of a random bit flip in its 8-bit opcode. The mutation does not affect the current tick's execution.
-- If the program had 0 free energy and paid the base cost using background radiation present in its cell, the mutation probability increases to `min(x/256, 1)` where `x` is the amount of background radiation present in the cell.
+- After any 1-tick instruction is executed, the instruction mutates with probability `2^(-mutation_base_log2)`. A mutation consists of a random bit flip in its 8-bit opcode. The mutation does not affect the current tick's execution.
+- If the program had 0 free energy and paid the base cost using background radiation present in its cell, the mutation probability increases to `min(x / 2^(mutation_background_log2), 1)` where `x` is the amount of background radiation present in the cell at payment time.
 
 ## System Parameters
 
@@ -359,12 +362,16 @@ All parameters governing external input rates, decay, maintenance, and synthesis
 |-----------|--------|-------------|-----------------|
 | Energy arrival rate | `R_energy` | P(cell receives 1 background radiation per tick) | 0.25 |
 | Mass arrival rate | `R_mass` | P(cell receives 1 free mass per tick) | 0.05 |
-| Nop-spawn probability | `P_spawn` | P(mass arrival in empty cell nucleates live nop) | 1/256 |
+| Nop-spawn probability | `P_spawn` | P(mass arrival in empty cell nucleates live nop) | 0 |
 | Energy decay rate | `D_energy` | P(each unit of background radiation or excess free energy removed per tick) | 0.01 |
 | Mass decay rate | `D_mass` | P(each excess mass unit removed per tick) | 0.01 |
-| Decay threshold | `T_cap` | Multiplier on program_size for decay floor | 2 |
-| Maintenance rate | `M` | P(each instruction costs 1 energy per tick) | 1/64 |
-| Synthesis cost | `N_synth` | Additional energy consumed per mass produced | 3 |
+| Decay threshold | `T_cap` | Multiplier on program_size for decay floor | 4 |
+| Maintenance rate | `M` | P(each live instruction costs 1 energy per tick) | 1/128 |
+| Inert maintenance scale | `inert_maintenance_scale` | Multiplier on `M` while a program is inert | 0 |
+| Inert auto-boot timeout | `inert_auto_boot_ticks` | Auto-boot after this many ticks with no incoming write (0 disables) | 10 |
+| Synthesis cost | `N_synth` | Additional energy consumed per mass produced | 1 |
+| Baseline mutation exponent | `mutation_base_log2` | Baseline mutation rate is `2^(-value)` | 16 |
+| Background mutation exponent | `mutation_background_log2` | Background-paid mutation rate is `min(x / 2^(value), 1)` | 8 |
 
 ## Seed Replicator
 
@@ -392,8 +399,8 @@ boot            ; Tick 25: activate offspring
 ; Mass:    11 (one per appended instruction)
 ;          sources: foraged from neighbor + ambient in own cell
 ;
-; The offspring is inert during construction (open, pays maintenance
-; but not execution). It becomes live when boot executes, starting
+; The offspring is inert during construction (open, no execution,
+; and by default no maintenance while inert). It becomes live when boot executes, starting
 ; with absorb on the next tick.
 ```
 
@@ -401,7 +408,7 @@ boot            ; Tick 25: activate offspring
 
 The seed organism should be placed in a pre-loaded environment: the seed cell and its neighbors should contain sufficient free mass (≥ 11) and free energy (≥ 20) so that the first replication cycle succeeds. This models a resource-rich primordial environment. Once the first generation of offspring begins absorbing energy and foraging, the population becomes self-sustaining at appropriate parameter settings.
 
-If replication fails mid-cycle (mass or energy exhausted), the `appendAdj` calls fail silently, and `boot` activates a partial offspring. The corrupted offspring will likely fail to replicate but will consume resources before dying — a natural cost of failed reproduction.
+If replication fails mid-cycle (mass or energy exhausted), the `appendAdj` calls fail silently. A later explicit `boot` may activate a partial offspring. If no further writes arrive, the abandoned offspring auto-boots after `inert_auto_boot_ticks` ticks by default. Partial offspring will often fail quickly, but may occasionally survive as mutated descendants.
 
 ### Why This Replicator is Plausible as a First Evolver
 
@@ -418,7 +425,7 @@ The seed replicator is intentionally unoptimized. Evolution can discover improve
 - **Resource gating**: check energy/mass levels before attempting replication to avoid wasting resources on failed writes
 - **Synthesis**: use `synthesize` to convert energy surplus into mass, reducing dependence on foraging
 - **Multi-cycle foraging**: loop `absorb`/`takeM`/`synthesize` multiple times to accumulate mass before replicating
-- **Offspring provisioning**: `giveE`/`giveM` after boot to help offspring survive (increasingly important as organisms grow larger, since inert offspring pay maintenance)
+- **Offspring provisioning**: `giveE`/`giveM` after boot to help offspring survive and accelerate early post-boot growth
 - **Directional awareness**: `senseSize` to find empty cells before choosing replication direction
 - **Predation**: `delAdj` to consume neighbor instructions as mass, `takeE` to steal energy (requires target to be open)
 - **Defense**: minimize time spent in open states (`absorb`, `nop`) to reduce vulnerability
@@ -491,10 +498,10 @@ M_ambient = own_cell(T)                             (accumulates in own cell bet
 
 ```
 M_out = S                                           (one per appended instruction in offspring)
-M_offspring_maint ≈ T_construct × S_avg × M         (offspring maintenance during construction)
+M_offspring_maint ≈ T_construct × S_avg × M × inert_maintenance_scale
 ```
 
-Where `T_construct` is ticks the offspring exists while inert, and `S_avg` is its average size during construction. At default parameters this is small (~2 energy worth) and typically paid from ambient cell resources.
+Where `T_construct` is ticks the offspring exists while inert, and `S_avg` is its average size during construction. With the current default `inert_maintenance_scale = 0`, this term is 0 unless the inert-maintenance setting is raised.
 
 ### Viability Condition (mass)
 
@@ -502,19 +509,19 @@ Where `T_construct` is ticks the offspring exists while inert, and `S_avg` is it
 M_forage + M_synth + M_ambient  ≥  S
 ```
 
-### Example: Seed Replicator at Default Parameters
+### Example: Seed Replicator at Current Default Parameters
 
-With `R_energy = 0.25`, `R_mass = 0.05`, `D_energy = D_mass = 0.01`, `M = 1/64`, `S = 11`, `T = 25`, solo absorber (`C_absorb = 5`), no synthesis (`K = 0`):
+With `R_energy = 0.25`, `R_mass = 0.05`, `D_energy = D_mass = 0.01`, `M = 1/128`, `S = 11`, `T = 25`, solo absorber (`C_absorb = 5`), no synthesis (`K = 0`):
 
 ```
 refill(25) = 0.25 × (1 − 0.99^25) / 0.01 = 0.25 × 22.2 = 5.55
 
 E_in       = 5 × 5.55                = 27.8
-E_maintain = 25 × 11 × (1/64)        =  4.3
+E_maintain = 25 × 11 × (1/128)       =  2.1
 E_instruct = 1 (takeM) + 11 (appendAdj) + 0 (boot) = 12.0
-E_total    = 16.3
+E_total    = 14.1
 
-Energy surplus: 11.5 per cycle. Comfortable.
+Energy surplus: 13.7 per cycle. Comfortable.
 
 neighbor_refill(25) = 0.05 × (1 − 0.99^25) / 0.01 = 0.05 × 22.2 = 1.11
 M_forage   = 1.11 / 2                = 0.56   (half of one neighbor)
@@ -524,7 +531,7 @@ M_total    = 1.81 per cycle
 Need: 11. Shortfall of ~9.2 per cycle.
 ```
 
-**The seed cannot self-replicate in a single cycle from ambient resources alone.** It needs either pre-loaded mass (see Initial Conditions) or multiple foraging cycles. An evolved organism that accumulates mass across several absorb/takeM cycles before replicating, and uses `synthesize` to convert its energy surplus (~11.5/cycle) into additional mass (~2.9 mass at `N_synth = 3`), reaches ~4.7 mass per cycle — viable replication roughly every 3 cycles.
+**The seed cannot self-replicate in a single cycle from ambient resources alone.** It needs either pre-loaded mass (see Initial Conditions) or multiple foraging cycles. An evolved organism that accumulates mass across several absorb/takeM cycles before replicating, and uses `synthesize` to convert its energy surplus (~13.7/cycle) into additional mass (~6.8 mass at `N_synth = 1`), reaches ~8.6 mass per cycle — viable replication roughly every 2 cycles.
 
 This is intentional. The seed is a bootstrap organism, not a steady-state design. Evolution's immediate pressure is toward resource gating and metabolic efficiency.
 
@@ -593,5 +600,6 @@ These are identified design tensions in v0 that may or may not require intervent
 
 - **`absorb` coupling**: `absorb` simultaneously captures background energy, captures directed radiation, sets `Msg`, overwrites `Dir`, sets `Flag`, and opens the cell. A program that needs energy must accept messages and lose its heading. If communication fails to emerge, or emerges only as a nuisance (parasitic `Dir` resets disrupting directional replication), consider splitting into separate `absorb` (energy only) and `listen` (communication only) instructions.
 - **Anti-complexity pressure**: larger programs pay proportionally more maintenance but still get exactly one 1-tick action per tick. Size buys storage capacity and strength, but not actuation bandwidth, concurrency, or spatial extent. If evolution consistently collapses toward minimal replicators and larger organisms never gain a foothold, consider letting size buy real capability (e.g., queued actions, multi-cell bodies) or softening size-dependent maintenance.
+- **Stationary environments may under-select reproduction**: if local resource conditions are effectively constant, a stationary absorber can remain viable for very long periods, weakening the selection pressure for lineage spread. If reproduction consistently fails to persist despite viable local ecologies, consider adding slow spatial/temporal variation in external inputs.
 - **Movement in dense populations**: `move` only works into empty cells. Once a region fills, spatial dynamics freeze — no fleeing, clustering, or resource-seeking movement is possible. If simulations show static fronts with no spatial reorganization, consider a `swap` instruction or displacement movement.
 - **`for`/`next` non-nesting**: the single `LC` register prevents nested iteration, which limits algorithmic complexity (e.g., 2D spatial scanning, multi-step planning). If evolved programs are clearly bumping against this ceiling, add additional `LC` registers for nesting.
