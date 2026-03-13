@@ -6,7 +6,7 @@ An artificial life simulator where self-replicating programs emerge, compete, an
 
 Proteus v0 prioritizes a minimal substrate that enables emergent complexity. The instruction set is small enough that most single-point mutations produce functional programs, and the minimal self-replicator is short enough that evolution has a smooth fitness landscape to explore. Complex behaviors — movement, predation, cooperation, communication — emerge from generic read/write primitives rather than dedicated opcodes.
 
-The physics layer provides real resource constraints (spatial locality, maintenance costs, conserved transactions with external energy and mass sources) that drive ecological dynamics without prescribing what those dynamics should look like. The substrate includes controlled stochastic elements — background energy and mass arrival, mutation, `rand`, and probabilistic maintenance and decay — but is otherwise deterministic. All physics is fully discrete and translation-invariant under 90° rotations and reflections.
+The physics layer provides real resource constraints (spatial locality, maintenance costs, conserved transactions with external energy and mass sources) that drive ecological dynamics without prescribing what those dynamics should look like. The substrate includes controlled stochastic elements — background radiation and mass arrival, mutation, `rand`, and probabilistic maintenance and decay — but is otherwise deterministic. All physics is fully discrete and translation-invariant under 90° rotations and reflections.
 
 ## Physics
 
@@ -30,7 +30,7 @@ Mass and energy are fundamental, quantized quantities located within a single ce
 
 - **Free energy**: stationary, attached to the program in a cell (if present). Used to pay for instruction execution and maintenance.
 - **Directed radiation**: a packet of energy propagating at 1 cell/tick in a cardinal direction. Carries a 16-bit signed integer value, doubling as energy transfer and long-range communication.
-- **Background energy**: an external energy input. Each cell receives 1 unit of background energy with probability `R_energy` per tick. Background energy accumulates in the cell across ticks until captured by `absorb`. It is a separate pool from free energy — it does not decay, cannot be used to pay for instructions (except as emergency payment with elevated mutation risk; see Instruction Timing), and is not subject to storage thresholds. Only `absorb` converts background energy into free energy.
+- **Background radiation**: an external energy input. Each cell receives 1 unit of background radiation with probability `R_energy` per tick. Background radiation accumulates in the cell across ticks until captured by `absorb`, but each unit independently decays (is permanently removed) with probability `D_energy` per tick. At steady state, an untouched cell holds approximately `R_energy / D_energy` background radiation. Background radiation is a separate pool from free energy — it cannot be used to pay for instructions (except as emergency payment with elevated mutation risk; see Instruction Timing) and is not subject to storage thresholds. Only `absorb` converts background radiation into free energy.
 
 **Background mass**: an external mass input, independent of energy. Each cell receives 1 unit of free mass with probability `R_mass` per tick. When mass arrives in a cell with no program, it has an additional probability `P_spawn` of nucleating a new single-`nop` program (see Spontaneous Program Creation).
 
@@ -50,7 +50,7 @@ Program size is hard-capped at 2^15 − 1 instructions.
 
 ### Maintenance
 
-Each instruction in a program independently requires 1 energy payment with probability `M` per tick. The expected cost is exactly `program_size × M` per tick. Implementation: draw from `Binomial(program_size, M)` to determine the total energy cost for the tick.
+Each instruction in a program independently requires 1 energy payment with probability `M` per tick. This applies to both live and inert programs. The expected cost is exactly `program_size × M` per tick. Implementation: draw from `Binomial(program_size, M)` to determine the total energy cost for the tick.
 
 If free energy is insufficient, maintenance is paid with free mass. If both are exhausted, instructions are destroyed from the end of the program.
 
@@ -67,7 +67,9 @@ Each live program tracks its **age**: the number of ticks since it became live. 
 Programs exist in two states:
 
 - **Live**: the program executes, pays maintenance, ages, and its cell follows normal protection rules.
-- **Inert**: the program does not execute, does not pay maintenance, does not age, and its cell is **always open**.
+- **Inert**: the program does not execute and does not age, but **does pay maintenance**. Its cell is **always open**. If maintenance destroys all instructions, the program is removed and the cell becomes empty.
+
+Inert maintenance creates a natural time pressure on construction: the parent must complete writing and boot the offspring before maintenance erodes it from the tail. For small programs at the default maintenance rate (`M` = 1/64), this pressure is mild — a 6-instruction program under construction for 20 ticks expects ~1.9 energy in maintenance costs, easily covered by ambient cell resources. For larger programs, parents that provision offspring with energy (via `giveE`) early in construction produce more intact offspring — a key evolutionary pressure toward parental investment.
 
 **Spontaneous creation** (background mass nucleation in an empty cell): the program is created **live**. This is the primordial bootstrap — no parent required.
 
@@ -127,7 +129,7 @@ Instructions come in two types:
 - **Immediate** (0-tick): execute instantly, cost no energy. Includes all stack, arithmetic, control flow, direction, and register instructions. The total number of immediate instructions per tick is capped at program size to prevent infinite loops.
 - **1-tick**: cost 0 or more energy. A program executes immediate instructions until it reaches a 1-tick instruction. It then pays the base energy cost (or halts if unable), executes the instruction, advances `IP` by 1, and the tick ends for that program.
 
-If a program has 0 free energy for a 1-tick instruction, it may pay using background energy present in its cell. This carries a significantly higher mutation probability (see Mutations).
+If a program has 0 free energy for a 1-tick instruction, it may pay using background radiation present in its cell. This carries a significantly higher mutation probability (see Mutations).
 
 ### Protection Model
 
@@ -157,7 +159,7 @@ The following nonlocal instructions work regardless of protection status:
 - `appendAdj` (into empty cell) — empty cells are always open
 - `boot` — targets inert programs only (which are always open); fails if target is empty or already live
 
-Rationale: protection is now uniform — a protected cell is genuinely protected against all hostile actions including code injection. Multi-tick replication is enabled by the inert offspring mechanism: offspring are inert (and therefore open) until explicitly booted, allowing the parent to write their full genome before activation.
+Rationale: protection is uniform — a protected cell is genuinely protected against all hostile actions including code injection. Multi-tick replication is enabled by the inert offspring mechanism: offspring are inert (and therefore open) until explicitly booted, allowing the parent to write their full genome before activation.
 
 ### Global Execution Order
 
@@ -201,10 +203,10 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 **Pass 3 — Physics update:**
 
 1. **Directed radiation** propagates to its next cell. When multiple packets of directed radiation arrive in the same cell simultaneously, all are converted to free energy.
-2. **Background energy**: each cell receives 1 unit with probability `R_energy`. This accumulates in the cell as background energy.
-3. **Absorb resolution**: for each cell containing accumulated background energy, distribute it equally (floor division) among all programs that executed `absorb` this tick and are adjacent to or occupying that cell. Remainder stays in the cell. Background energy captured this way becomes free energy in the absorbing program's cell.
+2. **Background radiation**: each cell receives 1 unit with probability `R_energy`. This accumulates in the cell. Each existing unit of background radiation independently decays with probability `D_energy`.
+3. **Absorb resolution**: for each cell containing accumulated background radiation, distribute it equally (floor division) among all programs that executed `absorb` this tick and are adjacent to or occupying that cell. Remainder stays in the cell. Background radiation captured this way becomes free energy in the absorbing program's cell.
 4. **Background mass**: each cell receives 1 free mass with probability `R_mass`. If the cell has no program, the arriving mass has an additional probability `P_spawn` of nucleating a new live `nop` program (see Spontaneous Program Creation).
-5. **Maintenance**: for each live program, draw from `Binomial(program_size, M)` to determine energy cost. Deducted from free energy, then free mass, then instructions from end of program.
+5. **Maintenance**: for each program (live and inert), draw from `Binomial(program_size, M)` to determine energy cost. Deducted from free energy, then free mass, then instructions from end of program.
 6. **Decay**: for each cell, compute excess energy and mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). For each resource, draw from `Binomial(excess, D)` to determine units removed permanently.
 7. All live program ages increment by 1.
 
@@ -295,7 +297,7 @@ All binary operations pop two operands and push one result. Unary operations pop
 | Instruction | Opcode | Base Cost | Add'l Cost | Description |
 |-------------|--------|-----------|------------|-------------|
 | `nop` | `0101 0000` | 0 | — | No operation. **Opens cell.** |
-| `absorb` | `0101 0001` | 0 | — | Mark this program as absorbing for Pass 3 background energy distribution. Capture all directed radiation in this cell as free energy. If directed radiation was received: set `Msg` to its value, set `Dir` to the direction it arrived from, set `Flag` to 1. **Opens cell.** |
+| `absorb` | `0101 0001` | 0 | — | Mark this program as absorbing for Pass 3 background radiation distribution. Capture all directed radiation in this cell as free energy. If directed radiation was received: set `Msg` to its value, set `Dir` to the direction it arrived from, set `Flag` to 1. **Opens cell.** |
 | `emit` | `0101 0010` | 1 | — | Pop value from stack. Send directed radiation carrying that value in direction `Dir`. |
 | `read` | `0101 0011` | 0 | — | Push instruction at `self[Src mod size]` onto stack. Increment `Src`. |
 | `write` | `0101 0100` | 1 | — | Pop value. Overwrite instruction at `self[Dst mod size]` with value (low 8 bits). Increment `Dst`. Does not change program size. |
@@ -348,7 +350,7 @@ When an instruction at index `i` is deleted from a program (via `del` or `delAdj
 ### Mutation Rates
 
 - After any 1-tick instruction is executed, there is a 1 in 2^16 probability that the instruction mutates. A mutation consists of a random bit flip in its 8-bit opcode. The mutation does not affect the current tick's execution.
-- If the program had 0 free energy and paid the base cost using background energy present in its cell, the mutation probability increases to `min(x/256, 1)` where `x` is the amount of background energy present in the cell.
+- If the program had 0 free energy and paid the base cost using background radiation present in its cell, the mutation probability increases to `min(x/256, 1)` where `x` is the amount of background radiation present in the cell.
 
 ## System Parameters
 
@@ -356,10 +358,10 @@ All parameters governing external input rates, decay, maintenance, and synthesis
 
 | Parameter | Symbol | Description | Suggested Start |
 |-----------|--------|-------------|-----------------|
-| Energy arrival rate | `R_energy` | P(cell receives 1 background energy per tick) | 0.25 |
+| Energy arrival rate | `R_energy` | P(cell receives 1 background radiation per tick) | 0.25 |
 | Mass arrival rate | `R_mass` | P(cell receives 1 free mass per tick) | 0.05 |
 | Nop-spawn probability | `P_spawn` | P(mass arrival in empty cell nucleates live nop) | 1/256 |
-| Energy decay rate | `D_energy` | P(each excess energy unit removed per tick) | 0.01 |
+| Energy decay rate | `D_energy` | P(each unit of background radiation or excess free energy removed per tick) | 0.01 |
 | Mass decay rate | `D_mass` | P(each excess mass unit removed per tick) | 0.01 |
 | Decay threshold | `T_cap` | Multiplier on program_size for decay floor | 2 |
 | Maintenance rate | `M` | P(each instruction costs 1 energy per tick) | 1/64 |
@@ -370,41 +372,43 @@ All parameters governing external input rates, decay, maintenance, and synthesis
 The following program is the recommended initial organism:
 
 ```
-; === Seed Replicator (12 instructions) ===
+; === Seed Replicator (11 instructions) ===
 ;
 absorb          ; Tick 1:  gather energy (opens cell — vulnerability tradeoff)
-synthesize      ; Tick 2:  convert energy to mass
-takeM           ; Tick 3:  forage free mass from neighbor
+takeM           ; Tick 2:  forage free mass from neighbor
 cw              ;          rotate Dir (covers different neighbors over cycles)
 push 0          ;
 setSrc          ;          reset Src to 0
-getSize         ;          push program size (12) for loop count
+getSize         ;          push program size (11) for loop count
 for             ;          begin loop
-  read          ; Ticks 4+: read self[Src], Src++
-  appendAdj     ; Ticks 5+: append to neighbor in Dir
+  read          ; Ticks 3+: read self[Src], Src++
+  appendAdj     ; Ticks 4+: append to neighbor in Dir
 next            ;          decrement LC, loop if > 0
-boot            ; Tick 28: activate offspring
+boot            ; Tick 25: activate offspring
 ;
 ; After the loop, IP wraps to 0 and the cycle repeats.
 ;
-; Timing:  3 + (2 × 12) + 1 = 28 ticks per replication cycle
-; Energy:  1 (synthesize base) + N_synth (synthesize cost) + 1 (takeM)
-;          + 12 (appendAdj base costs) = 14 + N_synth per cycle
-; Mass:    12 (one per appended instruction)
-;          sources: 1 from synthesize + foraged from neighbor + ambient in own cell
+; Timing:  2 + (2 × 11) + 1 = 25 ticks per replication cycle
+; Energy:  1 (takeM) + 11 (appendAdj base costs) = 12 energy per cycle
+; Mass:    11 (one per appended instruction)
+;          sources: foraged from neighbor + ambient in own cell
 ;
-; The offspring is inert during construction (open, no execution,
-; no maintenance). It becomes live when boot executes, starting
+; The offspring is inert during construction (open, pays maintenance
+; but not execution). It becomes live when boot executes, starting
 ; with absorb on the next tick.
 ```
 
+### Initial Conditions
+
+The seed organism should be placed in a pre-loaded environment: the seed cell and its neighbors should contain sufficient free mass (≥ 11) and free energy (≥ 20) so that the first replication cycle succeeds. This models a resource-rich primordial environment. Once the first generation of offspring begins absorbing energy and foraging, the population becomes self-sustaining at appropriate parameter settings.
+
+If replication fails mid-cycle (mass or energy exhausted), the `appendAdj` calls fail silently, and `boot` activates a partial offspring. The corrupted offspring will likely fail to replicate but will consume resources before dying — a natural cost of failed reproduction.
+
 ### Why This Replicator is Plausible as a First Evolver
 
-The seed replicator uses six distinct 1-tick instructions (`absorb`, `synthesize`, `takeM`, `read`, `appendAdj`, `boot`) and six immediate instructions (`cw`, `push`, `setSrc`, `getSize`, `for`, `next`). The offspring is inert during construction, preventing premature execution of partially written code. The `Dst` register is never used. The only cursor management is resetting `Src` to 0 each cycle.
+The seed replicator uses four distinct 1-tick instructions (`absorb`, `takeM`, `read`, `appendAdj`, plus `boot` — five total) and six immediate instructions (`cw`, `push`, `setSrc`, `getSize`, `for`, `next`). The offspring is inert during construction, preventing premature execution of partially written code. The `Dst` register is never used. The only cursor management is resetting `Src` to 0 each cycle.
 
-The seed does not check resource levels before attempting replication — it will fail and retry on subsequent cycles if energy or mass is insufficient. This is intentionally unoptimized.
-
-**Note on initial conditions**: the seed calls `synthesize` and `takeM` only once per cycle, producing at most ~2 mass. At default parameters, this is far short of the 12 mass needed. The seed is designed for a resource-rich bootstrap environment: initial cells should be pre-loaded with sufficient free mass (≥12) and energy so that the first replication cycle succeeds. Once offspring begin absorbing and synthesizing, the population becomes self-sustaining. If replication fails mid-cycle (mass exhausted), the `appendAdj` calls fail silently, `boot` activates a partial offspring, and the cycle restarts — producing a corrupted organism. Evolution's first task is to improve resource management. An evolved organism that loops `absorb`/`synthesize`/`takeM` multiple times before replicating will be far more robust.
+The seed does not check resource levels before attempting replication, does not provision offspring with energy, and does not use `synthesize` to manufacture mass. These are all evolutionary optimization opportunities.
 
 The probability of this sequence emerging from random noise is extremely low. Proteus v0 uses manual seeding of the seed replicator to bypass the origin-of-life bottleneck and focus on evolutionary dynamics.
 
@@ -413,8 +417,9 @@ The probability of this sequence emerging from random noise is extremely low. Pr
 The seed replicator is intentionally unoptimized. Evolution can discover improvements such as:
 
 - **Resource gating**: check energy/mass levels before attempting replication to avoid wasting resources on failed writes
-- **Multi-cycle foraging**: loop absorb/synthesize/takeM multiple times to accumulate mass before replicating
-- **Offspring provisioning**: `giveE`/`giveM` after boot to help offspring survive
+- **Synthesis**: use `synthesize` to convert energy surplus into mass, reducing dependence on foraging
+- **Multi-cycle foraging**: loop `absorb`/`takeM`/`synthesize` multiple times to accumulate mass before replicating
+- **Offspring provisioning**: `giveE`/`giveM` after boot to help offspring survive (increasingly important as organisms grow larger, since inert offspring pay maintenance)
 - **Directional awareness**: `senseSize` to find empty cells before choosing replication direction
 - **Predation**: `delAdj` to consume neighbor instructions as mass, `takeE` to steal energy (requires target to be open)
 - **Defense**: minimize time spent in open states (`absorb`, `nop`) to reduce vulnerability
@@ -422,28 +427,35 @@ The seed replicator is intentionally unoptimized. Evolution can discover improve
 - **Code injection**: `writeAdj` to modify open neighbor programs (parasitism, mutualism)
 - **Streamlining**: eliminate unnecessary instructions to reduce maintenance cost and replication time
 - **Movement**: `move` to relocate toward resources or away from threats
-- **Metabolic optimization**: tune the ratio of `synthesize` to `takeM` based on local resource availability
 
 ## Reference Energy/Mass Budget
 
 The following parametric equations describe the per-cycle resource budget for a reference organism. These support analytical parameter exploration before simulation.
 
-Let `S` = program size (instructions), `T` = ticks per replication cycle, `K` = mass produced via `synthesize` per cycle.
+Let `S` = program size (instructions), `T` = ticks per replication cycle, `K` = mass produced via `synthesize` per cycle (0 for the seed).
 
 ### Energy Income
 
+After an `absorb` drains a cell's background radiation to 0, it refills over `T` ticks accounting for ongoing decay:
+
 ```
-E_in = T × R_energy × C_absorb
+refill(T) = R_energy × (1 − (1 − D_energy)^T) / D_energy
 ```
 
-Where `C_absorb` = number of cells contributing background energy to this absorber (1 + number of adjacent cells with no competing absorber, up to 5). A solitary organism absorbs from itself and all 4 neighbors: `C_absorb = 5`.
+This approaches the steady-state value `R_energy / D_energy` for large `T`. A solitary absorber drains its own cell plus 4 neighbors:
+
+```
+E_in = C_absorb × refill(T)
+```
+
+Where `C_absorb` = cells contributing (up to 5 for a solitary organism).
 
 ### Energy Costs
 
 ```
 E_maintain  = T × S × M                            (expected maintenance)
 E_instruct  = sum of base costs per cycle           (1-tick instruction base costs)
-E_synth     = K × N_synth                           (synthesis additional cost)
+E_synth     = K × (N_synth + 1)                    (synthesis base + additional cost)
 E_decay     ≈ negligible at low stockpiles          (stochastic, hard to compute exactly)
 ```
 
@@ -457,47 +469,64 @@ With margin — the organism needs surplus energy to survive variance and occasi
 
 ### Mass Income
 
+For an empty neighbor cell drained to 0 by `takeM`, mass refills accounting for decay (empty cells have threshold 0, so all mass decays):
+
 ```
-M_synth   = K                                       (from synthesize)
-M_forage  = f(R_mass, neighbor state)               (from takeM on neighbors)
-M_ambient = T × R_mass                              (accumulates in own cell between cycles)
+neighbor_refill(T) = R_mass × (1 − (1 − D_mass)^T) / D_mass
+```
+
+For the organism's own cell with threshold `T_cap × S`, ambient mass below threshold does not decay:
+
+```
+own_cell(T) = T × R_mass    (if current mass stays below threshold)
+```
+
+```
+M_forage  = neighbor_refill(T) / 2                 (takeM takes half, one neighbor per cycle)
+M_synth   = K                                       (from synthesize, if used)
+M_ambient = own_cell(T)                             (accumulates in own cell between cycles)
 ```
 
 ### Mass Cost
 
 ```
 M_out = S                                           (one per appended instruction in offspring)
+M_offspring_maint ≈ T_construct × S_avg × M         (offspring maintenance during construction)
 ```
+
+Where `T_construct` is ticks the offspring exists while inert, and `S_avg` is its average size during construction. At default parameters this is small (~2 energy worth) and typically paid from ambient cell resources.
 
 ### Viability Condition (mass)
 
 ```
-M_synth + M_forage + M_ambient  ≥  S
+M_forage + M_synth + M_ambient  ≥  S
 ```
 
-### Example: Default Parameters
+### Example: Seed Replicator at Default Parameters
 
-With `R_energy = 0.25`, `R_mass = 0.05`, `M = 1/64`, `N_synth = 3`, `S = 12`, `T = 28`, solo absorber (`C_absorb = 5`):
+With `R_energy = 0.25`, `R_mass = 0.05`, `D_energy = D_mass = 0.01`, `M = 1/64`, `S = 11`, `T = 25`, solo absorber (`C_absorb = 5`), no synthesis (`K = 0`):
 
 ```
-E_in       = 28 × 0.25 × 5          = 35.0
-E_maintain = 28 × 12 × (1/64)       =  5.25
-E_instruct = 1 + 1 + 12 + 0         = 14        (synthesize + takeM + 12×appendAdj + boot)
-E_synth    = K × 3
-E_total    = 19.25 + 3K
+refill(25) = 0.25 × (1 − 0.99^25) / 0.01 = 0.25 × 22.2 = 5.55
 
-Solve: 35 > 19.25 + 3K → K < 5.25
-So the organism can synthesize up to 5 mass per cycle from energy.
+E_in       = 5 × 5.55                = 27.8
+E_maintain = 25 × 11 × (1/64)        =  4.3
+E_instruct = 1 (takeM) + 11 (appendAdj) + 0 (boot) = 12.0
+E_total    = 16.3
 
-M_synth    = 5
-M_forage   ≈ 0.5 × (28 × 0.05 × 4 neighbors) / 2 = ~1.4 (half of one neighbor's accumulation)
-M_ambient  = 28 × 0.05              = 1.4
-M_total    ≈ 7.8
+Energy surplus: 11.5 per cycle. Comfortable.
 
-Need: 12. Shortfall of ~4.2.
+neighbor_refill(25) = 0.05 × (1 − 0.99^25) / 0.01 = 0.05 × 22.2 = 1.11
+M_forage   = 1.11 / 2                = 0.56   (half of one neighbor)
+M_ambient  = 25 × 0.05               = 1.25
+M_total    = 1.81 per cycle
+
+Need: 11. Shortfall of ~9.2 per cycle.
 ```
 
-At these default parameters, a single replication cycle cannot gather enough mass. The organism needs **multiple foraging rounds** before replicating, or `R_mass` needs to be higher (~0.08–0.10), or `N_synth` lower (2). This tradeoff is intentional — parameter tuning determines whether organisms replicate every cycle or accumulate across cycles.
+**The seed cannot self-replicate in a single cycle from ambient resources alone.** It needs either pre-loaded mass (see Initial Conditions) or multiple foraging cycles. An evolved organism that accumulates mass across several absorb/takeM cycles before replicating, and uses `synthesize` to convert its energy surplus (~11.5/cycle) into additional mass (~2.9 mass at `N_synth = 3`), reaches ~4.7 mass per cycle — viable replication roughly every 3 cycles.
+
+This is intentional. The seed is a bootstrap organism, not a steady-state design. Evolution's immediate pressure is toward resource gating and metabolic efficiency.
 
 ## Implementation Notes
 
@@ -521,8 +550,9 @@ In practice, this does not require copying the entire grid. Most cells are not t
 
 Several mechanics use per-quantum independent probabilities, requiring efficient binomial sampling:
 
-- **Decay**: `Binomial(excess, D_energy)` and `Binomial(excess, D_mass)` per cell per tick.
-- **Maintenance**: `Binomial(program_size, M)` per live program per tick.
+- **Background radiation decay**: `Binomial(bg_radiation, D_energy)` per cell per tick.
+- **Free energy/mass decay**: `Binomial(excess, D_energy)` and `Binomial(excess, D_mass)` per cell per tick.
+- **Maintenance**: `Binomial(program_size, M)` per program (live and inert) per tick.
 - **Background input**: `Bernoulli(R_energy)` and `Bernoulli(R_mass)` per cell per tick.
 
 For small counts and low probabilities, direct Bernoulli trials are efficient. For large counts, precomputed binomial lookup tables or fast approximations (e.g., normal approximation with continuity correction for large `n`) are recommended. A single high-quality PRNG (e.g., xoshiro256++) seeded deterministically provides reproducible simulations.
@@ -548,7 +578,7 @@ These features are intentionally deferred. They may be added if the v0 ecosystem
 - **Plasmids**: modular code organization, enabling horizontal gene transfer
 - **Insert instruction**: insert (rather than overwrite) at a target position, shifting subsequent instructions
 - **Evolvable instruction sets**: organisms define their own opcode-to-behavior mapping
-- **Environmental variation**: spatially and temporally varying background energy/mass intensity (e.g., 3D simplex noise over x, y, t)
+- **Environmental variation**: spatially and temporally varying background radiation/mass intensity (e.g., 3D simplex noise over x, y, t)
 - **Labels**: named jump targets for more structured control flow
 - **mul/div/mod**: complex arithmetic (currently achievable via loops)
 - **Trap instruction**: active defense mechanism (capture or redirect incoming writes)
