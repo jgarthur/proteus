@@ -25,6 +25,9 @@ BUILDER_MNEMONICS = {
 }
 REPLICATOR_COPY_MNEMONICS = {"read", "readadj"}
 ABSORB_DOMINANCE_THRESHOLD = 0.75
+NONTRIVIAL_BOOT_WRITE_THRESHOLD = 4
+FRAGMENT_BOOT_WRITE_THRESHOLD = 2
+BOOT_SURVIVAL_THRESHOLDS = (10, 50, 100)
 
 
 def _opcode_token(raw_opcode: int) -> str:
@@ -148,6 +151,13 @@ def _describe_program(
         "age": program.age,
         "size": len(program.instructions),
         "hash": compute_program_hash(program.instructions),
+        "birth_kind": program.birth_kind,
+        "created_tick": program.created_tick,
+        "writes_received": program.writes_received,
+        "boot_tick": program.boot_tick,
+        "boot_size": program.boot_size,
+        "boot_writes_received": program.boot_writes_received,
+        "booted_by_hash": program.booted_by_hash,
         "ip": program.ip,
         "free_energy": int(session.world.free_energy[program.y, program.x]),
         "free_mass": int(session.world.free_mass[program.y, program.x]),
@@ -193,12 +203,49 @@ def snapshot_session(
     dominant_hash_count = max(hash_counts.values(), default=0)
     live_total = len(live_programs)
     live_builder_count = sum(1 for program in live_programs if structures[program.program_id]["builder"])
-    live_replicator_count = sum(1 for program in live_programs if structures[program.program_id]["replicator"])
+    live_replicator_motif_count = sum(1 for program in live_programs if structures[program.program_id]["replicator"])
     live_absorb_only_count = sum(1 for program in live_programs if structures[program.program_id]["absorb_only"])
     live_absorb_dominated_count = sum(
         1 for program in live_programs if structures[program.program_id]["absorb_dominated"]
     )
     live_nop_only_count = sum(1 for program in live_programs if structures[program.program_id]["nop_only"])
+    live_constructed_count = sum(1 for program in live_programs if program.birth_kind == "constructed")
+    live_booted_count = sum(1 for program in live_programs if program.boot_tick is not None)
+    boot_survivor_counts = {
+        threshold: sum(1 for program in live_programs if program.boot_tick is not None and program.age >= threshold)
+        for threshold in BOOT_SURVIVAL_THRESHOLDS
+    }
+    live_nontrivial_boot_survivor_count = sum(
+        1
+        for program in live_programs
+        if program.boot_tick is not None
+        and program.age >= BOOT_SURVIVAL_THRESHOLDS[0]
+        and (program.boot_writes_received or 0) >= NONTRIVIAL_BOOT_WRITE_THRESHOLD
+    )
+    live_fragment_boot_survivor_count = sum(
+        1
+        for program in live_programs
+        if program.boot_tick is not None
+        and program.age >= BOOT_SURVIVAL_THRESHOLDS[0]
+        and 0 < (program.boot_writes_received or 0) <= FRAGMENT_BOOT_WRITE_THRESHOLD
+    )
+    live_exact_parent_match_count = sum(
+        1
+        for program in live_programs
+        if program.boot_tick is not None
+        and program.age >= BOOT_SURVIVAL_THRESHOLDS[0]
+        and program.booted_by_hash is not None
+        and compute_program_hash(program.instructions) == program.booted_by_hash
+    )
+    live_booted_from_abandoned_count = sum(
+        1
+        for program in live_programs
+        if program.boot_tick is not None
+        and program.age >= BOOT_SURVIVAL_THRESHOLDS[0]
+        and program.booted_while_under_grace is False
+    )
+    move_attempts = int(summary.get("counters", {}).get("move_attempts", 0))
+    move_successes = int(summary.get("counters", {}).get("move_successes", 0))
 
     top_hashes: list[dict[str, Any]] = []
     for program_hash, count in hash_counts.most_common(top_hash_limit):
@@ -259,14 +306,41 @@ def snapshot_session(
             "structure": {
                 "live_builder_count": int(live_builder_count),
                 "live_builder_share": (live_builder_count / live_total) if live_total else 0.0,
-                "live_replicator_count": int(live_replicator_count),
-                "live_replicator_share": (live_replicator_count / live_total) if live_total else 0.0,
+                "live_replicator_motif_count": int(live_replicator_motif_count),
+                "live_replicator_motif_share": (live_replicator_motif_count / live_total) if live_total else 0.0,
+                "live_replicator_count": int(live_nontrivial_boot_survivor_count),
+                "live_replicator_share": (live_nontrivial_boot_survivor_count / live_total) if live_total else 0.0,
+                "live_constructed_count": int(live_constructed_count),
+                "live_constructed_share": (live_constructed_count / live_total) if live_total else 0.0,
+                "live_booted_count": int(live_booted_count),
+                "live_booted_share": (live_booted_count / live_total) if live_total else 0.0,
+                "live_boot_survivor_count_10": int(boot_survivor_counts[10]),
+                "live_boot_survivor_share_10": (boot_survivor_counts[10] / live_total) if live_total else 0.0,
+                "live_boot_survivor_count_50": int(boot_survivor_counts[50]),
+                "live_boot_survivor_share_50": (boot_survivor_counts[50] / live_total) if live_total else 0.0,
+                "live_boot_survivor_count_100": int(boot_survivor_counts[100]),
+                "live_boot_survivor_share_100": (boot_survivor_counts[100] / live_total) if live_total else 0.0,
+                "live_nontrivial_boot_survivor_count_10": int(live_nontrivial_boot_survivor_count),
+                "live_nontrivial_boot_survivor_share_10": (
+                    live_nontrivial_boot_survivor_count / live_total
+                ) if live_total else 0.0,
+                "live_fragment_boot_survivor_count_10": int(live_fragment_boot_survivor_count),
+                "live_fragment_boot_survivor_share_10": (
+                    live_fragment_boot_survivor_count / live_total
+                ) if live_total else 0.0,
+                "live_exact_parent_match_count_10": int(live_exact_parent_match_count),
+                "live_exact_parent_match_share_10": (live_exact_parent_match_count / live_total) if live_total else 0.0,
+                "live_booted_from_abandoned_count_10": int(live_booted_from_abandoned_count),
+                "live_booted_from_abandoned_share_10": (
+                    live_booted_from_abandoned_count / live_total
+                ) if live_total else 0.0,
                 "live_absorb_only_count": int(live_absorb_only_count),
                 "live_absorb_only_share": (live_absorb_only_count / live_total) if live_total else 0.0,
                 "live_absorb_dominated_count": int(live_absorb_dominated_count),
                 "live_absorb_dominated_share": (live_absorb_dominated_count / live_total) if live_total else 0.0,
                 "live_nop_only_count": int(live_nop_only_count),
                 "live_nop_only_share": (live_nop_only_count / live_total) if live_total else 0.0,
+                "move_success_rate": (move_successes / move_attempts) if move_attempts else 0.0,
                 "live_opcode_entropy_mean": float(np.mean(live_entropies)) if live_entropies else 0.0,
                 "live_opcode_concentration_mean": float(np.mean(live_concentrations)) if live_concentrations else 0.0,
             },
@@ -329,12 +403,41 @@ def time_series_point(
         )
     ) if live_programs else 0.0
     live_builder_count = sum(1 for program in live_programs if structures[program.program_id]["builder"])
-    live_replicator_count = sum(1 for program in live_programs if structures[program.program_id]["replicator"])
+    live_replicator_motif_count = sum(1 for program in live_programs if structures[program.program_id]["replicator"])
     live_absorb_only_count = sum(1 for program in live_programs if structures[program.program_id]["absorb_only"])
     live_absorb_dominated_count = sum(
         1 for program in live_programs if structures[program.program_id]["absorb_dominated"]
     )
     live_nop_only_count = sum(1 for program in live_programs if structures[program.program_id]["nop_only"])
+    live_constructed_count = sum(1 for program in live_programs if program.birth_kind == "constructed")
+    live_booted_count = sum(1 for program in live_programs if program.boot_tick is not None)
+    live_boot_survivor_count_10 = sum(
+        1 for program in live_programs if program.boot_tick is not None and program.age >= BOOT_SURVIVAL_THRESHOLDS[0]
+    )
+    live_nontrivial_boot_survivor_count_10 = sum(
+        1
+        for program in live_programs
+        if program.boot_tick is not None
+        and program.age >= BOOT_SURVIVAL_THRESHOLDS[0]
+        and (program.boot_writes_received or 0) >= NONTRIVIAL_BOOT_WRITE_THRESHOLD
+    )
+    live_fragment_boot_survivor_count_10 = sum(
+        1
+        for program in live_programs
+        if program.boot_tick is not None
+        and program.age >= BOOT_SURVIVAL_THRESHOLDS[0]
+        and 0 < (program.boot_writes_received or 0) <= FRAGMENT_BOOT_WRITE_THRESHOLD
+    )
+    live_exact_parent_match_count_10 = sum(
+        1
+        for program in live_programs
+        if program.boot_tick is not None
+        and program.age >= BOOT_SURVIVAL_THRESHOLDS[0]
+        and program.booted_by_hash is not None
+        and compute_program_hash(program.instructions) == program.booted_by_hash
+    )
+    move_attempts = int(summary.get("counters", {}).get("move_attempts", 0))
+    move_successes = int(summary.get("counters", {}).get("move_successes", 0))
     return {
         "tick": summary["tick"],
         "engine_backend": ENGINE_BACKEND_NAME,
@@ -352,10 +455,26 @@ def time_series_point(
         "effective_median": effective_median,
         "dominant_hash_share": (max(hash_counts.values()) / len(programs)) if programs else 0.0,
         "builder_share": (live_builder_count / live_total) if live_total else 0.0,
-        "replicator_share": (live_replicator_count / live_total) if live_total else 0.0,
+        "replicator_motif_share": (live_replicator_motif_count / live_total) if live_total else 0.0,
+        "constructed_live_share": (live_constructed_count / live_total) if live_total else 0.0,
+        "booted_live_share": (live_booted_count / live_total) if live_total else 0.0,
+        "boot_survivor_share_10": (live_boot_survivor_count_10 / live_total) if live_total else 0.0,
+        "boot_nontrivial_survivor_share_10": (
+            live_nontrivial_boot_survivor_count_10 / live_total
+        ) if live_total else 0.0,
+        "boot_fragment_survivor_share_10": (
+            live_fragment_boot_survivor_count_10 / live_total
+        ) if live_total else 0.0,
+        "boot_exact_parent_match_share_10": (
+            live_exact_parent_match_count_10 / live_total
+        ) if live_total else 0.0,
+        "replicator_share": (
+            live_nontrivial_boot_survivor_count_10 / live_total
+        ) if live_total else 0.0,
         "absorb_only_share": (live_absorb_only_count / live_total) if live_total else 0.0,
         "absorb_dominated_share": (live_absorb_dominated_count / live_total) if live_total else 0.0,
         "nop_only_share": (live_nop_only_count / live_total) if live_total else 0.0,
+        "move_success_rate": (move_successes / move_attempts) if move_attempts else 0.0,
         "max_inert_ticks_without_write": max((program.inert_ticks_without_write for program in inert_programs), default=0),
         "inert_waiting_programs": int(sum(1 for program in inert_programs if program.inert_ticks_without_write > 0)),
         "abandoned_inert_programs": int(

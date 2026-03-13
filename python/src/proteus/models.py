@@ -146,6 +146,19 @@ class ProgramState:
     live: bool = True
     age: int = 0
     inert_ticks_without_write: int = 0
+    birth_kind: str = "seed"
+    created_tick: int = 0
+    creator_program_id: int | None = None
+    creator_hash: str | None = None
+    last_writer_program_id: int | None = None
+    last_writer_hash: str | None = None
+    writes_received: int = 0
+    boot_tick: int | None = None
+    boot_size: int | None = None
+    boot_writes_received: int | None = None
+    booted_by_program_id: int | None = None
+    booted_by_hash: str | None = None
+    booted_while_under_grace: bool | None = None
 
     @property
     def size(self) -> int:
@@ -173,6 +186,19 @@ class ProgramState:
             live=self.live,
             age=self.age,
             inert_ticks_without_write=self.inert_ticks_without_write,
+            birth_kind=self.birth_kind,
+            created_tick=self.created_tick,
+            creator_program_id=self.creator_program_id,
+            creator_hash=self.creator_hash,
+            last_writer_program_id=self.last_writer_program_id,
+            last_writer_hash=self.last_writer_hash,
+            writes_received=self.writes_received,
+            boot_tick=self.boot_tick,
+            boot_size=self.boot_size,
+            boot_writes_received=self.boot_writes_received,
+            booted_by_program_id=self.booted_by_program_id,
+            booted_by_hash=self.booted_by_hash,
+            booted_while_under_grace=self.booted_while_under_grace,
         )
 
 

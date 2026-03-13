@@ -50,6 +50,8 @@ DEFAULT_COUNTERS = {
     "inert_abandonments": 0,
     "inert_removed_preboot": 0,
     "inert_removed_while_abandoned": 0,
+    "move_attempts": 0,
+    "move_successes": 0,
 }
 
 
@@ -210,6 +212,10 @@ class WorldState:
         live: bool,
         initial_dir: int | None = None,
         initial_id: int | None = None,
+        birth_kind: str = "seed",
+        created_tick: int = 0,
+        creator_program_id: int | None = None,
+        creator_hash: str | None = None,
     ) -> ProgramState:
         x, y = self.wrap(x, y)
         program = ProgramState(
@@ -221,6 +227,10 @@ class WorldState:
             id_reg=wrap8(initial_id if initial_id is not None else rng.integers(0, 256)),
             live=bool(live),
             age=0,
+            birth_kind=birth_kind,
+            created_tick=int(created_tick),
+            creator_program_id=creator_program_id,
+            creator_hash=creator_hash,
         )
         self.place_program(program)
         return program
@@ -292,6 +302,31 @@ class WorldState:
                 live=bool(raw_program["live"]),
                 age=int(raw_program["age"]),
                 inert_ticks_without_write=int(raw_program.get("inert_ticks_without_write", 0)),
+                birth_kind=str(raw_program.get("birth_kind", "seed")),
+                created_tick=int(raw_program.get("created_tick", 0)),
+                creator_program_id=(
+                    None if raw_program.get("creator_program_id") is None else int(raw_program["creator_program_id"])
+                ),
+                creator_hash=raw_program.get("creator_hash"),
+                last_writer_program_id=(
+                    None if raw_program.get("last_writer_program_id") is None else int(raw_program["last_writer_program_id"])
+                ),
+                last_writer_hash=raw_program.get("last_writer_hash"),
+                writes_received=int(raw_program.get("writes_received", 0)),
+                boot_tick=None if raw_program.get("boot_tick") is None else int(raw_program["boot_tick"]),
+                boot_size=None if raw_program.get("boot_size") is None else int(raw_program["boot_size"]),
+                boot_writes_received=(
+                    None if raw_program.get("boot_writes_received") is None else int(raw_program["boot_writes_received"])
+                ),
+                booted_by_program_id=(
+                    None if raw_program.get("booted_by_program_id") is None else int(raw_program["booted_by_program_id"])
+                ),
+                booted_by_hash=raw_program.get("booted_by_hash"),
+                booted_while_under_grace=(
+                    None
+                    if raw_program.get("booted_while_under_grace") is None
+                    else bool(raw_program["booted_while_under_grace"])
+                ),
             )
             world.programs[program.program_id] = program
         for entry in payload.get("radiation", []):
@@ -390,6 +425,8 @@ class SimulationSession:
                     live=seed.live,
                     initial_dir=seed.initial_dir,
                     initial_id=seed.initial_id,
+                    birth_kind="seed",
+                    created_tick=0,
                 )
         world.recompute_open_mask()
         session._initial_archive = session.export_archive()
@@ -569,6 +606,11 @@ class SimulationSession:
                 "LC": program.lc,
             },
             "inert_ticks_without_write": program.inert_ticks_without_write,
+            "birth_kind": program.birth_kind,
+            "writes_received": program.writes_received,
+            "boot_tick": program.boot_tick,
+            "boot_size": program.boot_size,
+            "boot_writes_received": program.boot_writes_received,
             "stack": list(program.stack),
             "bytecode": list(program.instructions),
             "disassembly": disassemble_program(program.instructions),
@@ -613,6 +655,8 @@ class SimulationSession:
                         self._increment_counter("append_adj_attempts")
                     elif mnemonic == "boot":
                         self._increment_counter("boot_attempts")
+                    elif mnemonic == "move":
+                        self._increment_counter("move_attempts")
                     nonlocal_actions.append(
                         NonlocalAction(
                             source_program_id=program.program_id,
@@ -1075,10 +1119,19 @@ class SimulationSession:
             if source_program is not None and source_program.flag != 1:
                 source_program.flag = 0
 
-    def _record_inert_write(self, program: ProgramState, written_inert_programs: set[int]) -> None:
+    def _record_inert_write(
+        self,
+        program: ProgramState,
+        writer_program: ProgramState | None,
+        written_inert_programs: set[int],
+    ) -> None:
         if program.live:
             return
         program.inert_ticks_without_write = 0
+        program.writes_received += 1
+        if writer_program is not None:
+            program.last_writer_program_id = writer_program.program_id
+            program.last_writer_hash = compute_program_hash(writer_program.instructions)
         written_inert_programs.add(program.program_id)
         self._increment_counter("inert_write_events")
 
@@ -1091,15 +1144,15 @@ class SimulationSession:
     ) -> None:
         target_snapshot = snapshot.get_program(action.target_x, action.target_y)
         current_target = self.world.get_program(action.target_x, action.target_y)
+        source_program = self.world.programs.get(action.source_program_id)
         if action.mnemonic == "writeAdj":
             if target_snapshot is None or current_target is None or action.stack_top is None:
-                source_program = self.world.programs.get(action.source_program_id)
                 if source_program is not None:
                     source_program.flag = 1
                 return
             index = action.source_dst % len(target_snapshot.instructions)
             current_target.instructions[index] = wrap8(action.stack_top)
-            self._record_inert_write(current_target, written_inert_programs)
+            self._record_inert_write(current_target, source_program, written_inert_programs)
             return
         if action.mnemonic == "appendAdj":
             if action.stack_top is None:
@@ -1114,14 +1167,18 @@ class SimulationSession:
                     [wrap8(action.stack_top)],
                     self.rng,
                     live=False,
+                    birth_kind="constructed",
+                    created_tick=self.tick,
+                    creator_program_id=None if source_program is None else source_program.program_id,
+                    creator_hash=None if source_program is None else compute_program_hash(source_program.instructions),
                 )
                 self._increment_counter("inert_created")
                 current_target = self.world.get_program(action.target_x, action.target_y)
                 if current_target is not None:
-                    self._record_inert_write(current_target, written_inert_programs)
+                    self._record_inert_write(current_target, source_program, written_inert_programs)
             elif current_target is not None:
                 current_target.instructions.append(wrap8(action.stack_top))
-                self._record_inert_write(current_target, written_inert_programs)
+                self._record_inert_write(current_target, source_program, written_inert_programs)
             return
         if action.mnemonic == "delAdj":
             if target_snapshot is None or current_target is None:
@@ -1151,6 +1208,12 @@ class SimulationSession:
             current_target.live = True
             current_target.age = 0
             current_target.inert_ticks_without_write = 0
+            current_target.boot_tick = self.tick
+            current_target.boot_size = len(current_target.instructions)
+            current_target.boot_writes_received = current_target.writes_received
+            current_target.booted_by_program_id = None if source_program is None else source_program.program_id
+            current_target.booted_by_hash = None if source_program is None else compute_program_hash(source_program.instructions)
+            current_target.booted_while_under_grace = was_under_grace
             newly_live_programs.add(current_target.program_id)
             self._increment_counter("boot_successes")
             self._increment_counter(
@@ -1258,6 +1321,7 @@ class SimulationSession:
             self.world.free_mass[target_y, target_x] += int(self.world.free_mass[source_y, source_x])
             self.world.free_energy[source_y, source_x] = 0
             self.world.free_mass[source_y, source_x] = 0
+            self._increment_counter("move_successes")
 
     def _run_physics(
         self,
@@ -1302,7 +1366,15 @@ class SimulationSession:
                 ys, xs = np.nonzero(spawn_mask)
                 for y, x in zip(ys.tolist(), xs.tolist()):
                     if self.world.get_program(x, y) is None:
-                        program = self.world.new_program(x, y, [NOP_OPCODE], self.rng, live=True)
+                        program = self.world.new_program(
+                            x,
+                            y,
+                            [NOP_OPCODE],
+                            self.rng,
+                            live=True,
+                            birth_kind="spawn",
+                            created_tick=self.tick,
+                        )
                         newly_live_programs.add(program.program_id)
         self.world.free_mass += (mass_arrivals & ~spawn_mask).astype(np.int64)
 

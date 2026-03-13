@@ -23,7 +23,8 @@ The goal is not to replace simulation. It is to identify which pressures are act
 1. Energy is not the main limiting resource for small absorbers.
 2. Mass is still the main bottleneck for replication.
 3. The new inert-grace rule makes active construction cheap, but abandoned fragments can still persist for hundreds of ticks if they can scavenge any ambient energy.
-4. Random movement is probably not the first-order fix. It may help spatial escape later, but it does not change the present energy-vs-mass asymmetry enough by itself.
+4. Mass starvation likely has a directional failure mode: parents often begin replication, write only the first 1-2 instructions, and then stall. Because the current seed writes an `absorb` prefix first, failed offspring are biased toward absorb-heavy junk rather than neutral debris.
+5. Random movement is probably not the first-order fix. It may help spatial escape later, but it does not change the present energy-vs-mass asymmetry enough by itself.
 
 ### Background Energy Intake
 
@@ -96,6 +97,23 @@ That gives total mass income of about:
 `M_total_cycle ~= 0.56 + 1.25 + 6.81 ~= 8.62 mass`
 
 Still short of 11 in one cycle, but plausibly enough over about 2 cycles. This matches the general simulation picture: replication should be viable, but not free.
+
+### Prefix-Writing Failure Mode
+
+The current seed's copy order matters.
+
+If a parent is mass-starved mid-construction, the offspring does not fail symmetrically. It keeps whatever prefix has already been written. Because the seed starts by copying survival-relevant instructions early, failed construction is not random garbage. It is biased toward short absorb-prefixed programs.
+
+This creates a specific ecological ratchet:
+
+- the parent survives long enough to start many replication attempts
+- many attempts run out of mass before a full genome is written
+- incomplete offspring are enriched for the earliest copied instructions
+- if those early instructions include `absorb`, the world is systematically seeded with absorb-heavy fragments
+
+So one of the current selection pressures is not merely "replication is expensive." It is "failed replication manufactures plants."
+
+This is important when interpreting absorb-stack prevalence. Some of that prevalence may be real selection for stationary harvesters, but some may also be a byproduct of the seed's write order under mass starvation.
 
 ### Decay And Storage
 

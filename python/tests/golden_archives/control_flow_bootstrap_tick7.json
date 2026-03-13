@@ -283,7 +283,20 @@
         "stack": [],
         "live": true,
         "age": 7,
-        "inert_ticks_without_write": 0
+        "inert_ticks_without_write": 0,
+        "birth_kind": "seed",
+        "created_tick": 0,
+        "creator_program_id": null,
+        "creator_hash": null,
+        "last_writer_program_id": null,
+        "last_writer_hash": null,
+        "writes_received": 0,
+        "boot_tick": null,
+        "boot_size": null,
+        "boot_writes_received": null,
+        "booted_by_program_id": null,
+        "booted_by_hash": null,
+        "booted_while_under_grace": null
       },
       {
         "program_id": 2,
@@ -308,7 +321,20 @@
         ],
         "live": true,
         "age": 3,
-        "inert_ticks_without_write": 0
+        "inert_ticks_without_write": 0,
+        "birth_kind": "constructed",
+        "created_tick": 2,
+        "creator_program_id": 1,
+        "creator_hash": "45df67a83633",
+        "last_writer_program_id": 1,
+        "last_writer_hash": "45df67a83633",
+        "writes_received": 1,
+        "boot_tick": 3,
+        "boot_size": 1,
+        "boot_writes_received": 1,
+        "booted_by_program_id": 1,
+        "booted_by_hash": "45df67a83633",
+        "booted_while_under_grace": true
       }
     ],
     "radiation": []
@@ -324,6 +350,8 @@
     "inert_write_events": 1,
     "inert_abandonments": 0,
     "inert_removed_preboot": 0,
-    "inert_removed_while_abandoned": 0
+    "inert_removed_while_abandoned": 0,
+    "move_attempts": 0,
+    "move_successes": 0
   }
 }

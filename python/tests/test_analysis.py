@@ -65,10 +65,40 @@ def test_evaluate_milestones_reports_structure_metrics():
 
     assert population["live_effective_size_stats"]["median"] == 2.0
     assert structure["live_builder_share"] == 0.5
-    assert structure["live_replicator_share"] == 0.5
+    assert structure["live_replicator_motif_share"] == 0.5
+    assert structure["live_replicator_share"] == 0.0
     assert structure["live_absorb_only_share"] == 0.5
     assert structure["live_absorb_dominated_share"] == 0.5
     assert structure["live_nop_only_share"] == 0.0
+
+
+def test_sample_time_series_distinguishes_fragment_and_nontrivial_boots():
+    config = SimulationConfig(
+        width=8,
+        height=8,
+        rng_seed=1,
+        system_params=SystemParams(R_energy=0.0, R_mass=0.0, P_spawn=0.0, D_energy=0.0, D_mass=0.0, M=0.0),
+        seeds=[
+            SeedSpec(
+                assembly_source="read\nappendAdj\nread\nappendAdj\nread\nappendAdj\nread\nappendAdj\nboot\n",
+                x=2,
+                y=2,
+                initial_free_energy=16,
+                initial_free_mass=16,
+                neighbor_free_energy=0,
+                neighbor_free_mass=0,
+            )
+        ],
+    )
+
+    results = sample_time_series(config, total_ticks=20, sample_every=20)
+    point = results["series"][-1]
+
+    assert point["replicator_motif_share"] > 0.0
+    assert point["boot_nontrivial_survivor_share_10"] > 0.0
+    assert point["boot_fragment_survivor_share_10"] == 0.0
+    assert point["constructed_live_share"] > 0.0
+    assert point["booted_live_share"] > 0.0
 
 
 def test_sample_time_series_reports_inert_waiting_and_abandonment():

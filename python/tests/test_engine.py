@@ -192,6 +192,33 @@ def test_boot_transitions_adjacent_inert_program_to_live():
     assert detail["program"]["live"] is True
 
 
+def test_constructed_offspring_records_boot_metadata():
+    config = build_config("push 0\nappendAdj\nboot\n")
+    config.system_params.M = 0.0
+    session = SimulationSession.from_config(config)
+
+    session.advance(2)
+
+    detail = session.cell_detail(3, 2)
+    assert detail["program"] is not None
+    assert detail["program"]["live"] is True
+    assert detail["program"]["birth_kind"] == "constructed"
+    assert detail["program"]["writes_received"] == 1
+    assert detail["program"]["boot_size"] == 1
+    assert detail["program"]["boot_writes_received"] == 1
+    assert detail["program"]["boot_tick"] == 1
+
+
+def test_move_attempts_and_successes_are_counted():
+    session = SimulationSession.from_config(build_config("move\n"))
+
+    session.advance(1)
+
+    counters = session.summary()["counters"]
+    assert counters["move_attempts"] == 1
+    assert counters["move_successes"] == 1
+
+
 def test_inert_program_stays_inert_after_grace_without_boot():
     config = build_config("nop\n", live=False)
     config.system_params.inert_grace_ticks = 2

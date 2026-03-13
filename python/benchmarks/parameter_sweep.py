@@ -99,7 +99,8 @@ def score_snapshot(snapshot: dict[str, Any]) -> dict[str, float]:
         "size_1_share": float(size_shares["size_1"]),
         "size_8_plus_share": float(size_shares["size_8_plus"]),
         "builder_share": float(structure["live_builder_share"]),
-        "replicator_share": float(structure["live_replicator_share"]),
+        "boot_nontrivial_survivor_share_10": float(structure["live_nontrivial_boot_survivor_share_10"]),
+        "replicator_motif_share": float(structure["live_replicator_motif_share"]),
         "absorb_only_share": float(structure["live_absorb_only_share"]),
         "absorb_dominated_share": float(structure["live_absorb_dominated_share"]),
         "nop_only_share": float(structure["live_nop_only_share"]),
@@ -147,7 +148,8 @@ def _print_table(results: list[dict[str, Any]]) -> None:
         "live".rjust(6),
         "uniq".rjust(6),
         "build".rjust(8),
-        "repl".rjust(8),
+        "motif".rjust(8),
+        "boot10".rjust(8),
         "abs1".rjust(8),
         "absdom".rjust(8),
         "dom".rjust(8),
@@ -167,7 +169,8 @@ def _print_table(results: list[dict[str, Any]]) -> None:
             str(snapshot["summary"]["live_programs"]).rjust(6),
             str(population["unique_hashes"]).rjust(6),
             f"{structure['live_builder_share']:.3f}".rjust(8),
-            f"{structure['live_replicator_share']:.3f}".rjust(8),
+            f"{structure['live_replicator_motif_share']:.3f}".rjust(8),
+            f"{structure['live_nontrivial_boot_survivor_share_10']:.3f}".rjust(8),
             f"{structure['live_absorb_only_share']:.3f}".rjust(8),
             f"{structure['live_absorb_dominated_share']:.3f}".rjust(8),
             f"{population['dominant_hash_share']:.3f}".rjust(8),
@@ -208,7 +211,9 @@ def _print_details(results: list[dict[str, Any]]) -> None:
         print(
             "structure:"
             f" builder={population['structure']['live_builder_share']:.3f}"
-            f" replicator={population['structure']['live_replicator_share']:.3f}"
+            f" motif={population['structure']['live_replicator_motif_share']:.3f}"
+            f" boot10={population['structure']['live_nontrivial_boot_survivor_share_10']:.3f}"
+            f" frag10={population['structure']['live_fragment_boot_survivor_share_10']:.3f}"
             f" absorb_only={population['structure']['live_absorb_only_share']:.3f}"
             f" absorb_dominated={population['structure']['live_absorb_dominated_share']:.3f}"
             f" nop_only={population['structure']['live_nop_only_share']:.3f}"
