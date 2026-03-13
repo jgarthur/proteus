@@ -1,0 +1,304 @@
+{
+  "config": {
+    "width": 6,
+    "height": 5,
+    "rng_seed": 23,
+    "system_params": {
+      "R_energy": 0.0,
+      "R_mass": 0.0,
+      "P_spawn": 0.0,
+      "D_energy": 0.0,
+      "D_mass": 0.0,
+      "T_cap": 2,
+      "M": 0.0,
+      "inert_grace_ticks": 10,
+      "N_synth": 3,
+      "mutation_base_log2": 16,
+      "mutation_background_log2": 8
+    },
+    "seeds": [
+      {
+        "assembly_source": "push 2\nfor\nnop\nnext\npush 0\nappendAdj\nboot\n",
+        "x": 1,
+        "y": 2,
+        "count": 1,
+        "preset_key": null,
+        "randomize_additional_seeds": false,
+        "initial_dir": 0,
+        "initial_id": null,
+        "initial_free_energy": 12,
+        "initial_free_mass": 3,
+        "neighbor_free_energy": 1,
+        "neighbor_free_mass": 0,
+        "live": true
+      }
+    ]
+  },
+  "tick": 0,
+  "rng_state": {
+    "bit_generator": "PCG64",
+    "state": {
+      "state": 335331206207053660761588900058103347299,
+      "inc": 18438579778062455872196599375400725907
+    },
+    "has_uint32": 1,
+    "uinteger": 2980419887
+  },
+  "world": {
+    "width": 6,
+    "height": 5,
+    "free_energy": [
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        12,
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "free_mass": [
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        3,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "bg_radiation": [
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "program_ids": [
+      [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1
+      ],
+      [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1
+      ],
+      [
+        -1,
+        1,
+        -1,
+        -1,
+        -1,
+        -1
+      ],
+      [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1
+      ],
+      [
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1
+      ]
+    ],
+    "open_mask": [
+      [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        0,
+        1,
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    ],
+    "next_program_id": 2,
+    "programs": [
+      {
+        "program_id": 1,
+        "x": 1,
+        "y": 2,
+        "instructions": [
+          2,
+          48,
+          80,
+          49,
+          0,
+          89,
+          100
+        ],
+        "ip": 0,
+        "dir": 0,
+        "src": 0,
+        "dst": 0,
+        "flag": 0,
+        "msg": 0,
+        "id_reg": 9,
+        "lc": 0,
+        "stack": [],
+        "live": true,
+        "age": 0,
+        "inert_ticks_without_write": 0
+      }
+    ],
+    "radiation": []
+  },
+  "counters": {
+    "append_adj_attempts": 0,
+    "append_adj_successes": 0,
+    "boot_attempts": 0,
+    "boot_successes": 0,
+    "boot_successes_active_construction": 0,
+    "boot_successes_abandoned": 0,
+    "inert_created": 0,
+    "inert_write_events": 0,
+    "inert_abandonments": 0,
+    "inert_removed_preboot": 0,
+    "inert_removed_while_abandoned": 0
+  }
+}

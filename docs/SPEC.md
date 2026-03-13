@@ -50,7 +50,7 @@ Program size is hard-capped at 2^15 − 1 instructions.
 
 ### Maintenance
 
-Each instruction in a **live** program independently requires 1 energy payment with probability `M` per tick. Inert programs use the same maintenance rule scaled by `inert_maintenance_scale`, so their expected cost is `program_size × M × inert_maintenance_scale` per tick. Implementation: draw from `Binomial(program_size, maintenance_rate)` where `maintenance_rate` is `M` for live programs and `M × inert_maintenance_scale` for inert programs.
+Each instruction in a **live** program independently requires 1 energy payment with probability `M` per tick. Inert programs use the same maintenance rule only **after** they are considered abandoned (see Program Lifecycle). Implementation: draw from `Binomial(program_size, maintenance_rate)` where `maintenance_rate` is `M` for live programs, `0` for inert programs still inside the grace window, and `M` again for inert programs that have exceeded the grace window.
 
 If free energy is insufficient, maintenance is paid with free mass. If both are exhausted, instructions are destroyed from the end of the program.
 
@@ -67,13 +67,15 @@ Each live program tracks its **age**: the number of ticks since it became live. 
 Programs exist in two states:
 
 - **Live**: the program executes, pays maintenance, ages, and its cell follows normal protection rules.
-- **Inert**: the program does not execute and does not age. Its cell is **always open**. While inert, maintenance is scaled by `inert_maintenance_scale` (default 0, meaning no maintenance while inert). If maintenance destroys all instructions, the program is removed and the cell becomes empty.
+- **Inert**: the program does not execute and does not age. Its cell is **always open**. While inert, maintenance depends on whether the program is still under active construction. If maintenance destroys all instructions, the program is removed and the cell becomes empty.
 
-Each inert program also tracks **ticks since last incoming write**. Any successful `appendAdj` or `writeAdj` targeting the inert program resets this timer to 0. If the timer reaches `inert_auto_boot_ticks`, the inert program automatically transitions to live. If `inert_auto_boot_ticks = 0`, automatic boot is disabled and explicit `boot` is required.
+Each inert program tracks **ticks since last incoming write**. Any successful `appendAdj` or `writeAdj` targeting the inert program resets this timer to 0. While this timer is below `inert_grace_ticks`, the offspring is considered **under active construction** and pays no maintenance. Once the timer reaches `inert_grace_ticks`, the offspring is considered **abandoned** and normal maintenance resumes.
+
+Rationale: this keeps cleanup endogenous. Offspring under active parental construction are protected from immediate tail erosion, but abandoned fragments still die through the same maintenance-and-starvation process as every other program. No forced activation or out-of-band dissolution is required.
 
 **Spontaneous creation** (background mass nucleation in an empty cell): the program is created **live**. This is the primordial bootstrap — no parent required.
 
-**Constructed creation** (first `appendAdj` into an empty cell): the program is created **inert**. It remains inert until a `boot` instruction transitions it to live, or until abandonment triggers automatic boot. While inert, the cell is open, allowing continued construction by the parent or interference by others.
+**Constructed creation** (first `appendAdj` into an empty cell): the program is created **inert**. It remains inert until a `boot` instruction transitions it to live. While inert, the cell is open, allowing continued construction by the parent or interference by others.
 
 ### Spontaneous Program Creation
 
@@ -204,8 +206,8 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 2. **Background radiation**: each cell receives 1 unit with probability `R_energy`. This accumulates in the cell. Each existing unit of background radiation independently decays with probability `D_energy`.
 3. **Absorb resolution**: for each cell containing accumulated background radiation, distribute it equally (floor division) among all programs that executed `absorb` this tick and are adjacent to or occupying that cell. Remainder stays in the cell. Background radiation captured this way becomes free energy in the absorbing program's cell.
 4. **Background mass**: each cell receives 1 free mass with probability `R_mass`. If the cell has no program, the arriving mass has an additional probability `P_spawn` of nucleating a new live `nop` program (see Spontaneous Program Creation).
-5. **Inert lifecycle update**: for each inert program, if it received an incoming `appendAdj` or `writeAdj` this tick, reset its abandonment timer to 0. Otherwise increment the timer by 1. If the timer reaches `inert_auto_boot_ticks`, the program becomes live immediately before maintenance/aging. If `inert_auto_boot_ticks = 0`, skip this step.
-6. **Maintenance**: for each program, draw from `Binomial(program_size, maintenance_rate)` where `maintenance_rate = M` for live programs and `maintenance_rate = M × inert_maintenance_scale` for inert programs. Deduct from free energy, then free mass, then instructions from end of program.
+5. **Inert lifecycle update**: for each inert program, if it received an incoming `appendAdj` or `writeAdj` this tick, reset its abandonment timer to 0. Otherwise increment the timer by 1. This determines whether the offspring is still inside its grace window (`inert_ticks_without_write < inert_grace_ticks`) or has become abandoned.
+6. **Maintenance**: for each program, draw from `Binomial(program_size, maintenance_rate)` where `maintenance_rate = M` for live programs, `0` for inert programs still inside the grace window, and `M` for inert programs that have exceeded the grace window. Deduct from free energy, then free mass, then instructions from end of program.
 7. **Decay**: for each cell, compute excess energy and mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). For each resource, draw from `Binomial(excess, D)` to determine units removed permanently.
 8. All live program ages increment by 1.
 
@@ -367,8 +369,7 @@ All parameters governing external input rates, decay, maintenance, and synthesis
 | Mass decay rate | `D_mass` | P(each excess mass unit removed per tick) | 0.01 |
 | Decay threshold | `T_cap` | Multiplier on program_size for decay floor | 4 |
 | Maintenance rate | `M` | P(each live instruction costs 1 energy per tick) | 1/128 |
-| Inert maintenance scale | `inert_maintenance_scale` | Multiplier on `M` while a program is inert | 0 |
-| Inert auto-boot timeout | `inert_auto_boot_ticks` | Auto-boot after this many ticks with no incoming write (0 disables) | 10 |
+| Inert grace window | `inert_grace_ticks` | Ticks without incoming write before an inert offspring starts paying normal maintenance | 10 |
 | Synthesis cost | `N_synth` | Additional energy consumed per mass produced | 1 |
 | Baseline mutation exponent | `mutation_base_log2` | Baseline mutation rate is `2^(-value)` | 16 |
 | Background mutation exponent | `mutation_background_log2` | Background-paid mutation rate is `min(x / 2^(value), 1)` | 8 |
@@ -400,7 +401,7 @@ boot            ; Tick 25: activate offspring
 ;          sources: foraged from neighbor + ambient in own cell
 ;
 ; The offspring is inert during construction (open, no execution,
-; and by default no maintenance while inert). It becomes live when boot executes, starting
+; and no maintenance while the parent keeps writing to it). It becomes live when boot executes, starting
 ; with absorb on the next tick.
 ```
 
@@ -408,7 +409,7 @@ boot            ; Tick 25: activate offspring
 
 The seed organism should be placed in a pre-loaded environment: the seed cell and its neighbors should contain sufficient free mass (≥ 11) and free energy (≥ 20) so that the first replication cycle succeeds. This models a resource-rich primordial environment. Once the first generation of offspring begins absorbing energy and foraging, the population becomes self-sustaining at appropriate parameter settings.
 
-If replication fails mid-cycle (mass or energy exhausted), the `appendAdj` calls fail silently. A later explicit `boot` may activate a partial offspring. If no further writes arrive, the abandoned offspring auto-boots after `inert_auto_boot_ticks` ticks by default. Partial offspring will often fail quickly, but may occasionally survive as mutated descendants.
+If replication fails mid-cycle (mass or energy exhausted), the `appendAdj` calls fail silently. A later explicit `boot` may activate a partial offspring. If no further writes arrive, the abandoned offspring remains inert but eventually starts paying normal maintenance after `inert_grace_ticks` ticks, so its tail erodes away naturally unless construction resumes.
 
 ### Why This Replicator is Plausible as a First Evolver
 
@@ -498,10 +499,10 @@ M_ambient = own_cell(T)                             (accumulates in own cell bet
 
 ```
 M_out = S                                           (one per appended instruction in offspring)
-M_offspring_maint ≈ T_construct × S_avg × M × inert_maintenance_scale
+M_offspring_maint ≈ max(0, T_construct − inert_grace_ticks) × S_avg × M
 ```
 
-Where `T_construct` is ticks the offspring exists while inert, and `S_avg` is its average size during construction. With the current default `inert_maintenance_scale = 0`, this term is 0 unless the inert-maintenance setting is raised.
+Where `T_construct` is ticks the offspring exists while inert, and `S_avg` is its average size during construction. If the parent keeps writing frequently enough that construction stays inside the grace window, this term is effectively 0. It becomes relevant only for long stalls or abandoned fragments.
 
 ### Viability Condition (mass)
 

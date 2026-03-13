@@ -1,0 +1,36 @@
+Metadata-Version: 2.4
+Name: proteus
+Version: 0.1.0
+Summary: Proteus v0 simulator backend
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi<1.0,>=0.115
+Requires-Dist: numpy<3.0,>=2.1
+Requires-Dist: uvicorn[standard]<1.0,>=0.30
+Provides-Extra: dev
+Requires-Dist: httpx<1.0,>=0.27; extra == "dev"
+Requires-Dist: pytest<9.0,>=8.3; extra == "dev"
+Provides-Extra: cython
+Requires-Dist: Cython<4.0,>=3.0; extra == "cython"
+Requires-Dist: setuptools>=70; extra == "cython"
+Requires-Dist: wheel; extra == "cython"
+
+# Proteus Python Backend
+
+Python backend for the Proteus simulator, including the reference engine and optional Cython helper acceleration.
+
+## Acceleration
+
+The simulator always has a pure-Python reference path in [`src/proteus/engine_reference.py`](src/proteus/engine_reference.py).
+If the optional compiled helper module is available, the hot hash/loop-scan helpers are imported from `proteus._engine_cython_ops`.
+Otherwise the engine silently falls back to the Python helpers while keeping the same semantics.
+
+The active backend is visible at runtime in the benchmark output and in the frontend metrics panel.
+
+## Build The Optional Cython Helper
+
+1. `cd python`
+2. `uv sync --extra cython`
+3. `.venv/bin/python setup.py build_ext --inplace`
+
+After the build, the runtime should report `engine_backend = cython-ops`.
