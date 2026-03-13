@@ -1,4 +1,4 @@
-# Proteus v0 Specification
+# Proteus v0.1 Specification
 
 An artificial life simulator where self-replicating programs emerge, compete, and evolve on a 2D grid with conserved mass and energy.
 
@@ -60,7 +60,7 @@ A program's **strength** is `min(program_size, free_energy)`. Strength determine
 
 ### Program Age
 
-Each live program tracks its **age**: the number of ticks since it became live. Age is initialized to 0 when a program becomes live (either by spontaneous creation or by being booted). Inert programs do not age. Age is used for conflict resolution tiebreaking (see Pass 2).
+Each live program tracks its **age**: the number of ticks since it became live. Age is initialized to 0 when a program becomes live (either by spontaneous creation or by being booted). Inert programs do not age. Age is not currently used mechanically but is tracked for diagnostic and analytical purposes.
 
 ### Program Lifecycle
 
@@ -101,7 +101,7 @@ Each program has its own CPU with the following registers:
 | `Dir` | 2 | read-write | random | Direction heading: 0=right, 1=up, 2=left, 3=down. Initialized with randomness at program creation. |
 | `Src` | 16 | read-write | 0 | Source cursor. Auto-increments on read operations. Interpreted modulo target program size when used. |
 | `Dst` | 16 | read-write | 0 | Destination cursor. Auto-increments on write operations. Interpreted modulo target program size when used. |
-| `Flag` | 1 | read-only | 0 | 0 = last instruction succeeded; 1 = last instruction failed or message received via `absorb`. Successful instruction execution resets `Flag` to 0. |
+| `Flag` | 1 | read-only | 0 | 0 = last 1-tick instruction succeeded; 1 = any instruction failed or message received via `absorb`. Only successful 1-tick instruction execution resets `Flag` to 0; immediate instructions can set `Flag` to 1 (on failure) but never clear it. |
 | `Msg` | 16 | read-only | 0 | Value carried by last received directed radiation. |
 | `ID` | 8 | read-write | random | Cell identifier. Initialized with randomness at program creation. |
 | `LC` | 16 | hidden | 0 | Loop counter, used internally by `for`/`next`. Not directly accessible. |
@@ -153,7 +153,7 @@ The following instructions fail against a protected target cell:
 
 The following nonlocal instructions work regardless of protection status:
 
-- `readAdj`, `senseSize`, `senseE`, `senseM` — read-only, non-destructive
+- `readAdj`, `senseSize`, `senseE`, `senseM`, `senseID` — read-only, non-destructive
 - `giveE`, `giveM` — beneficial to target
 - `move` — targets empty cells only, which are always open
 - `appendAdj` (into empty cell) — empty cells are always open
@@ -192,11 +192,9 @@ All nonlocal instructions are resolved against a snapshot of the grid state take
 **Conflict resolution** (multiple instructions targeting the same cell):
 
 1. Highest program strength wins.
-2. Ties: highest program size wins.
-3. Ties: oldest program (highest age) wins.
-4. Ties: random.
+2. Ties: random, weighted by program size (each tied program's probability of winning is proportional to its size).
 
-This rule is deterministic through tier 3 and requires only source-program properties, making it well-defined for all target cells including empty ones.
+This rule is deterministic only at tier 1. At equal strength, larger programs have better odds but are not guaranteed to win, preventing pure incumbency advantages while still rewarding investment in size. The rule requires only source-program properties, making it well-defined for all target cells including empty ones.
 
 Note: mutual targeting (A targets B while B targets A) does not require special handling. These instructions target different cells and both can succeed independently. No conflict graph or cycle detection is needed.
 
@@ -212,7 +210,7 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 
 ## Instruction Set
 
-68 opcodes out of 256 possible byte values. All other byte values are no-ops: immediate, free, and they do **not** open the cell. They are simply skipped during execution.
+69 opcodes out of 256 possible byte values. All other byte values are no-ops: immediate, free, and they do **not** open the cell. They are simply skipped during execution.
 
 ### Encoding
 
@@ -223,8 +221,8 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 | `0010 0000` – `0010 1000` | Arithmetic / logic | 9 |
 | `0011 0000` – `0011 0100` | Control flow | 5 |
 | `0100 0000` – `0100 1100` | Direction and register access | 13 |
-| `0101 0000` – `0110 0011` | World interaction | 20 |
-| All other values | No-op (immediate, free, does not open cell) | 188 |
+| `0101 0000` – `0110 0100` | World interaction | 21 |
+| All other values | No-op (immediate, free, does not open cell) | 187 |
 
 The 73% no-op space provides generous neutral territory for mutations: most random bit flips land on no-ops, providing genetic drift without lethality.
 
@@ -315,12 +313,13 @@ All binary operations pop two operands and push one result. Unary operations pop
 | `senseSize` | `0101 1011` | 0 | — | No | Push program size of adjacent cell (0 if empty). |
 | `senseE` | `0101 1100` | 0 | — | No | Push free energy of adjacent cell. |
 | `senseM` | `0101 1101` | 0 | — | No | Push free mass of adjacent cell. |
-| `giveE` | `0101 1110` | 0 | — | No | Transfer half of own free energy (rounded up) to adjacent cell. |
-| `giveM` | `0101 1111` | 1 | — | No | Transfer half of own free mass (rounded up) to adjacent cell. |
-| `takeE` | `0110 0000` | 1 | E = target strength | **Yes** | Take half of target's free energy (rounded up). |
-| `takeM` | `0110 0001` | 1 | — | **Yes** | Take half of free mass (rounded up) from adjacent cell. Takes only loose mass, not instructions. |
-| `move` | `0110 0010` | 1 | — | No | Relocate this program and all its resources (free energy, free mass) to the adjacent cell in direction `Dir`. Fails if the target cell is occupied. Target must be empty (empty cells are always open, so protection is not applicable). |
-| `boot` | `0110 0011` | 0 | — | No | Transition an inert program in the adjacent cell (direction `Dir`) to live. The target begins executing on the next tick with `IP` = 0. Fails if the target cell is empty, or if the target program is already live. Inert cells are always open, so protection is not applicable. Subject to conflict resolution if multiple programs attempt to boot the same target. |
+| `senseID` | `0101 1110` | 0 | — | No | Push `ID` register of adjacent cell's program (0 if empty, sets `Flag` to 1). |
+| `giveE` | `0101 1111` | 0 | — | No | Pop amount. Transfer `min(amount, free_energy)` to adjacent cell. If amount ≤ 0, no transfer. |
+| `giveM` | `0110 0000` | 1 | — | No | Pop amount. Transfer `min(amount, free_mass)` to adjacent cell. If amount ≤ 0, no transfer. |
+| `takeE` | `0110 0001` | 1 | E = target strength | **Yes** | Take half of target's free energy (rounded up). |
+| `takeM` | `0110 0010` | 1 | — | **Yes** | Take half of free mass (rounded up) from adjacent cell. Takes only loose mass, not instructions. |
+| `move` | `0110 0011` | 1 | — | No | Relocate this program and all its resources (free energy, free mass) to the adjacent cell in direction `Dir`. Fails if the target cell is occupied. Target must be empty (empty cells are always open, so protection is not applicable). |
+| `boot` | `0110 0100` | 0 | — | No | Transition an inert program in the adjacent cell (direction `Dir`) to live. The target begins executing on the next tick with `IP` = 0. Fails if the target cell is empty, or if the target program is already live. Inert cells are always open, so protection is not applicable. Subject to conflict resolution if multiple programs attempt to boot the same target. |
 
 #### Instruction Deletion Semantics
 
@@ -341,9 +340,9 @@ When an instruction at index `i` is deleted from a program (via `del` or `delAdj
 | Control flow | 5 |
 | Direction + registers | 13 |
 | World interaction (local) | 7 |
-| World interaction (nonlocal) | 13 |
-| **Total opcodes** | **68** |
-| No-op byte values | **188** (73% of opcode space) |
+| World interaction (nonlocal) | 14 |
+| **Total opcodes** | **69** |
+| No-op byte values | **187** (73% of opcode space) |
 
 ## Mutations
 
@@ -424,6 +423,7 @@ The seed replicator is intentionally unoptimized. Evolution can discover improve
 - **Predation**: `delAdj` to consume neighbor instructions as mass, `takeE` to steal energy (requires target to be open)
 - **Defense**: minimize time spent in open states (`absorb`, `nop`) to reduce vulnerability
 - **Communication**: `emit`/`absorb` to coordinate with kin
+- **Kin recognition**: `senseID` to distinguish kin from non-kin, enabling cooperation and altruism
 - **Code injection**: `writeAdj` to modify open neighbor programs (parasitism, mutualism)
 - **Streamlining**: eliminate unnecessary instructions to reduce maintenance cost and replication time
 - **Movement**: `move` to relocate toward resources or away from threats
@@ -535,7 +535,7 @@ This is intentional. The seed is a bootstrap organism, not a steady-state design
 Pass 2 (nonlocal execution) uses a snapshot-and-apply pattern to ensure translation invariance and avoid order-dependent results:
 
 1. After Pass 1 completes, take a logical snapshot of the grid state.
-2. Resolve all nonlocal instruction conflicts (grouping by target cell, applying the strength → size → age → random tiebreaker).
+2. Resolve all nonlocal instruction conflicts (grouping by target cell, applying the strength → size-weighted random tiebreaker).
 3. Each winning instruction reads from the snapshot and writes to its target cell. Source-side effects are applied unconditionally for each winner.
 4. Since each target cell has at most one winner, all writes target distinct cells and can be applied in any order (or simultaneously). Since each cell executes at most one nonlocal instruction per tick, source-side effects never conflict.
 
@@ -586,4 +586,12 @@ These features are intentionally deferred. They may be added if the v0 ecosystem
 - **Long-range sensing**: detect programs or energy gradients beyond adjacent cells
 - **Multicellular structures**: extended-body organisms spanning multiple cells
 - **Nested loops**: multiple `LC` registers for nested `for`/`next`
-- **`senseID`**: observe a neighbor's `ID` register for kin recognition
+
+## Known Limitations (monitor in simulation)
+
+These are identified design tensions in v0 that may or may not require intervention. They should be monitored during simulation rather than fixed preemptively.
+
+- **`absorb` coupling**: `absorb` simultaneously captures background energy, captures directed radiation, sets `Msg`, overwrites `Dir`, sets `Flag`, and opens the cell. A program that needs energy must accept messages and lose its heading. If communication fails to emerge, or emerges only as a nuisance (parasitic `Dir` resets disrupting directional replication), consider splitting into separate `absorb` (energy only) and `listen` (communication only) instructions.
+- **Anti-complexity pressure**: larger programs pay proportionally more maintenance but still get exactly one 1-tick action per tick. Size buys storage capacity and strength, but not actuation bandwidth, concurrency, or spatial extent. If evolution consistently collapses toward minimal replicators and larger organisms never gain a foothold, consider letting size buy real capability (e.g., queued actions, multi-cell bodies) or softening size-dependent maintenance.
+- **Movement in dense populations**: `move` only works into empty cells. Once a region fills, spatial dynamics freeze — no fleeing, clustering, or resource-seeking movement is possible. If simulations show static fronts with no spatial reorganization, consider a `swap` instruction or displacement movement.
+- **`for`/`next` non-nesting**: the single `LC` register prevents nested iteration, which limits algorithmic complexity (e.g., 2D spatial scanning, multi-step planning). If evolved programs are clearly bumping against this ceiling, add additional `LC` registers for nesting.
