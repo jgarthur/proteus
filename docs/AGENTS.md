@@ -2,6 +2,10 @@
 
 This file applies to work in `docs/`.
 
+## Status
+
+Read `STATUS.md` at the repo root for current project status. Mark items done when you complete them.
+
 ## Source Of Truth
 
 **SPEC.md** and **SPEC-COMPANION.md** have equal authority. The spec defines the rules. The companion defines operational semantics and edge-case behavior for those same rules. If they contradict each other, flag it instead of silently preferring one.

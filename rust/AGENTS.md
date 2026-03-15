@@ -2,6 +2,10 @@
 
 This file applies to work in `rust/`.
 
+## Status
+
+Read `STATUS.md` at the repo root for current project status. Mark items done when you complete them.
+
 ## Scope
 
 - `rust/` is the active implementation surface for the new Rust backend.

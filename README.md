@@ -6,6 +6,7 @@ This README is a high-level orientation only. It was updated for spec `v0.2.0`.
 
 ## Project Orientation
 
+- `STATUS.md` tracks what is done and what is next. Keep it current.
 - `docs/` contains the active specification and related working documentation. See `docs/README.md`.
 - `rust/` contains the active Rust backend implementation surface. See `rust/README.md`.
 - `legacy/` contains archived implementation prototypes and experiments that are kept for reference during the upcoming rewrite. See `legacy/README.md`.
