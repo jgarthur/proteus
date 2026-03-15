@@ -24,6 +24,12 @@ impl Pass3AmbientOutput {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pass3TailOutput {
+    pub deaths: u32,
+    pub spontaneous_births: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Pass3TailContext<'a> {
     pub existed_set: &'a [bool],
@@ -89,7 +95,7 @@ pub fn pass3_ambient(
     output
 }
 
-pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) {
+pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) -> Pass3TailOutput {
     assert_eq!(
         grid.len(),
         context.existed_set.len(),
@@ -112,7 +118,7 @@ pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) {
     );
 
     resolve_inert_lifecycle(grid, context.incoming_writes);
-    resolve_maintenance(
+    let deaths = resolve_maintenance(
         grid,
         context.existed_set,
         context.config,
@@ -121,13 +127,18 @@ pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) {
     );
     resolve_free_resource_decay(grid, context.config, context.tick, context.seed);
     resolve_age_update(grid, context.live_set);
-    resolve_spontaneous_creation(
+    let spontaneous_births = resolve_spontaneous_creation(
         grid,
         context.spawn_candidates,
         context.config,
         context.tick,
         context.seed,
     );
+
+    Pass3TailOutput {
+        deaths,
+        spontaneous_births,
+    }
 }
 
 pub fn mutate_end_of_tick(
@@ -136,13 +147,14 @@ pub fn mutate_end_of_tick(
     config: &SimConfig,
     tick: u64,
     seed: u64,
-) {
+) -> u32 {
     assert_eq!(
         grid.len(),
         live_set.len(),
         "live-set length must match grid size"
     );
 
+    let mut mutations = 0;
     for (cell_index, is_live_at_tick_start) in live_set.iter().copied().enumerate() {
         if !is_live_at_tick_start {
             continue;
@@ -172,7 +184,10 @@ pub fn mutate_end_of_tick(
         let instruction_index = (rng.next_u64() % program.code.len() as u64) as usize;
         let bit_index = (rng.next_u64() % 8) as u8;
         program.code[instruction_index] ^= 1_u8 << bit_index;
+        mutations += 1;
     }
+
+    mutations
 }
 
 fn apply_listen_capture(
@@ -338,7 +353,9 @@ fn resolve_maintenance(
     config: &SimConfig,
     tick: u64,
     seed: u64,
-) {
+) -> u32 {
+    let mut deaths = 0;
+
     for (cell_index, existed_at_tick_start) in existed_set.iter().copied().enumerate() {
         if !existed_at_tick_start {
             continue;
@@ -378,11 +395,16 @@ fn resolve_maintenance(
             continue;
         }
 
-        apply_maintenance(grid.get_mut(cell_index).expect("cell should exist"), quanta);
+        deaths += u32::from(apply_maintenance(
+            grid.get_mut(cell_index).expect("cell should exist"),
+            quanta,
+        ));
     }
+
+    deaths
 }
 
-fn apply_maintenance(cell: &mut Cell, mut quanta: u32) {
+fn apply_maintenance(cell: &mut Cell, mut quanta: u32) -> bool {
     let energy_paid = cell.free_energy.min(quanta);
     cell.free_energy -= energy_paid;
     quanta -= energy_paid;
@@ -392,18 +414,21 @@ fn apply_maintenance(cell: &mut Cell, mut quanta: u32) {
     quanta -= mass_paid;
 
     if quanta == 0 {
-        return;
+        return false;
     }
 
     let Some(program) = cell.program.as_mut() else {
-        return;
+        return false;
     };
     let destroy = usize::try_from(quanta).expect("maintenance quanta should fit in usize");
     let new_len = program.code.len().saturating_sub(destroy);
     program.code.truncate(new_len);
     if program.code.is_empty() {
         cell.program = None;
+        return true;
     }
+
+    false
 }
 
 fn resolve_free_resource_decay(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
@@ -447,7 +472,9 @@ fn resolve_spontaneous_creation(
     config: &SimConfig,
     tick: u64,
     seed: u64,
-) {
+) -> u32 {
+    let mut births = 0;
+
     for (cell_index, is_spawn_candidate) in spawn_candidates.iter().copied().enumerate() {
         if !is_spawn_candidate {
             continue;
@@ -475,7 +502,10 @@ fn resolve_spontaneous_creation(
         cell.free_mass += cell.bg_mass;
         cell.bg_radiation = 0;
         cell.bg_mass = 0;
+        births += 1;
     }
+
+    births
 }
 
 fn resource_threshold(cell: &Cell, config: &SimConfig) -> f64 {

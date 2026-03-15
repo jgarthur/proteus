@@ -11,6 +11,10 @@
 - Use semantic versioning: `x.y.z`.
 - After a change to the `y` version, update the top-level `README.md` so it stays aligned with the current spec generation.
 
+## Merging
+
+- Prefer squash merges when landing a branch into `main` unless the user explicitly asks to preserve branch history.
+
 ## Failure Analysis
 
 - When a test fails, explain the failure explicitly before or alongside the fix.

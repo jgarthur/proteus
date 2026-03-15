@@ -9,12 +9,14 @@ const APPEND_CREATE_SALT: u64 = 0xa4e2_9c61_7f33_b58d;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pass2Output {
     pub incoming_writes: Vec<bool>,
+    pub booted_programs: u32,
 }
 
 impl Pass2Output {
     pub fn new(cell_count: usize) -> Self {
         Self {
             incoming_writes: vec![false; cell_count],
+            booted_programs: 0,
         }
     }
 }
@@ -198,6 +200,7 @@ fn resolve_exclusive(
                 );
             }
             apply_boot_success(working.get_mut(target).expect("target cell should exist"));
+            output.booted_programs += 1;
             continue;
         }
 
@@ -418,6 +421,7 @@ fn apply_winner(
                     .get_mut(candidate.target)
                     .expect("target cell should exist"),
             );
+            output.booted_programs += 1;
         }
         _ => unreachable!("winner should always be exclusive"),
     }

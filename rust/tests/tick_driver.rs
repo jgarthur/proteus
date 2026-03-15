@@ -107,6 +107,28 @@ fn spontaneous_spawn_waits_until_next_tick_to_act_and_age() {
 }
 
 #[test]
+fn tick_report_counts_spontaneous_spawn_as_birth() {
+    let mut simulation = WorldBuilder::new(1, 1)
+        .configure(|config| {
+            config.r_mass = 1.0;
+            config.d_mass = 0.0;
+            config.p_spawn = 1.0;
+            config.r_energy = 0.0;
+            config.d_energy = 0.0;
+            config.maintenance_rate = 0.0;
+            config.mutation_base_log2 = 32;
+            config.mutation_background_log2 = 32;
+        })
+        .build_simulation();
+
+    let report = simulation.run_tick_report();
+
+    assert_eq!(report.births, 1);
+    assert_eq!(report.deaths, 0);
+    assert_eq!(report.mutations, 0);
+}
+
+#[test]
 fn booted_abandoned_inert_program_skips_maintenance_on_boot_tick() {
     let mut simulation = WorldBuilder::new(2, 1)
         .configure(|config| {

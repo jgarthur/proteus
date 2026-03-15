@@ -230,7 +230,8 @@ Optional initial-state fields:
 | `free_energy` | u32 | Initial free energy in the cell |
 | `free_mass` | u32 | Initial free mass in the cell |
 
-The program is placed as live with `IP = 0`, default registers, empty stack.
+The program is placed as live with `IP = 0`, an empty stack, and default registers. As in the
+master simulation spec, default `Dir` and `ID` initialization is randomized at program creation.
 
 ### Read config
 
@@ -346,7 +347,7 @@ Server pushes JSON:
 | `mean_program_size` | f64 | Mean instruction count of live programs | stable |
 | `max_program_size` | u32 | Largest live program | stable |
 | `unique_genomes` | u32 | Distinct program bytecodes (live only) | stable |
-| `births` | u32 | Programs booted this tick | stable |
+| `births` | u32 | Programs that became live this tick via `boot` or spontaneous spawn | stable |
 | `deaths` | u32 | Programs destroyed (maintenance/decay) this tick | stable |
 | `mutations` | u32 | Mutation events this tick | stable |
 

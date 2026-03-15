@@ -6,7 +6,10 @@ use crate::grid::{Grid, GridError};
 use crate::model::{CellSnapshot, Packet, QueuedAction};
 use crate::pass1::{pass1_local, Pass1Output};
 use crate::pass2::{pass2_nonlocal, Pass2Output};
-use crate::pass3::{pass3_ambient, pass3_packets, Pass3AmbientOutput, Pass3TailContext};
+use crate::pass3::{
+    mutate_end_of_tick, pass3_ambient, pass3_packets, pass3_tail, Pass3AmbientOutput,
+    Pass3TailContext,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TickScratch {
@@ -59,6 +62,13 @@ pub struct Simulation {
     config: SimConfig,
     tick: u64,
     seed: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TickReport {
+    pub births: u32,
+    pub deaths: u32,
+    pub mutations: u32,
 }
 
 impl Simulation {
@@ -183,6 +193,10 @@ impl Simulation {
     }
 
     pub fn run_tick(&mut self) {
+        let _ = self.run_tick_report();
+    }
+
+    pub fn run_tick_report(&mut self) -> TickReport {
         self.prepare_tick();
 
         let pass1 = pass1_local(
@@ -197,7 +211,7 @@ impl Simulation {
         self.packets.extend(pass1.emitted_packets);
         pass3_packets(&mut self.grid, &mut self.packets, self.tick, self.seed);
         let ambient = pass3_ambient(&mut self.grid, &self.config, self.tick, self.seed);
-        crate::pass3::pass3_tail(
+        let tail = pass3_tail(
             &mut self.grid,
             Pass3TailContext {
                 existed_set: self.scratch.existed_set(),
@@ -209,7 +223,7 @@ impl Simulation {
                 seed: self.seed,
             },
         );
-        crate::pass3::mutate_end_of_tick(
+        let mutations = mutate_end_of_tick(
             &mut self.grid,
             self.scratch.live_set(),
             &self.config,
@@ -218,6 +232,14 @@ impl Simulation {
         );
         clear_newborn_flags(&mut self.grid);
         self.tick = self.tick.wrapping_add(1);
+
+        TickReport {
+            // API-SPEC §10 treats any transition to live within the tick as a birth,
+            // whether it came from boot or spontaneous spawn.
+            births: pass2.booted_programs + tail.spontaneous_births,
+            deaths: tail.deaths,
+            mutations,
+        }
     }
 }
 

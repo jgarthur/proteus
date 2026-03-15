@@ -114,7 +114,7 @@ fn successful_nonlocal_queue_attempt_stops_before_later_local_work() {
             value: 1
         }]
     );
-    assert_program!(simulation.grid(), (0, 0), ip == 2, stack == &[][..]);
+    assert_program!(simulation.grid(), (0, 0), ip == 2, stack == &[] as &[i16]);
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn emit_creates_packet_and_consumes_base_energy() {
         }]
     );
     assert_cell!(simulation.grid(), (0, 0), free_energy == 0);
-    assert_program!(simulation.grid(), (0, 0), ip == 0, stack == &[][..]);
+    assert_program!(simulation.grid(), (0, 0), ip == 0, stack == &[] as &[i16]);
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn drop_on_empty_stack_sets_flag_and_leaves_stack_empty() {
         (0, 0),
         flag == true,
         ip == 0,
-        stack == &[][..]
+        stack == &[] as &[i16]
     );
 }
 
@@ -199,7 +199,7 @@ fn for_without_matching_next_sets_flag_and_advances() {
         flag == true,
         ip == 1,
         lc == 0,
-        stack == &[][..]
+        stack == &[] as &[i16]
     );
 }
 
@@ -226,7 +226,7 @@ fn for_can_find_next_via_wraparound_scan() {
         flag == true,
         ip == 1,
         lc == 0,
-        stack == &[][..]
+        stack == &[] as &[i16]
     );
 }
 
@@ -244,7 +244,7 @@ fn jmp_to_self_stays_within_local_action_budget() {
         (0, 0),
         flag == false,
         ip == 1,
-        stack == &[][..]
+        stack == &[] as &[i16]
     );
 }
 
@@ -266,6 +266,6 @@ fn nested_for_next_overwrites_single_loop_counter_register() {
         flag == false,
         ip == 4,
         lc == 2,
-        stack == &[][..]
+        stack == &[] as &[i16]
     );
 }

@@ -10,7 +10,36 @@ publish = false
 name = "proteus"
 path = "src/lib.rs"
 
+[features]
+default = []
+web = [
+    "dep:axum",
+    "dep:futures-util",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:tokio",
+    "dep:tower-http",
+]
+
 [dependencies]
+axum = { version = "0.7", features = ["http1", "json", "tokio", "ws"], optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["sink"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"], optional = true }
+tower-http = { version = "0.6", features = ["cors", "set-header"], optional = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "time"] }
+tokio-tungstenite = "0.24"
+tower = { version = "0.5", features = ["util"] }
+
+[[bin]]
+name = "proteus-server"
+path = "src/bin/proteus-server.rs"
+required-features = ["web"]
 
 [lints.clippy]
 all = "warn"

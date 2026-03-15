@@ -28,7 +28,8 @@ fn two_read_adj_actions_against_same_target_both_succeed() {
     assert_eq!(
         output,
         Pass2Output {
-            incoming_writes: vec![false, false, false]
+            incoming_writes: vec![false, false, false],
+            booted_programs: 0,
         }
     );
     assert_program!(
