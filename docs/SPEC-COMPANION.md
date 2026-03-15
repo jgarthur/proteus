@@ -187,8 +187,10 @@ If an instruction cannot pay a required additional cost:
 
 ### Local instructions
 - Base cost is checked at execution time.
-- Additional cost, if any, is checked at execution time.
+- Additional cost, if any, is checked at execution time immediately after the base cost succeeds.
 - Both must succeed for the instruction to succeed.
+- If either payment fails: `Flag = 1`, `IP` does not advance, the cell is marked open, and the remaining local action budget is forfeit.
+- If the additional cost fails, the already-paid base cost is **not** refunded.
 
 ### Nonlocal instructions
 - Base cost is paid in Pass 1 when queueing is attempted.

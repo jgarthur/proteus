@@ -2,6 +2,11 @@
 
 ## Recent Changes
 
+### 2026-03-15
+
+- Clarified that local additional-cost failure (e.g. `synthesize` lacking energy for `N_synth`) has identical consequences to base-cost failure: `Flag = 1`, `IP` does not advance, cell is marked open, remaining local action budget is forfeit. The already-paid base cost is not refunded.
+  - Why: the spec's "if any required payment fails, halt and mark the cell open" already implied this, but did not explicitly restate `Flag` and `IP` behavior for the additional-cost case, creating ambiguity for implementers.
+
 ### 2026-03-14 (v0.2.0)
 
 - Replaced the old immediate-vs-1-tick execution split with a local/nonlocal model where each tick gives a program `max(1, floor(size^alpha))` local actions, local instructions consume one local action each, and each program may queue at most one nonlocal action.

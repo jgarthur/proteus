@@ -205,9 +205,10 @@ When an instruction is reached:
 1. If the base cost is > 0, attempt to pay from free energy.
 2. If free energy is insufficient and background radiation is present in the cell, background radiation may be used to pay the **base cost only** (elevated mutation risk applies to this tick's mutation check).
 3. Additional costs are **never** paid from background radiation. They must be paid from the relevant working pool (`free_energy` or `free_mass` as specified by the instruction).
-4. If base-cost payment fails entirely, halt execution, do not advance `IP`, and mark the cell as open. The remaining local action budget is forfeit.
+4. If base-cost payment fails entirely, halt execution, do not advance `IP`, set `Flag = 1`, and mark the cell as open. The remaining local action budget is forfeit.
+5. For local instructions, any additional cost is also checked and paid at execution time. If the additional cost cannot be paid, the instruction fails: set `Flag = 1`, do not advance `IP`, mark the cell as open, and forfeit the remaining local action budget. The base cost already paid is **not** refunded.
 
-For local instructions, any additional cost is checked and paid when the instruction executes. For nonlocal instructions, the base cost is paid in Pass 1 when queueing is attempted. Operand capture also happens in Pass 1. If operand capture fails, the base cost is not refunded, no action is queued, `IP` still advances by 1, execution for that program ends for the tick, and the cell does **not** open. Any additional cost is paid only if the instruction successfully executes in Pass 2.
+For nonlocal instructions, the base cost is paid in Pass 1 when queueing is attempted. Operand capture also happens in Pass 1. If operand capture fails, the base cost is not refunded, no action is queued, `IP` still advances by 1, execution for that program ends for the tick, and the cell does **not** open. Any additional cost is paid only if the instruction successfully executes in Pass 2.
 
 ### Protection Model
 
@@ -255,7 +256,7 @@ Also record the set of programs that are **live at tick start**. Only those prog
 Only programs that were **live at tick start** execute. Inert programs and newborn live programs are skipped entirely.
 
 1. Each program executes instructions sequentially from `IP`:
-   - If the instruction is **local**: pay its base energy cost (if any), then pay any additional cost required by the instruction, execute it, and consume 1 local action. If any required payment fails, halt and mark the cell open.
+   - If the instruction is **local**: pay its base energy cost (if any), then pay any additional cost required by the instruction, execute it, and consume 1 local action. If any required payment fails (base or additional), set `Flag = 1`, do not advance `IP`, mark the cell open, and forfeit the remaining local action budget. If the additional cost fails, the already-paid base cost is not refunded.
    - If the instruction is **nonlocal**: pay its base energy cost, then attempt to capture its operands. If base-cost payment fails, halt and mark the cell open. If operand capture succeeds, queue the instruction for Pass 2. If operand capture fails, queue nothing and set `Flag = 1`; this is **not** an open-cell event. In either case after successful base-cost payment, advance `IP` by 1 and stop executing that program for the remainder of the tick.
    - If the local action budget is exhausted, stop executing that program for the remainder of the tick.
 2. Track per-program: `absorb_count` (0 if no `absorb` was executed; otherwise 1–4, capped), `absorb_dir` (Dir at first `absorb` call), whether `listen` was executed, whether `collect` was executed, whether `nop` was executed, and whether any base-cost payment this tick used background radiation.
