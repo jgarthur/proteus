@@ -69,6 +69,7 @@ __marimo__/
 
 # Misc local tooling
 .abstra/
-.agents/
+.agents/plans/
+.agents/prompts/
 .cursorignore
 .cursorrules
