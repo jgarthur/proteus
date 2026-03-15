@@ -1,0 +1,13 @@
+[package]
+name = "proteus"
+version = "0.2.0"
+edition = "2021"
+description = "Proteus simulator backend"
+license = "MIT"
+publish = false
+
+[lib]
+name = "proteus"
+path = "src/lib.rs"
+
+[dependencies]

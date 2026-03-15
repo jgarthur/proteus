@@ -7,6 +7,7 @@ This README is a high-level orientation only. It was updated for spec `v0.2.0`.
 ## Project Orientation
 
 - `docs/` contains the active specification and related working documentation. See `docs/README.md`.
+- `rust/` contains the active Rust backend implementation surface. See `rust/README.md`.
 - `legacy/` contains archived implementation prototypes and experiments that are kept for reference during the upcoming rewrite. See `legacy/README.md`.
 
 ## Current Spec Shape
@@ -21,4 +22,4 @@ At a high level, the `v0.2.0` spec defines:
 
 ## Implementation Note
 
-The current center of gravity is the spec in `docs/`. Earlier Rust, Python, and frontend implementations now live under `legacy/` as historical reference material. A new implementation surface has not been established yet, but the intended direction remains a Rust backend for simulation plus a frontend for visualization and interaction.
+The current center of gravity is the spec in `docs/`. The active simulator backend is being rebuilt in `rust/`. Earlier Rust, Python, and frontend implementations live under `legacy/` as historical reference material.
