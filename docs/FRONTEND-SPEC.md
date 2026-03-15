@@ -696,9 +696,7 @@ API-SPEC §11 specifies `program_size / 128` for the CellView byte. With the spe
 
 ### 6. CORS headers
 
-The frontend runs as a separate application (likely `localhost:5173` via Vite dev server) and makes requests to the backend (likely `localhost:3000`). Cross-origin requests will fail without CORS headers.
-
-**Request**: The backend should set `Access-Control-Allow-Origin: *` (or mirror the `Origin` header) for all REST endpoints and the WebSocket upgrade. Alternatively, the frontend can use a Vite proxy in development, but CORS headers are needed for production builds.
+**Resolved.** The backend already applies `CorsLayer::permissive()` (Axum/Tower), which sets `Access-Control-Allow-Origin: *` and allows all methods and headers. No Vite proxy is needed.
 
 ### 7. TPS in metrics WebSocket message
 
