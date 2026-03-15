@@ -1,15 +1,24 @@
 # Proteus
 
-Proteus is an artificial life experiment and 2D cellular automaton where programs and computation are the fundamental "stuff" from which life emerges. It takes inspiration from numerous projects, including Tierra and The Life Engine. Design goals include:
-- A believable, elegant system of physics in which inert and living matter are not fundamentally separate from one other
-- Program instructions and computational resources as conserved quantities
-- Scalable implementation with the potential for distributed computation
+Proteus is an artificial life simulator specified as a discrete 2D world where self-replicating programs compete for mass, energy, space, and time. The core idea is that programs are not layered on top of the physics; program instructions and computational work are part of the substrate itself.
 
-## Design snapshot
+This README is a high-level orientation only. It was updated for spec `v0.2.0`.
 
-- 2D grid, 4-neighbor interactions, discrete time steps
-- Computation is implemented by a Forth-like stack machine with specialized registers for interacting with the wider world
-- Each cell contains a program state (instructions, registers, stack) and energy
-- Single byte instruction opcodes are the fundamental units of mass
-- Energy is required to execute and modify instructions, and to communicate with other cells
-- Update rules are fully discrete and determinstic (aside from mutations and random arrivals of energy and mass from outside the system)
+## Project Orientation
+
+- `docs/` contains the active specification and related working documentation. See `docs/README.md`.
+- `legacy/` contains archived implementation prototypes and experiments that are kept for reference during the upcoming rewrite. See `legacy/README.md`.
+
+## Current Spec Shape
+
+At a high level, the `v0.2.0` spec defines:
+
+- a 2D cellular world with only local adjacency
+- conserved internal transfers of mass and energy, driven by external ambient inputs
+- single-cell programs with mutable instruction sequences, local execution budgets, and one nonlocal action per tick
+- explicit lifecycle states for live, inert, abandoned, and newborn programs
+- emergent ecology through generic read, write, transfer, deletion, signaling, and harvesting primitives
+
+## Implementation Note
+
+The current center of gravity is the spec in `docs/`. Earlier Rust, Python, and frontend implementations now live under `legacy/` as historical reference material. A new implementation surface has not been established yet, but the intended direction remains a Rust backend for simulation plus a frontend for visualization and interaction.

@@ -1,6 +1,6 @@
-# Proteus v0.2 Operational Companion
+# Proteus v0.2.0 Spec Companion
 
-Companion to **Proteus v0.2 Specification**. This document is not a redesign. It is an implementation-facing clarification layer: condensed phase ordering, operational invariants, truth tables, and testable edge-case rules.
+Companion to **Proteus v0.2.0 Specification**. This document is not a redesign. It is an implementation-facing clarification layer: condensed phase ordering, operational invariants, truth tables, and testable edge-case rules.
 
 When prose in the main spec feels broad, this document gives the intended machine semantics.
 
@@ -616,4 +616,3 @@ If the main spec is edited later, re-check these first:
 - Does it create a new source-side effect that should happen only on success?
 - Does it interact with newborn semantics?
 - Does it require a deletion / cursor / occupancy edge-case rule?
-

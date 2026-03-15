@@ -277,13 +277,13 @@ The frontend should be a separate directory (e.g., `web/`) with its own build. T
 
 ## Testing strategy
 
-Follow the companion doc's §13 suggested tests as the primary checklist. In addition:
+Follow the companion doc's section 13 suggested tests as the primary checklist. In addition:
 
 **Determinism test**: run the same config+seed twice, assert identical state after N ticks. This catches any accidental order-dependence or unseeded randomness.
 
 **Conservation tests**: after each tick, verify that total energy and total mass are consistent with the expected external inputs and removals. Small rounding tolerance for stochastic draws, but the books should balance.
 
-**Single-instruction micro-worlds**: hand-authored tiny programs that exercise one instruction in isolation. Assert register/stack/flag state after one tick. The companion's truth tables (§7) map directly to these.
+**Single-instruction micro-worlds**: hand-authored tiny programs that exercise one instruction in isolation. Assert register/stack/flag state after one tick. The companion's truth tables map directly to these.
 
 **Seed replicator smoke test**: place the seed replicator from the spec in a pre-loaded environment, run for 100 ticks, assert population > 1.
 

@@ -1,3 +1,5 @@
+# Proteus Spec Changelog
+
 ## Recent Changes
 
 ### 2026-03-14 (v0.2.0)
