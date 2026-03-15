@@ -38,8 +38,11 @@ Completed in the new `rust/` crate:
 - weighted-tie sanity coverage for exclusive Pass-2 conflicts
 - deterministic multi-tick scenarios for repeated `delAdj` pressure and extinction-to-respawn flow
 - Pass-2 transfer-cap coverage for extreme requested `giveE` / `giveM` amounts plus dense many-to-one additive transfer
-- deterministic nonzero-rate accounting coverage for forced arrivals with `absorb` and `collect`
+- deterministic nonzero-rate accounting coverage for forced arrivals plus forced decay / threshold decay ordering
 - dense packet-ring stress coverage for collision-free packet preservation and destination-bucket ordering
+- many-to-one exclusive conflict coverage for deterministic winner selection under action reordering
+- denser packet-collision lattice coverage for simultaneous multi-bucket collisions plus survivor preservation
+- direct unmatched-`next` coverage for `Flag`-neutral control-flow fallthrough
 
 Validation baseline currently expected after each implementation batch:
 
@@ -301,12 +304,11 @@ References:
 
 ## Immediate Next Slice
 
-1. Continue expanding the M4 regression suite where it still has visible gaps:
-   - longer-horizon accumulation / steady-state scenarios
-   - extinction and respawn behavior over many ticks
-   - stronger conservation checks across richer worlds
-2. Move into M5 with a broader determinism harness and then the seed smoke tests.
-3. Add any remaining edge-case coverage revealed by the new tick driver, especially around spontaneous creation interacting with crowded or resource-rich worlds.
+1. Shift from the remaining manual single-threaded gaps into broader scenario coverage:
+   - stronger ecology-style multi-tick scenarios
+   - additional fixed-seed stochastic-accounting cases with mixed rates, not just forced 0/1 extremes
+2. Move into M5 with a broader determinism harness and then the seed smoke tests once the seed is fixed.
+3. Add further hand-authored edge cases only if new failures suggest them, especially around spontaneous creation in crowded or resource-rich worlds.
 
 ## Things Not To Do
 

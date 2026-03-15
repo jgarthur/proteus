@@ -685,6 +685,73 @@ fn exclusive_conflict_tiebreak_is_deterministic_under_action_reordering() {
 }
 
 #[test]
+fn many_exclusive_writes_pick_one_deterministic_winner_independent_of_action_order() {
+    const SOURCE_COUNT: u32 = 8;
+
+    let mut left_builder = WorldBuilder::new(SOURCE_COUNT + 1, 1).seed(29);
+    let mut right_builder = WorldBuilder::new(SOURCE_COUNT + 1, 1).seed(29);
+    for x in 0..SOURCE_COUNT {
+        left_builder = left_builder.at(x, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1));
+        right_builder = right_builder.at(x, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1));
+    }
+    left_builder = left_builder.at(
+        SOURCE_COUNT,
+        0,
+        ProgramBuilder::new().code(&[0xaa]).open(true),
+    );
+    right_builder = right_builder.at(
+        SOURCE_COUNT,
+        0,
+        ProgramBuilder::new().code(&[0xaa]).open(true),
+    );
+
+    let mut left = left_builder.build_simulation();
+    let mut right = right_builder.build_simulation();
+
+    let actions = (0..SOURCE_COUNT as usize)
+        .map(|source| QueuedAction::WriteAdj {
+            source,
+            target: SOURCE_COUNT as usize,
+            value: source as u8,
+            dst_cursor: 0,
+        })
+        .collect::<Vec<_>>();
+    let mut reversed_actions = actions.clone();
+    reversed_actions.reverse();
+
+    left.run_pass2(&actions);
+    right.run_pass2(&reversed_actions);
+
+    assert_eq!(left.grid(), right.grid());
+
+    let winning_value = left
+        .grid()
+        .get(left.grid().index(SOURCE_COUNT, 0))
+        .expect("target cell should exist")
+        .program
+        .as_ref()
+        .expect("target program should exist")
+        .code[0];
+
+    let mut winner_count = 0_u32;
+    for x in 0..SOURCE_COUNT {
+        let is_winner = winning_value == x as u8;
+        if is_winner {
+            winner_count += 1;
+        }
+
+        assert_program!(
+            left.grid(),
+            (x, 0),
+            flag == !is_winner,
+            dst == if is_winner { 1 } else { 0 }
+        );
+    }
+
+    assert_eq!(winner_count, 1);
+}
+
+#[test]
 fn move_transfers_program_and_free_resources_but_leaves_background_behind() {
     let mut simulation = WorldBuilder::new(2, 1)
         .at(

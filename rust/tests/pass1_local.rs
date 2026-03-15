@@ -231,6 +231,25 @@ fn for_can_find_next_via_wraparound_scan() {
 }
 
 #[test]
+fn unmatched_next_is_flag_neutral_and_advances() {
+    let mut simulation = WorldBuilder::new(1, 1)
+        .configure(|config| config.local_action_exponent = 0.0)
+        .at(0, 0, ProgramBuilder::new().code(&[0x31, 0x50]).flag(true))
+        .build_simulation();
+
+    simulation.run_pass1();
+
+    assert_program!(
+        simulation.grid(),
+        (0, 0),
+        flag == true,
+        ip == 1,
+        lc == 0,
+        stack == &[] as &[i16]
+    );
+}
+
+#[test]
 fn jmp_to_self_stays_within_local_action_budget() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| config.local_action_exponent = 3.0)

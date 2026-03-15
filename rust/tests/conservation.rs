@@ -115,3 +115,65 @@ fn forced_arrivals_with_absorb_and_collect_have_exact_accounting() {
         bg_mass == 1
     );
 }
+
+#[test]
+fn forced_arrivals_and_decay_have_exact_accounting_through_pass3_ordering() {
+    let mut simulation = WorldBuilder::new(3, 1)
+        .configure(|config| {
+            config.r_energy = 1.0;
+            config.r_mass = 1.0;
+            config.d_energy = 1.0;
+            config.d_mass = 1.0;
+            config.maintenance_rate = 0.0;
+            config.p_spawn = 0.0;
+            config.t_cap = 1.0;
+            config.mutation_base_log2 = 32;
+            config.mutation_background_log2 = 32;
+        })
+        .at(
+            0,
+            0,
+            ProgramBuilder::new().code(&[0x51, 0x50]).free_energy(1),
+        )
+        .bg_radiation_at(0, 0, 4)
+        .at(1, 0, ProgramBuilder::new().code(&[0x53, 0x50]).free_mass(1))
+        .bg_mass_at(1, 0, 4)
+        .bg_radiation_at(2, 0, 3)
+        .bg_mass_at(2, 0, 2)
+        .build_simulation();
+
+    let initial_energy = total_energy(&simulation);
+    let initial_mass = total_mass(&simulation);
+
+    simulation.run_tick();
+
+    assert_eq!(initial_energy, 8);
+    assert_eq!(initial_mass, 11);
+    assert_eq!(total_energy(&simulation), 5);
+    assert_eq!(total_mass(&simulation), 9);
+    assert_cell!(
+        simulation.grid(),
+        (0, 0),
+        free_energy == 2,
+        free_mass == 0,
+        bg_radiation == 1,
+        bg_mass == 1
+    );
+    assert_cell!(
+        simulation.grid(),
+        (1, 0),
+        free_energy == 0,
+        free_mass == 2,
+        bg_radiation == 1,
+        bg_mass == 1
+    );
+    assert_cell!(
+        simulation.grid(),
+        (2, 0),
+        has_program == false,
+        free_energy == 0,
+        free_mass == 0,
+        bg_radiation == 1,
+        bg_mass == 1
+    );
+}

@@ -163,3 +163,60 @@ fn dense_ring_of_packets_preserves_all_packet_energy_without_collisions() {
         0
     );
 }
+
+#[test]
+fn collision_lattice_resolves_multiple_buckets_and_preserves_singletons() {
+    let mut simulation = WorldBuilder::new(4, 2).build_simulation();
+    simulation.extend_packets([
+        Packet {
+            position: simulation.grid().index(0, 0),
+            direction: Direction::Right,
+            message: 1,
+        },
+        Packet {
+            position: simulation.grid().index(2, 0),
+            direction: Direction::Left,
+            message: 2,
+        },
+        Packet {
+            position: simulation.grid().index(1, 1),
+            direction: Direction::Right,
+            message: 3,
+        },
+        Packet {
+            position: simulation.grid().index(3, 1),
+            direction: Direction::Left,
+            message: 4,
+        },
+        Packet {
+            position: simulation.grid().index(3, 0),
+            direction: Direction::Right,
+            message: 5,
+        },
+        Packet {
+            position: simulation.grid().index(0, 1),
+            direction: Direction::Left,
+            message: 6,
+        },
+    ]);
+
+    simulation.run_pass3_packets();
+
+    assert_cell!(simulation.grid(), (1, 0), free_energy == 2);
+    assert_cell!(simulation.grid(), (2, 1), free_energy == 2);
+    assert_eq!(
+        simulation.packets(),
+        &[
+            Packet {
+                position: simulation.grid().index(0, 0),
+                direction: Direction::Right,
+                message: 5,
+            },
+            Packet {
+                position: simulation.grid().index(3, 1),
+                direction: Direction::Left,
+                message: 6,
+            }
+        ]
+    );
+}
