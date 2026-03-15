@@ -183,3 +183,89 @@ fn drop_on_empty_stack_sets_flag_and_leaves_stack_empty() {
         stack == &[][..]
     );
 }
+
+#[test]
+fn for_without_matching_next_sets_flag_and_advances() {
+    let mut simulation = WorldBuilder::new(1, 1)
+        .configure(|config| config.local_action_exponent = 0.0)
+        .at(0, 0, ProgramBuilder::new().code(&[0x30, 0x50]).stack(&[0]))
+        .build_simulation();
+
+    simulation.run_pass1();
+
+    assert_program!(
+        simulation.grid(),
+        (0, 0),
+        flag == true,
+        ip == 1,
+        lc == 0,
+        stack == &[][..]
+    );
+}
+
+#[test]
+fn for_can_find_next_via_wraparound_scan() {
+    let mut simulation = WorldBuilder::new(1, 1)
+        .configure(|config| config.local_action_exponent = 0.0)
+        .at(
+            0,
+            0,
+            ProgramBuilder::new()
+                .code(&[0x31, 0x50, 0x30])
+                .ip(2)
+                .flag(true)
+                .stack(&[0]),
+        )
+        .build_simulation();
+
+    simulation.run_pass1();
+
+    assert_program!(
+        simulation.grid(),
+        (0, 0),
+        flag == true,
+        ip == 1,
+        lc == 0,
+        stack == &[][..]
+    );
+}
+
+#[test]
+fn jmp_to_self_stays_within_local_action_budget() {
+    let mut simulation = WorldBuilder::new(1, 1)
+        .configure(|config| config.local_action_exponent = 3.0)
+        .at(0, 0, ProgramBuilder::new().code(&[0x00, 0x32]))
+        .build_simulation();
+
+    simulation.run_pass1();
+
+    assert_program!(
+        simulation.grid(),
+        (0, 0),
+        flag == false,
+        ip == 1,
+        stack == &[][..]
+    );
+}
+
+#[test]
+fn nested_for_next_overwrites_single_loop_counter_register() {
+    let mut simulation = WorldBuilder::new(1, 1)
+        .at(
+            0,
+            0,
+            ProgramBuilder::new().code(&[0x02, 0x30, 0x03, 0x30, 0x31]),
+        )
+        .build_simulation();
+
+    simulation.run_pass1();
+
+    assert_program!(
+        simulation.grid(),
+        (0, 0),
+        flag == false,
+        ip == 4,
+        lc == 2,
+        stack == &[][..]
+    );
+}
