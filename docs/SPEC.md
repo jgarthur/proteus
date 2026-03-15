@@ -1,12 +1,18 @@
-# Proteus v0.1 Specification
+# Proteus v0.2 Specification
 
 An artificial life simulator where self-replicating programs emerge, compete, and evolve on a 2D grid with conserved mass and energy.
 
 ## Design Philosophy
 
-Proteus v0 prioritizes a minimal substrate that enables emergent complexity. The instruction set is small enough that most single-point mutations produce functional programs, and the minimal self-replicator is short enough that evolution has a smooth fitness landscape to explore. Complex behaviors — movement, predation, cooperation, communication — emerge from generic read/write primitives rather than dedicated opcodes.
+Proteus prioritizes a minimal substrate that enables emergent complexity. The instruction set is small enough that most single-point mutations produce functional programs, and the minimal self-replicator is short enough that evolution has a smooth fitness landscape to explore. Complex behaviors — movement, predation, cooperation, communication — emerge from generic read/write primitives rather than dedicated opcodes.
 
 The physics layer provides real resource constraints (spatial locality, maintenance costs, conserved transactions with external energy and mass sources) that drive ecological dynamics without prescribing what those dynamics should look like. The substrate includes controlled stochastic elements — background radiation and mass arrival, mutation, `rand`, and probabilistic maintenance and decay — but is otherwise deterministic. All physics is fully discrete and translation-invariant under 90° rotations and reflections.
+
+### Changes from v0.1
+
+v0.2 makes one coherent structural change: **larger organisms get more local work per tick**. The immediate/1-tick instruction distinction is removed. Every instruction is a 1-tick instruction. Each live program executes `floor(size^alpha)` local instructions per tick, plus at most one nonlocal instruction. Maintenance scales as `size^beta`.
+
+Alongside this, the resource model is made symmetric: background mass is introduced as a new pool parallel to background radiation, requiring active harvesting via a new `collect` instruction. `absorb` is split into `absorb` (energy metabolism) and `listen` (communication). `takeM` and `takeE` are removed; predation is exclusively destructive (`delAdj`). Directed radiation energy semantics are fixed so each packet carries exactly 1 energy.
 
 ## Physics
 
@@ -21,28 +27,38 @@ The physics layer provides real resource constraints (spatial locality, maintena
 
 Mass and energy are fundamental, quantized quantities located within a single cell at a time. The system has conserved internal transactions, with external inputs of both energy and mass driving the economy.
 
-**Mass** exists in two forms:
+**Mass** exists in three forms:
 
-- **Free mass**: loose raw material in a cell. Used by programs to create new instructions. Attached to the program if one is present.
+- **Background mass**: an external mass input. Each cell receives 1 unit of background mass with probability `R_mass` per tick. Background mass accumulates in the cell across ticks, and each unit independently decays (is permanently removed) with probability `D_mass` per tick. Background mass is a separate pool from free mass — it cannot be used to pay for instructions or maintenance. Only `collect` converts background mass into free mass. At steady state, an untouched cell holds approximately `R_mass / D_mass` background mass. When background mass arrives in a cell with no program, it has an additional probability `P_spawn` of nucleating a new single-`nop` program (see Spontaneous Program Creation).
+- **Free mass**: loose raw material in a cell. Used by programs to create new instructions and as maintenance fallback. Attached to the program if one is present.
 - **Instructions**: each instruction in a program has mass 1. Instructions are created from free mass and can be destroyed back into free mass.
 
 **Energy** exists in three forms:
 
+- **Background radiation**: an external energy input. Each cell receives 1 unit of background radiation with probability `R_energy` per tick. Background radiation accumulates in the cell across ticks until captured by `absorb`, but each unit independently decays (is permanently removed) with probability `D_energy` per tick. At steady state, an untouched cell holds approximately `R_energy / D_energy` background radiation. Background radiation is a separate pool from free energy — it cannot be used to pay for instructions (except as emergency payment with elevated mutation risk; see Mutation) and is not subject to storage thresholds. Only `absorb` converts background radiation into free energy.
 - **Free energy**: stationary, attached to the program in a cell (if present). Used to pay for instruction execution and maintenance.
-- **Directed radiation**: a packet of energy propagating at 1 cell/tick in a cardinal direction. Carries a 16-bit signed integer value, doubling as energy transfer and long-range communication.
-- **Background radiation**: an external energy input. Each cell receives 1 unit of background radiation with probability `R_energy` per tick. Background radiation accumulates in the cell across ticks until captured by `absorb`, but each unit independently decays (is permanently removed) with probability `D_energy` per tick. At steady state, an untouched cell holds approximately `R_energy / D_energy` background radiation. Background radiation is a separate pool from free energy — it cannot be used to pay for instructions (except as emergency payment with elevated mutation risk; see Instruction Timing) and is not subject to storage thresholds. Only `absorb` converts background radiation into free energy.
+- **Directed radiation**: a packet of energy propagating at 1 cell/tick in a cardinal direction. Each packet carries exactly 1 energy and a 16-bit signed integer message value, serving as both energy transfer and long-range communication.
 
-**Background mass**: an external mass input, independent of energy. Each cell receives 1 unit of free mass with probability `R_mass` per tick. When mass arrives in a cell with no program, it has an additional probability `P_spawn` of nucleating a new single-`nop` program (see Spontaneous Program Creation).
+### Resource Pool Summary
+
+| Pool | Arrives | Decays | Threshold | Conversion | Can Pay Costs |
+|------|---------|--------|-----------|------------|---------------|
+| Background radiation | `R_energy` per tick | all units at `D_energy` | none | `absorb` → free energy | emergency only (elevated mutation) |
+| Free energy | from absorb, listen, transfers, crystallization | above threshold at `D_energy` | `T_cap × S` | working currency | yes |
+| Background mass | `R_mass` per tick | all units at `D_mass` | none | `collect` → free mass | no |
+| Free mass | from collect, synthesize, del, delAdj, transfers, crystallization | above threshold at `D_mass` | `T_cap × S` | working currency (maintenance fallback) | yes (maintenance fallback) |
 
 ### Decay
 
 Free energy and free mass above a storage threshold decay stochastically each tick. For a cell containing a program of size `S`:
 
-- **Storage threshold**: `T_cap × S` for both energy and mass, where `T_cap` is a system parameter.
+- **Storage threshold**: `T_cap × S` for both free energy and free mass, where `T_cap` is a system parameter.
 - **Decay rule**: each unit of free energy above the threshold independently decays (is permanently removed) with probability `D_energy` per tick. Each unit of free mass above the threshold independently decays with probability `D_mass` per tick.
 - **Empty cells** have a storage threshold of 0 — all free resources decay.
 
 Resources at or below the threshold do not decay. Implementation: for each cell, compute `excess = max(0, amount - threshold)`, then draw from `Binomial(excess, D)` to determine units removed.
+
+Background radiation and background mass decay independently of thresholds (all units decay at their respective rates, regardless of cell contents).
 
 ### Program Size Cap
 
@@ -50,7 +66,13 @@ Program size is hard-capped at 2^15 − 1 instructions.
 
 ### Maintenance
 
-Each instruction in a **live** program independently requires 1 energy payment with probability `M` per tick. Inert programs use the same maintenance rule only **after** they are considered abandoned (see Program Lifecycle). Implementation: draw from `Binomial(program_size, maintenance_rate)` where `maintenance_rate` is `M` for live programs, `0` for inert programs still inside the grace window, and `M` again for inert programs that have exceeded the grace window.
+Each program pays stochastic maintenance each tick, scaled by program size:
+
+- Compute `q = size_current ^ beta` where `beta` is the `maintenance_exponent` system parameter.
+- Draw from `Binomial(floor(q), M)` plus one additional `Bernoulli((q - floor(q)) × M)` to preserve expected maintenance for non-integer exponents.
+- With `beta = 1.0` (default), this reduces to `Binomial(program_size, M)`, matching v0.1 behavior.
+
+Maintenance applies to **live** programs every tick. Inert programs use the same rule only **after** they are considered abandoned (see Program Lifecycle).
 
 If free energy is insufficient, maintenance is paid with free mass. If both are exhausted, instructions are destroyed from the end of the program.
 
@@ -71,19 +93,17 @@ Programs exist in two states:
 
 Each inert program tracks **ticks since last incoming write**. Any successful `appendAdj` or `writeAdj` targeting the inert program resets this timer to 0. While this timer is below `inert_grace_ticks`, the offspring is considered **under active construction** and pays no maintenance. Once the timer reaches `inert_grace_ticks`, the offspring is considered **abandoned** and normal maintenance resumes.
 
-Rationale: this keeps cleanup endogenous. Offspring under active parental construction are protected from immediate tail erosion, but abandoned fragments still die through the same maintenance-and-starvation process as every other program. No forced activation or out-of-band dissolution is required.
-
 **Spontaneous creation** (background mass nucleation in an empty cell): the program is created **live**. This is the primordial bootstrap — no parent required.
 
 **Constructed creation** (first `appendAdj` into an empty cell): the program is created **inert**. It remains inert until a `boot` instruction transitions it to live. While inert, the cell is open, allowing continued construction by the parent or interference by others.
 
 ### Spontaneous Program Creation
 
-When background mass arrives in a cell with no program, there is a probability `P_spawn` that a new live program is created instead of simply adding free mass. The program consists of a single `nop` instruction with default registers (`Dir` and `ID` randomized), empty stack, and age 0. Free energy and mass in the cell are unchanged.
+When background mass arrives in a cell with no program, there is a probability `P_spawn` that a new live program is created. The program consists of a single `nop` instruction with default registers (`Dir` and `ID` randomized), empty stack, and age 0. At the moment of creation, all background radiation in the cell is converted to free energy and all background mass in the cell is converted to free mass (a one-time "crystallization event"). This gives the nascent program a small buffer of working resources.
 
 ### Synthesis
 
-Programs can actively convert energy into mass using the `synthesize` instruction. This consumes `N_synth` energy (in addition to the instruction's base cost of 1) and produces 1 free mass. This is the primary metabolic pathway — organisms convert energy surplus into building material for replication.
+Programs can actively convert energy into mass using the `synthesize` instruction. This consumes `N_synth` energy (in addition to the instruction's base cost of 1) and produces 1 free mass. This is a primary metabolic pathway — organisms convert energy surplus into building material for replication.
 
 ## Programs
 
@@ -103,16 +123,16 @@ Each program has its own CPU with the following registers:
 | `Dir` | 2 | read-write | random | Direction heading: 0=right, 1=up, 2=left, 3=down. Initialized with randomness at program creation. |
 | `Src` | 16 | read-write | 0 | Source cursor. Auto-increments on read operations. Interpreted modulo target program size when used. |
 | `Dst` | 16 | read-write | 0 | Destination cursor. Auto-increments on write operations. Interpreted modulo target program size when used. |
-| `Flag` | 1 | read-only | 0 | 0 = last 1-tick instruction succeeded; 1 = any instruction failed or message received via `absorb`. Only successful 1-tick instruction execution resets `Flag` to 0; immediate instructions can set `Flag` to 1 (on failure) but never clear it. |
-| `Msg` | 16 | read-only | 0 | Value carried by last received directed radiation. |
+| `Flag` | 1 | read-only | 0 | 0 = last instruction succeeded; 1 = instruction failed or message received via `listen`. Only successful instruction execution resets `Flag` to 0; failed instructions set `Flag` to 1 but never clear it. |
+| `Msg` | 16 | read-only | 0 | Value carried by last received directed radiation (set by `listen`). |
 | `ID` | 8 | read-write | random | Cell identifier. Initialized with randomness at program creation. |
 | `LC` | 16 | hidden | 0 | Loop counter, used internally by `for`/`next`. Not directly accessible. |
 
 ### Newborn Program State
 
-When a new program is created (first `appendAdj` into an empty cell, or spontaneous `nop` spawn), all registers are initialized to their default values as listed above. `Dir` and `ID` are randomized independently. The stack is empty. Age is 0. Free energy and free mass in the cell are unchanged (they belong to the cell, not the program).
+When a new program is created (first `appendAdj` into an empty cell, or spontaneous `nop` spawn), all registers are initialized to their default values as listed above. `Dir` and `ID` are randomized independently. The stack is empty. Age is 0.
 
-Programs created by `appendAdj` into an empty cell are **inert** (see Program Lifecycle). Programs created by spontaneous nop-spawn are **live**.
+Programs created by `appendAdj` into an empty cell are **inert** (see Program Lifecycle). Programs created by spontaneous nop-spawn are **live**, and a crystallization event converts all background resources in the cell to free resources.
 
 ### Stack
 
@@ -126,94 +146,126 @@ When a 16-bit stack value is written as an instruction (via `write`, `writeAdj`,
 
 ### Instruction Timing
 
-Instructions come in two types:
+Every instruction is a **1-tick instruction**. Instructions are classified as either **local** or **nonlocal**:
 
-- **Immediate** (0-tick): execute instantly, cost no energy. Includes all stack, arithmetic, control flow, direction, and register instructions. The total number of immediate instructions per tick is capped at program size to prevent infinite loops.
-- **1-tick**: cost 0 or more energy. A program executes immediate instructions until it reaches a 1-tick instruction. It then pays the base energy cost (or halts if unable), executes the instruction, advances `IP` by 1, and the tick ends for that program.
+- **Local**: target the executing program's own cell or read-only adjacent state. Base energy cost is 0 or more depending on the instruction.
+- **Nonlocal**: modify or transfer resources to/from adjacent cells. Base energy cost is 0 or more depending on the instruction.
 
-If a program has 0 free energy for a 1-tick instruction, it may pay using background radiation present in its cell. This carries a significantly higher mutation probability (see Mutations).
+### Local Throughput
+
+Each live program receives a per-tick **local budget**:
+
+```
+local_budget = max(1, floor(size_at_tick_start ^ alpha))
+```
+
+Where `alpha` is the `local_action_exponent` system parameter (default 1.0).
+
+During execution, local instructions consume 1 local budget each. When the first nonlocal instruction is reached, it is queued (consuming no local budget), `IP` advances by 1, and the tick ends for that program. If no nonlocal instruction is reached, the tick ends when local budget is exhausted or execution halts.
+
+At most **one nonlocal instruction** may be executed per program per tick.
+
+### Energy Payment
+
+Each instruction has a base energy cost (0 for most local instructions, 1 for most world-interaction instructions). When an instruction is reached:
+
+1. If the base cost is > 0, attempt to pay from free energy.
+2. If free energy is insufficient and background radiation is present in the cell, pay using background radiation (elevated mutation risk applies to this tick's mutation check).
+3. If payment fails entirely, halt execution, do not advance `IP`, and mark the cell as open. The remaining local budget is forfeit.
 
 ### Protection Model
 
 Cells are **protected by default**. A cell becomes **open** (unprotected) for the current tick if its program:
 
-- Executed `absorb` this tick
+- Executed `listen` this tick
 - Executed `nop` this tick
 - Failed to pay the energy cost for any instruction this tick
-- Was halted after exceeding the immediate instruction limit
 - Is **inert** (always open until booted)
 
 **Empty cells are always open.**
 
+A program that exhausts its local budget without hitting a nonlocal instruction simply ends its tick normally; the cell remains protected (unless opened by one of the conditions above).
+
 The following instructions fail against a protected target cell:
 
 - `delAdj` — fails against a protected cell
-- `takeE` — fails against a protected cell
-- `takeM` — fails against a protected cell
 - `writeAdj` — fails against a protected cell
 - `appendAdj` (on occupied cell) — fails against a protected cell
 
 The following nonlocal instructions work regardless of protection status:
 
-- `readAdj`, `senseSize`, `senseE`, `senseM`, `senseID` — read-only, non-destructive
+- `readAdj` — read-only, non-destructive
 - `giveE`, `giveM` — beneficial to target
 - `move` — targets empty cells only, which are always open
 - `appendAdj` (into empty cell) — empty cells are always open
 - `boot` — targets inert programs only (which are always open); fails if target is empty or already live
 
-Rationale: protection is uniform — a protected cell is genuinely protected against all hostile actions including code injection. Multi-tick replication is enabled by the inert offspring mechanism: offspring are inert (and therefore open) until explicitly booted, allowing the parent to write their full genome before activation.
+The following local instructions read adjacent state but do not modify it, and work regardless of protection:
+
+- `senseSize`, `senseE`, `senseM`, `senseID` — read from Pass-1 start snapshot
 
 ### Global Execution Order
 
 Each tick proceeds in three passes. All physics is translation-invariant.
 
+**Pass 0 — Snapshot:**
+
+Before any execution, take a snapshot of each cell's free energy, free mass, background radiation, background mass, program size, and program `ID`. This snapshot is used by local sensing instructions (`senseSize`, `senseE`, `senseM`, `senseID`) to ensure sensing results are iteration-order independent.
+
 **Pass 1 — Local execution (all cells simultaneously):**
 
 Only **live** programs execute. Inert programs are skipped entirely.
 
-1. Each program executes immediate instructions until reaching a 1-tick instruction, or until the immediate instruction limit (equal to program size) is exceeded, in which case the program is halted and the cell becomes open.
-2. If a 1-tick instruction is reached, pay its base energy cost. If payment fails, halt, do not advance `IP`, and mark cell as open. If paid, determine whether the instruction is local or nonlocal.
-3. Local 1-tick instructions execute immediately.
-4. Nonlocal 1-tick instructions are placed in the nonlocal queue for Pass 2.
-5. `IP` advances by 1. The executed instruction has a chance to mutate (not affecting this tick's execution).
+1. Each program executes instructions sequentially from `IP`:
+   - If the instruction is **local**: pay its energy cost (if any), execute it, consume 1 local budget. If energy payment fails, halt and mark cell open.
+   - If the instruction is **nonlocal**: pay its base energy cost, queue the instruction for Pass 2, advance `IP` by 1, and end the tick for this program. If energy payment fails, halt and mark cell open.
+   - If local budget is exhausted, end the tick for this program.
+2. Track per-program: `absorb_count` (0–4, capped), `absorb_dir` (Dir at first `absorb` call), whether `listen` was executed, whether `collect` was executed, whether `nop` was executed.
 
-Pass 1 requires no inter-cell communication and is trivially parallelizable.
+Pass 1 requires no inter-cell communication (sensing reads from the Pass-0 snapshot) and is trivially parallelizable.
 
 **Pass 2 — Nonlocal execution (snapshot-and-apply):**
 
-All nonlocal instructions are resolved against a snapshot of the grid state taken after Pass 1.
+All nonlocal instructions are resolved against the grid state after Pass 1.
 
 1. Pay additional costs for each nonlocal instruction. If costs cannot be paid, the instruction fails.
-2. Check protection on target cells. `delAdj`, `takeE`, `takeM`, `writeAdj`, and `appendAdj` (on occupied cell) targeting a protected cell fail. `boot` targeting an empty or already-live cell fails.
+2. Check protection on target cells. `delAdj`, `writeAdj`, and `appendAdj` (on occupied cell) targeting a protected cell fail. `boot` targeting an empty or already-live cell fails.
 3. Group remaining instructions by target cell. For each target cell:
    - If one instruction targets it: that instruction succeeds.
    - If multiple instructions target it: resolve using the conflict resolution rule (see below).
-4. Execute all winning instructions simultaneously against the snapshot. Each winner reads pre-resolution state and writes to its target cell. Since each target cell has at most one winner, there are no write conflicts.
-5. Source-side effects (e.g., mass/energy deducted from the attacking cell, cursor increments) are applied unconditionally for each winning instruction. Since each cell executes at most one nonlocal instruction per tick, source-side effects never conflict with each other.
+4. Execute all winning instructions simultaneously. Each winner reads pre-resolution state and writes to its target cell. Since each target cell has at most one winner, there are no write conflicts.
+5. Source-side effects (e.g., mass/energy deducted from the source cell, cursor increments) are applied unconditionally for each winning instruction.
 
 **Conflict resolution** (multiple instructions targeting the same cell):
 
 1. Highest program strength wins.
 2. Ties: random, weighted by program size (each tied program's probability of winning is proportional to its size).
 
-This rule is deterministic only at tier 1. At equal strength, larger programs have better odds but are not guaranteed to win, preventing pure incumbency advantages while still rewarding investment in size. The rule requires only source-program properties, making it well-defined for all target cells including empty ones.
-
-Note: mutual targeting (A targets B while B targets A) does not require special handling. These instructions target different cells and both can succeed independently. No conflict graph or cycle detection is needed.
+Note: mutual targeting (A targets B while B targets A) does not require special handling. These instructions target different cells and both can succeed independently.
 
 **Pass 3 — Physics update:**
 
-1. **Directed radiation** propagates to its next cell. When multiple packets of directed radiation arrive in the same cell simultaneously, all are converted to free energy.
-2. **Background radiation**: each cell receives 1 unit with probability `R_energy`. This accumulates in the cell. Each existing unit of background radiation independently decays with probability `D_energy`.
-3. **Absorb resolution**: for each cell containing accumulated background radiation, distribute it equally (floor division) among all programs that executed `absorb` this tick and are adjacent to or occupying that cell. Remainder stays in the cell. Background radiation captured this way becomes free energy in the absorbing program's cell.
-4. **Background mass**: each cell receives 1 free mass with probability `R_mass`. If the cell has no program, the arriving mass has an additional probability `P_spawn` of nucleating a new live `nop` program (see Spontaneous Program Creation).
-5. **Inert lifecycle update**: for each inert program, if it received an incoming `appendAdj` or `writeAdj` this tick, reset its abandonment timer to 0. Otherwise increment the timer by 1. This determines whether the offspring is still inside its grace window (`inert_ticks_without_write < inert_grace_ticks`) or has become abandoned.
-6. **Maintenance**: for each program, draw from `Binomial(program_size, maintenance_rate)` where `maintenance_rate = M` for live programs, `0` for inert programs still inside the grace window, and `M` for inert programs that have exceeded the grace window. Deduct from free energy, then free mass, then instructions from end of program.
-7. **Decay**: for each cell, compute excess energy and mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). For each resource, draw from `Binomial(excess, D)` to determine units removed permanently.
-8. All live program ages increment by 1.
+1. **Directed radiation propagation**: all directed radiation packets (including newly emitted ones) propagate 1 cell in their direction.
+2. **Directed radiation absorption**: for each cell, if the program executed `listen` this tick: capture all directed radiation packets present. Free energy gained equals the number of packets. If any packets were captured: set `Msg` to the message value of the last arriving packet, set `Dir` to the direction the last packet arrived from, set `Flag` to 1.
+3. **Directed radiation collision**: for each cell with uncaptured packets: if 2 or more packets are present, all convert to free energy in the cell and are removed. If exactly 1 packet is present, it persists and continues traveling next tick.
+4. **Background radiation distribution (absorb resolution)**: for each cell containing accumulated background radiation, determine which programs have that cell in their absorb footprint. The absorb footprint for a program with `absorb_count` N and `absorb_dir` D is:
+   - N = 0: no footprint (program did not absorb)
+   - N ≥ 1: own cell
+   - N ≥ 2: own cell + cell in direction D (front)
+   - N ≥ 3: own cell + front + cells perpendicular to D (two sides)
+   - N ≥ 4: own cell + front + sides + cell opposite D (rear) — all 5 cells
+   Distribute background radiation in each cell equally (floor division) among all programs whose footprint includes that cell. Remainder stays. Captured background radiation becomes free energy in each absorbing program's cell.
+5. **Background radiation arrival**: each cell receives 1 unit of background radiation with probability `R_energy`. Each existing unit of background radiation independently decays with probability `D_energy`.
+6. **Collect resolution**: for each program that executed `collect` this tick, convert all background mass in the program's own cell to free mass.
+7. **Background mass arrival**: each cell receives 1 unit of background mass with probability `R_mass`. Each existing unit of background mass independently decays with probability `D_mass`. If background mass arrives in a cell with no program, the arriving mass has an additional probability `P_spawn` of triggering a crystallization event and spawning a new live `nop` program (see Spontaneous Program Creation).
+8. **Inert lifecycle update**: for each inert program, if it received an incoming `appendAdj` or `writeAdj` this tick, reset its abandonment timer to 0. Otherwise increment the timer by 1.
+9. **Maintenance**: for each program, compute `q = size_current ^ beta`. Draw from `Binomial(floor(q), M)` plus `Bernoulli((q - floor(q)) × M)` where `M` is `maintenance_rate` for live programs, `0` for inert programs still inside the grace window, and `maintenance_rate` for abandoned inert programs. Deduct from free energy, then free mass, then instructions from end of program.
+10. **Decay**: for each cell, compute excess free energy and free mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). For each resource, draw from `Binomial(excess, D)` to determine units removed permanently. (Background pools decay in steps 5 and 7 above.)
+11. All live program ages increment by 1.
 
 ## Instruction Set
 
-71 opcodes out of 256 possible byte values. All other byte values are no-ops: immediate, free, and they do **not** open the cell. They are simply skipped during execution.
+71 opcodes out of 256 possible byte values. All other byte values are no-ops: they cost 0 energy, consume 1 local budget, and **do not** open the cell. They are simply skipped during execution.
 
 ### Encoding
 
@@ -225,17 +277,17 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 | `0011 0000` – `0011 0100` | Control flow | 5 |
 | `0100 0000` – `0100 1110` | Direction, register, and local resource access | 15 |
 | `0101 0000` – `0110 0100` | World interaction | 21 |
-| All other values | No-op (immediate, free, does not open cell) | 185 |
+| All other values | No-op (cost 0, does not open cell) | 185 |
 
 The 72% no-op space provides generous neutral territory for mutations: most random bit flips land on no-ops, providing genetic drift without lethality.
 
-### Push Literals (16 opcodes, immediate)
+### Push Literals (16 opcodes, local, cost 0)
 
 | Instruction | Opcode | Description |
 |-------------|--------|-------------|
 | `push N` | `0000 xxxx` | Push sign-extended 4-bit value (−8 to +7) onto stack. `xxxx` encodes the value in two's complement. |
 
-### Stack Operations (5 opcodes, immediate)
+### Stack Operations (5 opcodes, local, cost 0)
 
 | Instruction | Opcode | Description |
 |-------------|--------|-------------|
@@ -245,7 +297,7 @@ The 72% no-op space provides generous neutral territory for mutations: most rand
 | `over` | `0001 0011` | Copy second element to top of stack. |
 | `rand` | `0001 0100` | Push random value (0–255) onto stack. |
 
-### Arithmetic / Logic (9 opcodes, immediate)
+### Arithmetic / Logic (9 opcodes, local, cost 0)
 
 All binary operations pop two operands and push one result. Unary operations pop one and push one. Operands are consumed even if the operation fails.
 
@@ -261,19 +313,19 @@ All binary operations pop two operands and push one result. Unary operations pop
 | `and` | `0010 0111` | Push 1 if both operands are nonzero, else 0. |
 | `or` | `0010 1000` | Push 1 if either operand is nonzero, else 0. |
 
-### Control Flow (5 opcodes, immediate)
+### Control Flow (5 opcodes, local, cost 0)
 
 | Instruction | Opcode | Description |
 |-------------|--------|-------------|
-| `for` | `0011 0000` | Pop count from stack into `LC`. If `LC` ≤ 0, scan forward (modulo program size) for the next `next` instruction and skip past it. The scan counts as a single immediate instruction regardless of distance scanned. If no `next` is found after a full wrap, set `Flag` to 1 and continue. |
-| `next` | `0011 0001` | Decrement `LC`. If `LC` > 0, jump to instruction after the matching `for` (found by scanning backward modulo program size for the nearest `for`). If `LC` ≤ 0, continue. Unmatched `next` is a no-op. |
+| `for` | `0011 0000` | Pop count from stack into `LC`. If `LC` ≤ 0, scan forward (modulo program size) for the next `next` instruction and skip past it; the scan costs 1 local action total (not per-instruction scanned). If no `next` is found after a full wrap, set `Flag` to 1 and continue. |
+| `next` | `0011 0001` | Decrement `LC`. If `LC` > 0, jump to instruction after the matching `for` (found by scanning backward modulo program size for the nearest `for`). If `LC` ≤ 0, continue. Unmatched `next` is a no-op. Costs 1 local action. |
 | `jmp` | `0011 0010` | Pop offset from stack. Jump to `IP + offset`. |
 | `jmpNZ` | `0011 0011` | Pop value, then pop offset. If value ≠ 0, jump to `IP + offset`. |
 | `jmpZ` | `0011 0100` | Pop value, then pop offset. If value = 0, jump to `IP + offset`. |
 
-`for`/`next` do not nest. There is a single `LC` register. A `for` matches the next `next` found by forward scan; a `next` matches the nearest `for` found by backward scan. Both scans wrap modulo program size. This is a deliberate v0 simplification.
+`for`/`next` do not nest. There is a single `LC` register. A `for` matches the next `next` found by forward scan; a `next` matches the nearest `for` found by backward scan. Both scans wrap modulo program size.
 
-### Direction, Register, and Local Resource Access (15 opcodes, immediate)
+### Direction, Register, and Local Resource Access (15 opcodes, local, cost 0)
 
 | Instruction | Opcode | Description |
 |-------------|--------|-------------|
@@ -293,38 +345,43 @@ All binary operations pop two operands and push one result. Unary operations pop
 | `getE` | `0100 1101` | Push this cell's free energy. Does not include background radiation. |
 | `getM` | `0100 1110` | Push this cell's free mass. |
 
-### World Interaction (21 opcodes, 1-tick)
+### World Interaction (23 opcodes)
 
 #### Local (target self)
 
 | Instruction | Opcode | Base Cost | Add'l Cost | Description |
 |-------------|--------|-----------|------------|-------------|
 | `nop` | `0101 0000` | 0 | — | No operation. **Opens cell.** |
-| `absorb` | `0101 0001` | 0 | — | Mark this program as absorbing for Pass 3 background radiation distribution. Capture all directed radiation in this cell as free energy. If directed radiation was received: set `Msg` to its value, set `Dir` to the direction it arrived from, set `Flag` to 1. **Opens cell.** |
-| `emit` | `0101 0010` | 1 | — | Pop value from stack. Send directed radiation carrying that value in direction `Dir`. |
-| `read` | `0101 0011` | 0 | — | Push instruction at `self[Src mod size]` onto stack. Increment `Src`. |
-| `write` | `0101 0100` | 1 | — | Pop value. Overwrite instruction at `self[Dst mod size]` with value (low 8 bits). Increment `Dst`. Does not change program size. |
-| `del` | `0101 0101` | 1 | — | Delete instruction at `self[Dst mod size]`. Program size decreases by 1. Freed as 1 free mass in this cell. |
-| `synthesize` | `0101 0110` | 1 | E = `N_synth` | Convert energy to mass. Consumes `N_synth` additional free energy and produces 1 free mass in this cell. Fails (sets `Flag`) if insufficient energy. |
+| `absorb` | `0101 0001` | 0 | — | Mark this program as absorbing for Pass 3 background radiation distribution. First execution per tick sets `absorb_dir` to current `Dir`. Subsequent executions increment `absorb_count` (capped at 4) but do not update `absorb_dir`. Idempotent for all effects except expanding the collection footprint. Does **not** open cell. |
+| `listen` | `0101 0010` | 0 | — | Mark this program as listening for Pass 3 directed radiation capture. Captures all directed radiation packets in this cell during Pass 3: free energy gained equals number of packets; if any packets were captured, set `Msg` to last packet's value, set `Dir` to direction last packet arrived from, set `Flag` to 1. **Opens cell.** Idempotent within a tick (multiple executions have no additional effect). |
+| `collect` | `0101 0011` | 0 | — | Mark this program for Pass 3 background mass collection. All background mass in this cell is converted to free mass during Pass 3. Idempotent within a tick. |
+| `emit` | `0101 0100` | 1 | — | Pop message value from stack. Send a directed radiation packet in direction `Dir` carrying that message value and 1 energy. The base cost of 1 energy is the energy that becomes the packet. |
+| `read` | `0101 0101` | 0 | — | Push instruction at `self[Src mod size]` onto stack. Increment `Src`. |
+| `write` | `0101 0110` | 1 | — | Pop value. Overwrite instruction at `self[Dst mod size]` with value (low 8 bits). Increment `Dst`. Does not change program size. |
+| `del` | `0101 0111` | 1 | — | Delete instruction at `self[Dst mod size]`. Program size decreases by 1. Freed as 1 free mass in this cell. |
+| `synthesize` | `0101 1000` | 1 | E = `N_synth` | Convert energy to mass. Consumes `N_synth` additional free energy and produces 1 free mass in this cell. Fails (sets `Flag`) if insufficient energy. |
+
+#### Local sensing (read-only adjacent state, from Pass-0 snapshot)
+
+| Instruction | Opcode | Base Cost | Description |
+|-------------|--------|-----------|-------------|
+| `senseSize` | `0101 1001` | 0 | Push program size of adjacent cell in direction `Dir` (0 if empty). Reads from Pass-0 snapshot. |
+| `senseE` | `0101 1010` | 0 | Push free energy of adjacent cell in direction `Dir`. Reads from Pass-0 snapshot. |
+| `senseM` | `0101 1011` | 0 | Push free mass of adjacent cell in direction `Dir`. Reads from Pass-0 snapshot. |
+| `senseID` | `0101 1100` | 0 | Push `ID` register of adjacent cell's program in direction `Dir` (0 if empty, sets `Flag` to 1). Reads from Pass-0 snapshot. |
 
 #### Nonlocal (target adjacent cell in direction `Dir`)
 
 | Instruction | Opcode | Base Cost | Add'l Cost | Protection | Description |
 |-------------|--------|-----------|------------|------------|-------------|
-| `readAdj` | `0101 0111` | 0 | — | No | Push instruction at `neighbor[Src mod size]` onto stack. Increment `Src`. If neighbor cell is empty, push 0 and set `Flag` to 1. |
-| `writeAdj` | `0101 1000` | 1 | — | **Yes** | Pop value. Overwrite instruction at `neighbor[Dst mod size]` (low 8 bits). The old instruction is recycled (no net mass cost). Increment `Dst`. Fails if neighbor cell is empty (nothing to overwrite). |
-| `appendAdj` | `0101 1001` | 1 | 1 mass | **Yes** (occupied) | Pop value. Append instruction (low 8 bits) to end of neighbor's program (or create new inert program if cell is empty). Costs 1 free mass. Does not use or modify `Dst`. Checks protection only if the target cell is occupied; empty cells are always open. |
-| `delAdj` | `0101 1010` | 1 | E = target strength | **Yes** | Delete instruction at `neighbor[Dst mod size]`. Target program size decreases by 1. Freed mass (1) goes to **this** cell (the attacker). |
-| `senseSize` | `0101 1011` | 0 | — | No | Push program size of adjacent cell (0 if empty). |
-| `senseE` | `0101 1100` | 0 | — | No | Push free energy of adjacent cell. |
-| `senseM` | `0101 1101` | 0 | — | No | Push free mass of adjacent cell. |
-| `senseID` | `0101 1110` | 0 | — | No | Push `ID` register of adjacent cell's program (0 if empty, sets `Flag` to 1). |
-| `giveE` | `0101 1111` | 0 | — | No | Pop amount. Transfer `min(amount, free_energy)` to adjacent cell. If amount ≤ 0, no transfer. |
-| `giveM` | `0110 0000` | 1 | — | No | Pop amount. Transfer `min(amount, free_mass)` to adjacent cell. If amount ≤ 0, no transfer. |
-| `takeE` | `0110 0001` | 1 | E = target strength | **Yes** | Take half of target's free energy (rounded up). |
-| `takeM` | `0110 0010` | 1 | — | **Yes** | Take half of free mass (rounded up) from adjacent cell. Takes only loose mass, not instructions. |
-| `move` | `0110 0011` | 1 | — | No | Relocate this program and all its resources (free energy, free mass) to the adjacent cell in direction `Dir`. Fails if the target cell is occupied. Target must be empty (empty cells are always open, so protection is not applicable). |
-| `boot` | `0110 0100` | 0 | — | No | Transition an inert program in the adjacent cell (direction `Dir`) to live. The target begins executing on the next tick with `IP` = 0. Fails if the target cell is empty, or if the target program is already live. Inert cells are always open, so protection is not applicable. Subject to conflict resolution if multiple programs attempt to boot the same target. |
+| `readAdj` | `0101 1101` | 0 | — | No | Push instruction at `neighbor[Src mod size]` onto stack. Increment `Src`. If neighbor cell is empty, push 0 and set `Flag` to 1. |
+| `writeAdj` | `0101 1110` | 1 | — | **Yes** | Pop value. Overwrite instruction at `neighbor[Dst mod size]` (low 8 bits). The old instruction is recycled (no net mass cost). Increment `Dst`. Fails if neighbor cell is empty. |
+| `appendAdj` | `0101 1111` | 1 | 1 mass | **Yes** (occupied) | Pop value. Append instruction (low 8 bits) to end of neighbor's program (or create new inert program if cell is empty). Costs 1 free mass. Does not use or modify `Dst`. Checks protection only if the target cell is occupied; empty cells are always open. |
+| `delAdj` | `0110 0000` | 1 | E = target strength | **Yes** | Delete instruction at `neighbor[Dst mod size]`. Target program size decreases by 1. Freed mass (1) goes to **this** cell (the attacker). |
+| `giveE` | `0110 0001` | 0 | — | No | Pop amount. Transfer `min(amount, free_energy)` to adjacent cell. If amount ≤ 0, no transfer. |
+| `giveM` | `0110 0010` | 1 | — | No | Pop amount. Transfer `min(amount, free_mass)` to adjacent cell. If amount ≤ 0, no transfer. |
+| `move` | `0110 0011` | 1 | — | No | Relocate this program and all its free resources (free energy, free mass) to the adjacent cell in direction `Dir`. Background pools remain in the origin cell. Fails if the target cell is occupied. |
+| `boot` | `0110 0100` | 0 | — | No | Transition an inert program in the adjacent cell (direction `Dir`) to live. The target begins executing on the next tick with `IP` = 0. Fails if the target cell is empty, or if the target program is already live. Subject to conflict resolution if multiple programs attempt to boot the same target. |
 
 #### Instruction Deletion Semantics
 
@@ -332,7 +389,7 @@ When an instruction at index `i` is deleted from a program (via `del` or `delAdj
 
 - All instructions after index `i` shift down by 1.
 - If the affected program's `IP > i`, decrement `IP` by 1. This prevents the program from skipping an instruction or executing past its end.
-- `Src` and `Dst` are **not** adjusted. These are raw cursor values with no fixed association to self or neighbor — they are interpreted modulo program size at the point of use. If a deletion shifts instructions around, the cursor may land on a different instruction next time it is used. This is a natural consequence of code disruption, not a bug.
+- `Src` and `Dst` are **not** adjusted. These are raw cursor values interpreted modulo program size at the point of use.
 - If the program reaches size 0, it is removed and the cell becomes empty.
 
 ### Instruction Count Summary
@@ -344,105 +401,109 @@ When an instruction at index `i` is deleted from a program (via `del` or `delAdj
 | Arithmetic / logic | 9 |
 | Control flow | 5 |
 | Direction + registers + local resource access | 15 |
-| World interaction (local) | 7 |
-| World interaction (nonlocal) | 14 |
+| World interaction (local) | 9 |
+| World interaction (local sensing) | 4 |
+| World interaction (nonlocal) | 8 |
 | **Total opcodes** | **71** |
 | No-op byte values | **185** (72% of opcode space) |
 
 ## Mutations
 
-### Mutation Rates
+### Mutation Model
 
-- After any 1-tick instruction is executed, the instruction mutates with probability `2^(-mutation_base_log2)`. A mutation consists of a random bit flip in its 8-bit opcode. The mutation does not affect the current tick's execution.
-- If the program had 0 free energy and paid the base cost using background radiation present in its cell, the mutation probability increases to `min(x / 2^(mutation_background_log2), 1)` where `x` is the amount of background radiation present in the cell at payment time.
+Once per tick, each live program has a chance to mutate. A single instruction is selected uniformly at random from the program, and one random bit in its 8-bit opcode is flipped. The mutation probability depends on whether the program used background radiation to pay for any instruction this tick:
+
+- **Normal**: probability `2^(-mutation_base_log2)` per tick.
+- **Background-radiation-stressed**: if any energy payment this tick used background radiation, the probability increases to `min(x / 2^(mutation_background_log2), 1)` where `x` is the total amount of background radiation consumed this tick.
+
+Mutations do not affect the current tick's execution.
 
 ## System Parameters
-
-All parameters governing external input rates, decay, maintenance, and synthesis are collected here for tuning.
 
 | Parameter | Symbol | Description | Suggested Start |
 |-----------|--------|-------------|-----------------|
 | Energy arrival rate | `R_energy` | P(cell receives 1 background radiation per tick) | 0.25 |
-| Mass arrival rate | `R_mass` | P(cell receives 1 free mass per tick) | 0.05 |
-| Nop-spawn probability | `P_spawn` | P(mass arrival in empty cell nucleates live nop) | 0 |
+| Mass arrival rate | `R_mass` | P(cell receives 1 background mass per tick) | 0.05 |
+| Nop-spawn probability | `P_spawn` | P(mass arrival in empty cell nucleates live nop + crystallization) | 0 |
 | Energy decay rate | `D_energy` | P(each unit of background radiation or excess free energy removed per tick) | 0.01 |
-| Mass decay rate | `D_mass` | P(each excess mass unit removed per tick) | 0.01 |
-| Decay threshold | `T_cap` | Multiplier on program_size for decay floor | 4 |
-| Maintenance rate | `M` | P(each live instruction costs 1 energy per tick) | 1/128 |
-| Inert grace window | `inert_grace_ticks` | Ticks without incoming write before an inert offspring starts paying normal maintenance | 10 |
+| Mass decay rate | `D_mass` | P(each unit of background mass or excess free mass removed per tick) | 0.01 |
+| Decay threshold | `T_cap` | Multiplier on program_size for free resource decay floor | 4 |
+| Maintenance rate | `M` | P(each maintenance quantum costs 1 energy per tick) | 1/128 |
+| Inert grace window | `inert_grace_ticks` | Ticks without incoming write before abandoned inert pays maintenance | 10 |
 | Synthesis cost | `N_synth` | Additional energy consumed per mass produced | 1 |
-| Baseline mutation exponent | `mutation_base_log2` | Baseline mutation rate is `2^(-value)` | 16 |
-| Background mutation exponent | `mutation_background_log2` | Background-paid mutation rate is `min(x / 2^(value), 1)` | 8 |
+| Baseline mutation exponent | `mutation_base_log2` | Baseline mutation rate is `2^(-value)` per program per tick | 16 |
+| Background mutation exponent | `mutation_background_log2` | Background-stressed mutation rate is `min(x / 2^(value), 1)` | 8 |
+| Local action exponent | `alpha` | Local budget = `max(1, floor(size^alpha))` | 1.0 |
+| Maintenance exponent | `beta` | Maintenance quanta = `size^beta` | 1.0 |
 
 ## Seed Replicator
 
 The following program is the recommended initial organism:
 
 ```
-; === Seed Replicator (11 instructions) ===
+; === Seed Replicator (12 instructions) ===
 ;
-absorb          ; Tick 1:  gather energy (opens cell — vulnerability tradeoff)
-takeM           ; Tick 2:  forage free mass from neighbor
+absorb          ; Tick 1:  gather energy (bg radiation from own cell)
+collect         ; Tick 1:  gather mass (bg mass from own cell)
 cw              ;          rotate Dir (covers different neighbors over cycles)
 push 0          ;
 setSrc          ;          reset Src to 0
-getSize         ;          push program size (11) for loop count
+getSize         ;          push program size (12) for loop count
 for             ;          begin loop
-  read          ; Ticks 3+: read self[Src], Src++
-  appendAdj     ; Ticks 4+: append to neighbor in Dir
+  read          ; Tick 1+: read self[Src], Src++
+  appendAdj     ; Tick 2+: append to neighbor in Dir (nonlocal, ends tick)
 next            ;          decrement LC, loop if > 0
-boot            ; Tick 25: activate offspring
+boot            ; Tick N:  activate offspring (nonlocal, ends tick)
+nop             ;          padding (opens cell — vulnerability window)
 ;
-; After the loop, IP wraps to 0 and the cycle repeats.
+; Execution trace:
+;   Tick 1: absorb, collect, cw, push 0, setSrc, getSize, for, read
+;           (8 local actions, all within budget of 12)
+;           then appendAdj (nonlocal, queued, tick ends)
+;   Tick 2–12: next, read (2 local actions), then appendAdj (nonlocal)
+;   Tick 13: next (LC=0, falls through), boot (nonlocal)
+;   Tick 14: nop (local, opens cell), absorb, collect, cw, ... cycle repeats
 ;
-; Timing:  2 + (2 × 11) + 1 = 25 ticks per replication cycle
-; Energy:  1 (takeM) + 11 (appendAdj base costs) = 12 energy per cycle
-; Mass:    11 (one per appended instruction)
-;          sources: foraged from neighbor + ambient in own cell
+; Timing:  1 + 11 + 1 + 1 = 14 ticks per replication cycle
+; Energy:  12 (appendAdj base costs) = 12 energy per cycle
+; Mass:    12 (one per appended instruction)
+;          sources: collect from own cell bg mass + synthesize (evolved)
 ;
-; The offspring is inert during construction (open, no execution,
-; and no maintenance while the parent keeps writing to it). It becomes live when boot executes, starting
-; with absorb on the next tick.
+; The offspring is inert during construction. It becomes live when
+; boot executes, starting with absorb on the next tick.
 ```
 
 ### Initial Conditions
 
-The seed organism should be placed in a pre-loaded environment: the seed cell and its neighbors should contain sufficient free mass (≥ 11) and free energy (≥ 20) so that the first replication cycle succeeds. This models a resource-rich primordial environment. Once the first generation of offspring begins absorbing energy and foraging, the population becomes self-sustaining at appropriate parameter settings.
-
-If replication fails mid-cycle (mass or energy exhausted), the `appendAdj` calls fail silently. A later explicit `boot` may activate a partial offspring. If no further writes arrive, the abandoned offspring remains inert but eventually starts paying normal maintenance after `inert_grace_ticks` ticks, so its tail erodes away naturally unless construction resumes.
-
-This failure mode is directionally biased by write order. Partial offspring keep the prefix that was already written before construction stalled. If survival-relevant instructions are copied early, mass-starved replication attempts can systematically manufacture viable truncated descendants rather than neutral debris. In the current seed, that means failed construction is expected to overproduce absorb-prefixed organisms.
+The seed organism should be placed in a pre-loaded environment: the seed cell and its neighbors should contain sufficient free mass (≥ 12) and free energy (≥ 20) so that the first replication cycle succeeds. This models a resource-rich primordial environment.
 
 ### Why This Replicator is Plausible as a First Evolver
 
-The seed replicator uses four distinct 1-tick instructions (`absorb`, `takeM`, `read`, `appendAdj`, plus `boot` — five total) and six immediate instructions (`cw`, `push`, `setSrc`, `getSize`, `for`, `next`). The offspring is inert during construction, preventing premature execution of partially written code. The `Dst` register is never used. The only cursor management is resetting `Src` to 0 each cycle.
+The seed replicator uses five distinct local instructions with world effects (`absorb`, `collect`, `nop`, `read`, plus control flow and register ops) and three nonlocal instructions (`appendAdj`, `boot`, plus `read` feeding into `appendAdj`). The offspring is inert during construction, preventing premature execution of partially written code. The `Dst` register is never used. The only cursor management is resetting `Src` to 0 each cycle.
 
 The seed does not check resource levels before attempting replication, does not provision offspring with energy, and does not use `synthesize` to manufacture mass. These are all evolutionary optimization opportunities.
-
-The probability of this sequence emerging from random noise is extremely low. Proteus v0 uses manual seeding of the seed replicator to bypass the origin-of-life bottleneck and focus on evolutionary dynamics.
 
 ### Evolutionary Optimization Opportunities
 
 The seed replicator is intentionally unoptimized. Evolution can discover improvements such as:
 
-- **Resource gating**: check energy/mass levels before attempting replication to avoid wasting resources on failed writes
-- **Synthesis**: use `synthesize` to convert energy surplus into mass, reducing dependence on foraging
-- **Multi-cycle foraging**: loop `absorb`/`takeM`/`synthesize` multiple times to accumulate mass before replicating
-- **Offspring provisioning**: `giveE`/`giveM` after boot to help offspring survive and accelerate early post-boot growth
-- **Directional awareness**: `senseSize` to find empty cells before choosing replication direction
-- **Predation**: `delAdj` to consume neighbor instructions as mass, `takeE` to steal energy (requires target to be open)
-- **Defense**: minimize time spent in open states (`absorb`, `nop`) to reduce vulnerability
-- **Communication**: `emit`/`absorb` to coordinate with kin
-- **Kin recognition**: `senseID` to distinguish kin from non-kin, enabling cooperation and altruism
-- **Code injection**: `writeAdj` to modify open neighbor programs (parasitism, mutualism)
-- **Streamlining**: eliminate unnecessary instructions to reduce maintenance cost and replication time
+- **Resource gating**: check energy/mass levels before attempting replication
+- **Synthesis**: use `synthesize` to convert energy surplus into mass
+- **Multi-cycle harvesting**: loop `absorb`/`collect`/`synthesize` across multiple ticks to accumulate mass before replicating
+- **Expanded harvesting**: execute `absorb` multiple times per tick to collect from adjacent cells
+- **Offspring provisioning**: `giveE`/`giveM` after boot to help offspring survive
+- **Directional awareness**: `senseSize` to find empty cells before replication
+- **Predation**: `delAdj` to consume neighbor instructions as mass (requires target to be open)
+- **Defense**: minimize time in open states (`listen`, `nop`) to reduce vulnerability
+- **Communication**: `emit`/`listen` to coordinate with kin
+- **Kin recognition**: `senseID` to distinguish kin from non-kin
+- **Code injection**: `writeAdj` to modify open neighbor programs
+- **Streamlining**: eliminate unnecessary instructions to reduce maintenance and replication time
 - **Movement**: `move` to relocate toward resources or away from threats
 
 ## Reference Energy/Mass Budget
 
-The following parametric equations describe the per-cycle resource budget for a reference organism. These support analytical parameter exploration before simulation.
-
-Let `S` = program size (instructions), `T` = ticks per replication cycle, `K` = mass produced via `synthesize` per cycle (0 for the seed).
+Let `S` = program size, `T` = ticks per replication cycle, `K` = mass produced via `synthesize` per cycle (0 for the seed).
 
 ### Energy Income
 
@@ -452,158 +513,141 @@ After an `absorb` drains a cell's background radiation to 0, it refills over `T`
 refill(T) = R_energy × (1 − (1 − D_energy)^T) / D_energy
 ```
 
-This approaches the steady-state value `R_energy / D_energy` for large `T`. A solitary absorber drains its own cell plus 4 neighbors:
+A solitary absorber at absorb_count=1 drains only its own cell:
 
 ```
-E_in = C_absorb × refill(T)
+E_in = 1 × refill(T)
 ```
 
-Where `C_absorb` = cells contributing (up to 5 for a solitary organism).
+At absorb_count=4 (all 5 cells):
+
+```
+E_in = 5 × refill(T)
+```
 
 ### Energy Costs
 
 ```
-E_maintain  = T × S × M                            (expected maintenance)
-E_instruct  = sum of base costs per cycle           (1-tick instruction base costs)
+E_maintain  = T × (S^beta) × M                     (expected maintenance)
+E_instruct  = sum of base costs per cycle           (instruction base costs)
 E_synth     = K × (N_synth + 1)                    (synthesis base + additional cost)
-E_decay     ≈ negligible at low stockpiles          (stochastic, hard to compute exactly)
 ```
 
 ### Viability Condition (energy)
 
 ```
-E_in  >  E_maintain + E_instruct + E_synth + E_decay
+E_in  >  E_maintain + E_instruct + E_synth
 ```
-
-With margin — the organism needs surplus energy to survive variance and occasional failed cycles.
 
 ### Mass Income
 
-For an empty neighbor cell drained to 0 by `takeM`, mass refills accounting for decay (empty cells have threshold 0, so all mass decays):
+For the organism's own cell, background mass refills similarly:
 
 ```
-neighbor_refill(T) = R_mass × (1 − (1 − D_mass)^T) / D_mass
-```
-
-For the organism's own cell with threshold `T_cap × S`, ambient mass below threshold does not decay:
-
-```
-own_cell(T) = T × R_mass    (if current mass stays below threshold)
+mass_refill(T) = R_mass × (1 − (1 − D_mass)^T) / D_mass
 ```
 
 ```
-M_forage  = neighbor_refill(T) / 2                 (takeM takes half, one neighbor per cycle)
-M_synth   = K                                       (from synthesize, if used)
-M_ambient = own_cell(T)                             (accumulates in own cell between cycles)
+M_collect  = mass_refill(T)                         (from collect, own cell only)
+M_synth    = K                                       (from synthesize)
 ```
 
 ### Mass Cost
 
 ```
-M_out = S                                           (one per appended instruction in offspring)
-M_offspring_maint ≈ max(0, T_construct − inert_grace_ticks) × S_avg × M
+M_out = S                                           (one per appended instruction)
 ```
-
-Where `T_construct` is ticks the offspring exists while inert, and `S_avg` is its average size during construction. If the parent keeps writing frequently enough that construction stays inside the grace window, this term is effectively 0. It becomes relevant only for long stalls or abandoned fragments.
 
 ### Viability Condition (mass)
 
 ```
-M_forage + M_synth + M_ambient  ≥  S
+M_collect + M_synth  ≥  S
 ```
 
-### Example: Seed Replicator at Current Default Parameters
+### Example: Seed Replicator at Default Parameters
 
-With `R_energy = 0.25`, `R_mass = 0.05`, `D_energy = D_mass = 0.01`, `M = 1/128`, `S = 11`, `T = 25`, solo absorber (`C_absorb = 5`), no synthesis (`K = 0`):
+With `R_energy = 0.25`, `R_mass = 0.05`, `D_energy = D_mass = 0.01`, `M = 1/128`, `S = 12`, `T = 14`, `alpha = beta = 1.0`, absorb_count = 1 (own cell only), no synthesis (`K = 0`):
 
 ```
-refill(25) = 0.25 × (1 − 0.99^25) / 0.01 = 0.25 × 22.2 = 5.55
+refill(14) = 0.25 × (1 − 0.99^14) / 0.01 = 0.25 × 13.1 = 3.28
 
-E_in       = 5 × 5.55                = 27.8
-E_maintain = 25 × 11 × (1/128)       =  2.1
-E_instruct = 1 (takeM) + 11 (appendAdj) + 0 (boot) = 12.0
-E_total    = 14.1
+E_in       = 1 × 3.28                = 3.28   (own cell only)
+E_maintain = 14 × 12 × (1/128)       = 1.31
+E_instruct = 12 (appendAdj)          = 12.0
+E_total    = 13.31
 
-Energy surplus: 13.7 per cycle. Comfortable.
-
-neighbor_refill(25) = 0.05 × (1 − 0.99^25) / 0.01 = 0.05 × 22.2 = 1.11
-M_forage   = 1.11 / 2                = 0.56   (half of one neighbor)
-M_ambient  = 25 × 0.05               = 1.25
-M_total    = 1.81 per cycle
-
-Need: 11. Shortfall of ~9.2 per cycle.
+Energy deficit: −10.0 per cycle with single absorb.
 ```
 
-**The seed cannot self-replicate in a single cycle from ambient resources alone.** It needs either pre-loaded mass (see Initial Conditions) or multiple foraging cycles. An evolved organism that accumulates mass across several absorb/takeM cycles before replicating, and uses `synthesize` to convert its energy surplus (~13.7/cycle) into additional mass (~6.8 mass at `N_synth = 1`), reaches ~8.6 mass per cycle — viable replication roughly every 2 cycles.
+With absorb_count = 4 (all 5 cells):
 
-This is intentional. The seed is a bootstrap organism, not a steady-state design. Evolution's immediate pressure is toward resource gating and metabolic efficiency.
+```
+E_in       = 5 × 3.28                = 16.4
+Energy surplus: 3.1 per cycle. Marginal.
+```
+
+```
+mass_refill(14) = 0.05 × (1 − 0.99^14) / 0.01 = 0.05 × 13.1 = 0.66
+M_collect  = 0.66 per cycle
+
+Need: 12. Shortfall of ~11.3 per cycle.
+```
+
+**The seed requires pre-loaded resources and cannot self-sustain from ambient alone in a single cycle.** Evolution's immediate pressure is toward multi-cycle harvesting, expanded absorb footprints, and synthesis. A mature organism that executes `absorb` 4× per tick (harvesting 5 cells), accumulates across 3 cycles, and uses `synthesize` to convert energy surplus to mass becomes viable.
 
 ## Implementation Notes
 
-### Snapshot-and-Apply Pattern
+### Pass-0 Snapshot
 
-Pass 2 (nonlocal execution) uses a snapshot-and-apply pattern to ensure translation invariance and avoid order-dependent results:
+Before Pass 1, snapshot each cell's free energy, free mass, background radiation, background mass, program size, and `ID`. This snapshot is read by `senseSize`, `senseE`, `senseM`, `senseID` during Pass 1. The snapshot ensures sensing results are independent of cell iteration order. In practice, only cells adjacent to programs that execute sense instructions need snapshotted values; lazy snapshotting is valid.
 
-1. After Pass 1 completes, take a logical snapshot of the grid state.
-2. Resolve all nonlocal instruction conflicts (grouping by target cell, applying the strength → size-weighted random tiebreaker).
-3. Each winning instruction reads from the snapshot and writes to its target cell. Source-side effects are applied unconditionally for each winner.
-4. Since each target cell has at most one winner, all writes target distinct cells and can be applied in any order (or simultaneously). Since each cell executes at most one nonlocal instruction per tick, source-side effects never conflict.
+### Snapshot-and-Apply for Pass 2
 
-In practice, this does not require copying the entire grid. Most cells are not targeted on any given tick. An implementation can:
-
-- Collect all nonlocal instructions into a sparse list.
-- Group by target cell (a sort or hash map).
-- Resolve each group independently (trivially parallel).
-- Apply changes. Only cells that are targeted need snapshotted values, which can be saved when the instruction is queued.
+Pass 2 uses a snapshot-and-apply pattern. In practice, most cells are not targeted. An implementation can collect nonlocal instructions into a sparse list, group by target cell, resolve each group independently (trivially parallel), and apply changes.
 
 ### Stochastic Implementation
 
 Several mechanics use per-quantum independent probabilities, requiring efficient binomial sampling:
 
-- **Background radiation decay**: `Binomial(bg_radiation, D_energy)` per cell per tick.
-- **Free energy/mass decay**: `Binomial(excess, D_energy)` and `Binomial(excess, D_mass)` per cell per tick.
-- **Maintenance**: `Binomial(program_size, M)` per program (live and inert) per tick.
+- **Background radiation/mass decay**: `Binomial(pool_size, D)` per cell per tick.
+- **Free energy/mass decay**: `Binomial(excess, D)` per cell per tick.
+- **Maintenance**: `Binomial(floor(q), M)` plus `Bernoulli(frac(q) × M)` per program per tick.
 - **Background input**: `Bernoulli(R_energy)` and `Bernoulli(R_mass)` per cell per tick.
-
-For small counts and low probabilities, direct Bernoulli trials are efficient. For large counts, precomputed binomial lookup tables or fast approximations (e.g., normal approximation with continuity correction for large `n`) are recommended. A single high-quality PRNG (e.g., xoshiro256++) seeded deterministically provides reproducible simulations.
+- **Mutation**: `Bernoulli(mutation_rate)` per live program per tick.
 
 ### Parallelization
 
-The execution model is designed for parallelism:
-
-- **Pass 1** is embarrassingly parallel: each cell executes independently with no inter-cell communication.
-- **Pass 2** conflict resolution is independent per target cell and trivially parallel after grouping.
-- **Pass 3** physics update is a local stencil operation (radiation propagation, absorb distribution) plus per-cell decay and maintenance, both parallel. Absorb distribution requires knowing which programs executed `absorb` in Pass 1, which is available from the Pass 1 results.
-
-No grid coloring, checkerboard decomposition, or symmetry-breaking structure is needed. The snapshot-and-apply pattern eliminates data races and preserves translation invariance.
+- **Pass 0** is embarrassingly parallel (read-only snapshot).
+- **Pass 1** is embarrassingly parallel: each cell executes independently using only the Pass-0 snapshot for sensing.
+- **Pass 2** conflict resolution is independent per target cell.
+- **Pass 3** is a combination of local stencil operations and per-cell updates.
 
 ### Grid Boundary
 
-For finite grids, use periodic (toroidal) boundary conditions to maintain translation invariance. Directed radiation wraps around grid edges.
+Periodic (toroidal) boundary conditions. Directed radiation wraps around grid edges.
 
-## Future Directions (post-v0)
+## Future Directions (post-v0.2)
 
-These features are intentionally deferred. They may be added if the v0 ecosystem demonstrates a need or reaches a complexity plateau.
-
-- **Plasmids**: modular code organization, enabling horizontal gene transfer
-- **Insert instruction**: insert (rather than overwrite) at a target position, shifting subsequent instructions
-- **Evolvable instruction sets**: organisms define their own opcode-to-behavior mapping
-- **Environmental variation**: spatially and temporally varying background radiation/mass intensity (e.g., 3D simplex noise over x, y, t)
-- **Labels**: named jump targets for more structured control flow
-- **mul/div/mod**: complex arithmetic (currently achievable via loops)
-- **Trap instruction**: active defense mechanism (capture or redirect incoming writes)
+- **Plasmids**: modular code, horizontal gene transfer
+- **Insert instruction**: insert at target position, shifting subsequent
+- **Evolvable instruction sets**: organisms define opcode-to-behavior mapping
+- **Environmental variation**: spatially/temporally varying resource rates
+- **Labels**: named jump targets
+- **mul/div/mod**: complex arithmetic
+- **Trap instruction**: active defense (redirect incoming writes)
 - **Function calls**: call stack for subroutine reuse
-- **Long-range sensing**: detect programs or energy gradients beyond adjacent cells
-- **Multicellular structures**: extended-body organisms spanning multiple cells
-- **Nested loops**: multiple `LC` registers for nested `for`/`next`
+- **Long-range sensing**: detect programs beyond adjacent cells
+- **Multicellular structures**: extended-body organisms
+- **Nested loops**: multiple `LC` registers
+- **Swap movement**: exchange positions with adjacent program
 
 ## Known Limitations (monitor in simulation)
 
-These are identified design tensions in v0 that may or may not require intervention. They should be monitored during simulation rather than fixed preemptively.
-
-- **`absorb` coupling**: `absorb` simultaneously captures background energy, captures directed radiation, sets `Msg`, overwrites `Dir`, sets `Flag`, and opens the cell. A program that needs energy must accept messages and lose its heading. If communication fails to emerge, or emerges only as a nuisance (parasitic `Dir` resets disrupting directional replication), consider splitting into separate `absorb` (energy only) and `listen` (communication only) instructions.
-- **Anti-complexity pressure**: larger programs pay proportionally more maintenance but still get exactly one 1-tick action per tick. Size buys storage capacity and strength, but not actuation bandwidth, concurrency, or spatial extent. If evolution consistently collapses toward minimal replicators and larger organisms never gain a foothold, consider letting size buy real capability (e.g., queued actions, multi-cell bodies) or softening size-dependent maintenance.
-- **Stationary environments may under-select reproduction**: if local resource conditions are effectively constant, a stationary absorber can remain viable for very long periods, weakening the selection pressure for lineage spread. If reproduction consistently fails to persist despite viable local ecologies, consider adding slow spatial/temporal variation in external inputs.
-- **Prefix-writing bias**: because offspring are written sequentially, failed replication attempts do not create random partials. They create whatever prefix was copied first. If the copied prefix is itself viable, failed construction becomes a persistent source of ecologically successful truncated descendants. Future seed redesigns should consider write order explicitly, not just total cycle cost.
-- **Movement in dense populations**: `move` only works into empty cells. Once a region fills, spatial dynamics freeze — no fleeing, clustering, or resource-seeking movement is possible. If simulations show static fronts with no spatial reorganization, consider a `swap` instruction or displacement movement.
-- **`for`/`next` non-nesting**: the single `LC` register prevents nested iteration, which limits algorithmic complexity (e.g., 2D spatial scanning, multi-step planning). If evolved programs are clearly bumping against this ceiling, add additional `LC` registers for nesting.
+- **`absorb`/`listen` split adequacy**: the split separates energy metabolism from communication. Monitor whether programs need to sacrifice defense (opening cell via `listen`) too often for energy, or whether the split creates clean evolutionary specialization between energy-focused and communication-focused strategies.
+- **Anti-complexity pressure**: with alpha = beta = 1.0, larger programs get linear local actions but pay linear maintenance. If evolution consistently collapses toward minimal replicators, consider alpha > 1 or beta < 1 to give size a net advantage.
+- **Mass scarcity**: with `takeM` removed, mass comes only from `collect` (own cell) and `synthesize`. If mass bottleneck is too severe, tune `R_mass`, `D_mass`, or `N_synth`.
+- **Stationary environments**: if local conditions are constant, stationary absorbers can persist indefinitely. Consider spatial/temporal variation if reproduction fails to persist.
+- **Prefix-writing bias**: failed replication creates whatever prefix was already copied.
+- **Movement in dense populations**: `move` only works into empty cells. Consider `swap` if simulations show frozen spatial dynamics.
+- **`for`/`next` non-nesting**: single `LC` limits algorithmic complexity.
+- **Directed radiation range**: packets travel indefinitely until absorbed, collided, or wrapped. In large grids, stray packets may accumulate. Monitor energy balance.
