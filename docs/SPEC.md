@@ -31,7 +31,7 @@ Mass and energy are fundamental, quantized quantities located within a single ce
 
 - **Background mass**: an external mass input. Each cell receives 1 unit of background mass with probability `R_mass` per tick. Background mass accumulates in the cell across ticks, and each unit independently decays (is permanently removed) with probability `D_mass` per tick. Background mass is a separate pool from free mass — it cannot be used to pay for instructions or maintenance. Only `collect` converts background mass into free mass. At steady state, an untouched cell holds approximately `R_mass / D_mass` background mass. When background mass arrives in a cell with no program, that arrival can mark the cell as a spawn candidate for end-of-tick spontaneous nucleation (see Spontaneous Program Creation).
 - **Free mass**: loose raw material in a cell. Used by programs to create new instructions and as maintenance fallback. Attached to the program if one is present.
-- **Instructions**: each instruction in a program has mass 1. Instructions are created from free mass and can be destroyed back into free mass.
+- **Instructions**: each instruction in a program has mass 1. Instructions are created from free mass. Explicit code-editing deletions such as `del` and `delAdj` recycle an instruction into 1 free mass; maintenance destruction instead consumes the instruction permanently.
 
 **Energy** exists in three forms:
 
@@ -74,7 +74,7 @@ Each program pays stochastic maintenance each tick, scaled by program size:
 
 Maintenance applies to **live** programs every tick. Inert programs use the same rule only **after** they are considered abandoned (see Program Lifecycle).
 
-If free energy is insufficient, maintenance is paid with free mass. If both are exhausted, instructions are destroyed from the end of the program.
+If free energy is insufficient, maintenance is paid with free mass. If both are exhausted, instructions are destroyed from the end of the program. Each destroyed instruction satisfies one remaining maintenance quantum and is permanently removed; unlike `del` or `delAdj`, it does **not** enter the free-mass pool.
 
 ### Program Strength
 
@@ -97,7 +97,7 @@ Each inert program tracks **ticks since last incoming write**. Any successful `a
 
 **Constructed creation** (first `appendAdj` into an empty cell): the program is created **inert**. It remains inert until a `boot` instruction transitions it to live. While inert, the cell is open, allowing continued construction by the parent or interference by others.
 
-A program that is created or transitions from inert to live during a tick is considered **newborn** for the remainder of that tick. Newborn programs do not execute, pay maintenance, age, or mutate until the following tick.
+A program that is created or transitions from inert to live during a tick is considered **newborn** for the remainder of that tick. Newborn programs do not execute, pay maintenance, age, or mutate until the following tick. This newborn exemption is uniform: even a previously abandoned inert program that is booted in Pass 2 skips maintenance on that boot tick.
 
 ### Spontaneous Program Creation
 
@@ -258,7 +258,7 @@ Only programs that were **live at tick start** execute. Inert programs and newbo
    - If the instruction is **local**: pay its base energy cost (if any), then pay any additional cost required by the instruction, execute it, and consume 1 local budget. If any required payment fails, halt and mark the cell open.
    - If the instruction is **nonlocal**: pay its base energy cost, capture its operands, queue the instruction for Pass 2, advance `IP` by 1, and end the tick for this program. If base-cost payment fails, halt and mark the cell open.
    - If local budget is exhausted, end the tick for this program.
-2. Track per-program: `absorb_count` (0–4, capped), `absorb_dir` (Dir at first `absorb` call), whether `listen` was executed, whether `collect` was executed, whether `nop` was executed, and whether any base-cost payment this tick used background radiation.
+2. Track per-program: `absorb_count` (0 if no `absorb` was executed; otherwise 1–4, capped), `absorb_dir` (Dir at first `absorb` call), whether `listen` was executed, whether `collect` was executed, whether `nop` was executed, and whether any base-cost payment this tick used background radiation.
 
 Pass 1 requires no inter-cell communication (sensing reads from the Pass-0 snapshot) and is trivially parallelizable.
 
@@ -320,7 +320,7 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 6. **Collect resolution**: for each program that executed `collect` this tick, convert all background mass currently in the program's own cell to free mass.
 7. **Background mass decay then arrival**: in each cell, each existing unit of background mass independently decays with probability `D_mass`. After decay, the cell receives 1 unit of background mass with probability `R_mass`. If a mass arrival occurs into a cell that is empty at the moment of arrival, mark that cell as a **spawn candidate** for end-of-tick spontaneous creation.
 8. **Inert lifecycle update**: for each inert program, if it received an incoming `appendAdj` or `writeAdj` this tick, reset its abandonment timer to 0. Otherwise increment the timer by 1.
-9. **Maintenance**: for each program that existed at tick start and is **not newborn this tick**, compute `q = size_current ^ beta`. Draw from `Binomial(floor(q), M)` plus `Bernoulli((q - floor(q)) × M)` where `M` is `maintenance_rate` for live programs, `0` for inert programs still inside the grace window, and `maintenance_rate` for abandoned inert programs. Deduct from free energy, then free mass, then instructions from the end of the program.
+9. **Maintenance**: for each program that existed at tick start and is **not newborn this tick**, compute `q = size_current ^ beta`. Draw from `Binomial(floor(q), M)` plus `Bernoulli((q - floor(q)) × M)` where `M` is `maintenance_rate` for live programs, `0` for inert programs still inside the grace window, and `maintenance_rate` for abandoned inert programs. Deduct from free energy, then free mass, then instructions from the end of the program. Each destroyed instruction pays one remaining maintenance quantum and is permanently removed.
 10. **Decay**: for each cell, compute excess free energy and free mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). For each resource, draw from `Binomial(excess, D)` to determine units removed permanently. (Background pools decay in steps 5 and 7 above.)
 11. **Age update**: all programs that were live at tick start increment age by 1.
 12. **Spontaneous creation**: for each spawn candidate cell, if it is still empty, create a new live single-`nop` program with probability `P_spawn` and immediately crystallize all background radiation and background mass in that cell into free resources.
@@ -407,15 +407,15 @@ All binary operations pop two operands and push one result. Unary operations pop
 | `getE` | `0100 1101` | Push this cell's free energy. Does not include background radiation. |
 | `getM` | `0100 1110` | Push this cell's free mass. |
 
-### World Interaction (23 opcodes)
+### World Interaction (21 opcodes)
 
 #### Local (target self)
 
 | Instruction | Opcode | Base Cost | Add'l Cost | Description |
 |-------------|--------|-----------|------------|-------------|
 | `nop` | `0101 0000` | 0 | — | No operation. **Opens cell.** |
-| `absorb` | `0101 0001` | 0 | — | Mark this program as absorbing for Pass 3 background radiation distribution. First execution per tick sets `absorb_dir` to current `Dir`. Subsequent executions increment `absorb_count` (capped at 4) but do not update `absorb_dir`. Idempotent for all effects except expanding the collection footprint. Does **not** open cell. |
-| `listen` | `0101 0010` | 0 | — | Mark this program as listening for Pass 3 directed radiation capture. Captures all directed radiation packets in this cell during Pass 3: free energy gained equals number of packets; if any packets were captured, choose one captured packet uniformly at random, set `Msg` to that packet's value, set `Dir` to the direction that packet arrived from, and set `Flag` to 1. **Opens cell.** Idempotent within a tick (multiple executions have no additional effect). |
+| `absorb` | `0101 0001` | 0 | — | Mark this program as absorbing for Pass 3 background radiation distribution. First execution per tick sets `absorb_count = 1` and `absorb_dir` to current `Dir`. Subsequent executions increment `absorb_count` (capped at 4) but do not update `absorb_dir`. Calls after `absorb_count = 4` have no further effect. Does **not** open cell. |
+| `listen` | `0101 0010` | 0 | — | Mark this program as listening for Pass 3 directed radiation capture. Executing `listen` in Pass 1 is **Flag-neutral**: it opens the cell and marks the program for capture, but does not otherwise change `Flag` immediately. In Pass 3, all directed radiation packets in this cell are captured: free energy gained equals number of packets; if any packets were captured, choose one captured packet uniformly at random, set `Msg` to that packet's value, set `Dir` to the direction that packet arrived from, and set `Flag` to 1. **Opens cell.** Idempotent within a tick (multiple executions have no additional effect). |
 | `collect` | `0101 0011` | 0 | — | Mark this program for Pass 3 background mass collection. All background mass in this cell is converted to free mass during Pass 3. Idempotent within a tick. |
 | `emit` | `0101 0100` | 1 | — | Pop message value from stack. Send a directed radiation packet in direction `Dir` carrying that message value and 1 energy. The base cost of 1 energy is the energy that becomes the packet. |
 | `read` | `0101 0101` | 0 | — | Push instruction at `self[Src mod size]` onto stack. Increment `Src`. |
@@ -425,11 +425,13 @@ All binary operations pop two operands and push one result. Unary operations pop
 
 #### Local sensing (read-only adjacent state, from Pass-0 snapshot)
 
+`senseSize`, `senseE`, and `senseM` treat an empty adjacent cell as a valid reading and therefore clear `Flag` on success. `senseID` is different: because `ID = 0` is a valid program state, it uses `Flag = 1` to disambiguate an empty neighbor from a real neighbor with `ID = 0`.
+
 | Instruction | Opcode | Base Cost | Description |
 |-------------|--------|-----------|-------------|
-| `senseSize` | `0101 1001` | 0 | Push program size of adjacent cell in direction `Dir` (0 if empty). Reads from Pass-0 snapshot. |
-| `senseE` | `0101 1010` | 0 | Push free energy of adjacent cell in direction `Dir`. Reads from Pass-0 snapshot. |
-| `senseM` | `0101 1011` | 0 | Push free mass of adjacent cell in direction `Dir`. Reads from Pass-0 snapshot. |
+| `senseSize` | `0101 1001` | 0 | Push program size of adjacent cell in direction `Dir` (0 if empty). Empty is a valid reading. Reads from Pass-0 snapshot. |
+| `senseE` | `0101 1010` | 0 | Push free energy of adjacent cell in direction `Dir` (0 if empty). Empty is a valid reading. Reads from Pass-0 snapshot. |
+| `senseM` | `0101 1011` | 0 | Push free mass of adjacent cell in direction `Dir` (0 if empty). Empty is a valid reading. Reads from Pass-0 snapshot. |
 | `senseID` | `0101 1100` | 0 | Push `ID` register of adjacent cell's program in direction `Dir` (0 if empty, sets `Flag` to 1). Reads from Pass-0 snapshot. |
 
 #### Nonlocal (target adjacent cell in direction `Dir`)
@@ -439,9 +441,9 @@ All binary operations pop two operands and push one result. Unary operations pop
 | `readAdj` | `0101 1101` | 0 | — | No | Push instruction at `neighbor[Src mod size]` onto stack. On success, increment `Src`. If neighbor cell is empty, push 0, set `Flag` to 1, and do **not** increment `Src`. |
 | `writeAdj` | `0101 1110` | 1 | — | **Yes** | Pop value. Overwrite instruction at `neighbor[Dst mod size]` (low 8 bits). The old instruction is recycled (no net mass cost). On success, increment `Dst`. Fails if neighbor cell is empty, protected, or loses Pass-2 conflict resolution. |
 | `appendAdj` | `0101 1111` | 1 | 1 mass | **Yes** (occupied) | Pop value. Append instruction (low 8 bits) to end of neighbor's program (or create new inert program if cell is empty). The additional cost of 1 free mass is paid only on success. Does not use or modify `Dst`. Checks protection only if the target cell is occupied; empty cells are always open. Fails if the occupied target is protected, if it loses Pass-2 conflict resolution, or if the resulting program would exceed the size cap. |
-| `delAdj` | `0110 0000` | 1 | E = target strength | **Yes** | Delete instruction at `neighbor[Dst mod size]`. The additional energy cost equals the target's strength in the pre-Pass-2 state and is paid only on success. Target program size decreases by 1. Freed mass (1) goes to **this** cell (the attacker). Fails if the target is empty, protected, size 1, or loses Pass-2 conflict resolution. On success, increment `Dst`. |
-| `giveE` | `0110 0001` | 0 | — | No | Pop amount. Transfer `min(amount, free_energy)` to adjacent cell. If amount ≤ 0, no transfer and the instruction is **Flag-neutral**. |
-| `giveM` | `0110 0010` | 1 | — | No | Pop amount. Transfer `min(amount, free_mass)` to adjacent cell. If amount ≤ 0, no transfer and the instruction is **Flag-neutral**. |
+| `delAdj` | `0110 0000` | 1 | E = target strength | **Yes** | Delete instruction at `neighbor[Dst mod size]`. The additional energy cost equals the target's strength in the pre-Pass-2 state and is paid only on success. Target program size decreases by 1. Freed mass (1) goes to **this** cell (the attacker). Fails if the target is empty, protected, size 1, or loses Pass-2 conflict resolution. On success, increment `Dst` (unlike local `del`, which leaves `Dst` fixed so repeated self-deletions keep targeting the next surviving local instruction). |
+| `giveE` | `0110 0001` | 0 | — | No | Pop amount. Transfer `min(amount, free_energy)` to adjacent cell. This has base cost 0: moving energy is treated as free once the energy already exists in the source cell. If amount ≤ 0, no transfer and the instruction is **Flag-neutral**. |
+| `giveM` | `0110 0010` | 1 | — | No | Pop amount. Transfer `min(amount, free_mass)` to adjacent cell. This has base cost 1: moving matter requires work even though the transferred mass itself comes from the source free-mass pool. If amount ≤ 0, no transfer and the instruction is **Flag-neutral**. |
 | `move` | `0110 0011` | 1 | — | No | Relocate this program and all its free resources (free energy, free mass) to the adjacent cell in direction `Dir`. Background pools remain in the origin cell. Occupancy is checked against the pre-Pass-2 grid state, so swaps do not succeed. Fails if the target cell is occupied or if it loses Pass-2 conflict resolution. |
 | `boot` | `0110 0100` | 0 | — | No | Transition an inert program in the adjacent cell (direction `Dir`) to live. The target begins executing on the next tick with `IP` = 0 and is newborn for the remainder of the current tick. Fails if the target cell is empty, if the target program is already live, or if it loses exclusive-class Pass-2 conflict resolution. Multiple `boot`s targeting the same inert program all succeed if no other exclusive-class instruction targets that cell. |
 
@@ -578,6 +580,8 @@ After an `absorb` drains a cell's background radiation to 0, it refills over `T`
 ```
 refill(T) = R_energy × (1 − (1 − D_energy)^T) / D_energy
 ```
+
+These estimates assume a solitary absorber with exclusive access to its footprint. If multiple organisms overlap on the same absorb footprint, each receives only its share of the captured background radiation and the realized income is lower.
 
 A solitary absorber at absorb_count=1 drains only its own cell:
 

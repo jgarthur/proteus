@@ -6,16 +6,16 @@
   - Why: this is the core anti-minimal-replicator change. Larger organisms can now buy more internal computation and metabolism without breaking the one-cell-per-tick interaction limit.
 - Separated the scaling of capability and upkeep by introducing explicit `alpha` and `beta` exponents for local execution budget and maintenance burden.
   - Why: this makes complexity a tunable ecological question instead of baking in one fixed size tradeoff.
-- Promoted adjacent sensing into the local phase and defined it against a Pass-0 snapshot.
-  - Why: organisms can do more local perception each tick without creating iteration-order artifacts from neighbors updating in the same phase.
+- Promoted adjacent sensing into the local phase and defined it against a Pass-0 snapshot. Empty-cell sensing is now explicitly disambiguated: `senseSize`, `senseE`, and `senseM` treat emptiness as a valid 0-valued read, while `senseID` uses `Flag` to signal ambiguity with `ID = 0`.
+  - Why: organisms can do more local perception each tick without creating iteration-order artifacts, and implementers now have precise empty-neighbor semantics.
 - Reworked Pass 2 so benign additive/read-only actions can all succeed, while hostile structure-changing and occupancy-changing actions use conflict resolution.
   - Why: this removes an artificial bottleneck where harmless reads or transfers would block each other just for sharing a target cell, while still preserving exclusivity for genuinely incompatible actions.
 - Standardized Pass-2 side effects so operands are captured and base costs are paid when the action is queued, but cursor increments and additional costs happen only on successful execution.
   - Why: failure behavior is cleaner, easier to test, and avoids weird partial-success edge cases.
-- Added an explicit three-way `Flag` outcome: clear, set, or neutral.
-  - Why: harmless soft no-ops such as unknown bytes or unmatched `next` no longer accidentally overwrite a useful internal signal channel.
-- Split `absorb` into a cleaner metabolism instruction and a separate `listen` instruction for directed-radiation capture and messaging.
-  - Why: energy harvesting and communication are no longer entangled in one overloaded opcode.
+- Added an explicit three-way `Flag` outcome: clear, set, or neutral. `listen` is now also explicitly specified as Pass-1 `Flag`-neutral, with any later packet capture setting `Flag` only in Pass 3.
+  - Why: harmless soft no-ops no longer overwrite useful internal signal state, and deferred instructions now have unambiguous immediate semantics.
+- Split `absorb` into a cleaner metabolism instruction and a separate `listen` instruction for directed-radiation capture and messaging. The first `absorb` call in a tick now explicitly establishes a footprint of size 1 and locks `absorb_dir`; later calls only expand that footprint up to the cap.
+  - Why: energy harvesting and communication are no longer entangled in one overloaded opcode, and the core harvesting behavior no longer depends on an implied first-call convention.
 - Fixed directed-radiation accounting so each packet carries exactly one unit of energy plus an independent 16-bit message, and simultaneous `listen` captures choose a packet uniformly for `Msg`/`Dir`.
   - Why: signaling no longer mints or destroys energy through message payloads, and simultaneous arrivals have deterministic semantics modulo explicit randomness.
 - Introduced background mass as a first-class ambient pool parallel to background radiation, plus `collect` as the active way to crystallize it into free mass.
@@ -24,7 +24,9 @@
   - Why: ambient energy remains a last-ditch execution aid rather than a general substitute for stored working energy.
 - Removed direct siphoning instructions `takeE` and `takeM`, leaving predation primarily destructive rather than directly extractive.
   - Why: ecological interaction is harsher and more legible; attackers must usually damage or dismantle neighbors instead of vacuuming out resources through open-state exploits.
-- Tightened program lifecycle semantics around live vs inert states, active construction grace periods, abandonment, and booting.
+- Clarified intentional asymmetries in world interaction: `giveE` has base cost 0 while `giveM` has base cost 1, and local `del` holds `Dst` fixed while successful remote `delAdj` advances it.
+  - Why: these asymmetries are part of the machine design rather than accidental inconsistencies, and making them explicit reduces implementer second-guessing.
+- Tightened program lifecycle semantics around live vs inert states, active construction grace periods, abandonment, booting, and uniform newborn exemptions. A booted program is newborn even when revived from an abandoned inert state, so it skips maintenance on its boot tick.
   - Why: partially built organisms now have a much clearer ontological status and a more principled path from offspring fragment to active organism.
 - Moved spontaneous creation to the end of the tick, with newborns entering the next tick at age 0, and added one-time crystallization of ambient background resources at birth.
   - Why: this removes birth-tick ambiguities around maintenance, execution, mutation, and aging.
@@ -32,24 +34,9 @@
   - Why: vulnerability remains an important ecological tradeoff, but it is now tied to intelligible mechanics instead of scheduler artifacts.
 - Tightened code-editing semantics: deletion cannot remove the last instruction, `appendAdj` fails cleanly at the size cap, and deletion is interpreted as “continue with the next surviving instruction.”
   - Why: self-modification is still powerful, but the machine now has much fewer ambiguous edge cases around cursor motion, liveness, and execution continuity.
-- Made arrival/decay/birth ordering and other operational details much more explicit, including decay-then-arrival semantics, end-of-tick spontaneous birth, and clarified newborn behavior.
+- Clarified maintenance destruction semantics and other operational details, including decay-then-arrival ordering, end-of-tick spontaneous birth, and the distinction between recycling by explicit deletion versus permanent removal by maintenance.
   - Why: the spec is much closer to implementation-ready and less likely to produce divergent simulators from innocent interpretation differences.
+- Corrected the world-interaction opcode count to match the actual encoding range and total-opcode summary.
+  - Why: this removes an editorial inconsistency that could otherwise make the instruction inventory look underspecified.
 - Expanded the seed/budget analysis and overall operational framing so the reference organism and economy are defined against the new execution model rather than inherited from the old one.
   - Why: the spec now better matches the actual machine it describes, which should make early experiments easier to interpret.
-
-
-### 2026-03-13
-
-- Added optional Cython helper acceleration for hot hash and loop-scan paths, with golden-archive parity tests to keep the Python reference engine authoritative.
-- Added ecology analysis and sweep tooling, including milestone snapshots, anti-scavenger scoring, and a live time-series monitor for long runs.
-- Added configurable inert-offspring lifecycle controls in the engine:
--  `inert_grace_ticks`
-- Current defaults give inert offspring a 10-tick grace window with no maintenance while they are under active construction. If construction is abandoned, they remain inert and decay through ordinary maintenance rather than auto-booting.
-- Added inspector support for inert wait state and archive persistence for the inert-write timer.
-- Dense 50k evaluations showed that denser worlds support busier, richer ecologies than the original sparse regime, but stable replicator persistence still does not emerge.
-- The inert no-maintenance plus auto-boot experiment improved cleanup of inert husks but did not improve long-run replicator persistence in the key dense worlds, and likely created accidental scavengers from abandoned fragments.
-- Replaced that experiment with grace-period maintenance: active construction is protected, but abandoned fragments now die via the normal maintenance path.
-- Next likely investigation areas:
-  - event-level instrumentation for replication attempts, manual boots, abandonment, and pre-boot death
-  - better understanding of whether abandoned fragments still dominate as passive debris
-  - environmental non-stationarity to create stronger selection pressure for reproduction

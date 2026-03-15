@@ -49,7 +49,7 @@ For a single tick:
    - Directed radiation propagation / listening / collision
    - Background radiation absorb resolution
    - Background radiation decay then arrival
-   - `collect`
+   - `collect` (background mass -> free mass in the program's own cell)
    - Background mass decay then arrival
    - Inert abandonment timer update
    - Maintenance
@@ -89,7 +89,10 @@ Newborns:
 This applies both to:
 - end-of-tick spontaneous creation
 - `boot` success in Pass 2
-- first `appendAdj` into an empty cell (creates an inert offspring; if somehow booted in the same tick, it is still newborn)
+
+A program created by first `appendAdj` into an empty cell is inert and therefore newborn only once it is later booted. Under the current snapshot-then-apply Pass-2 model, that fresh inert offspring cannot also be booted in the same tick because `boot` validates against the pre-Pass-2 target state.
+
+The newborn exemption is uniform: even a previously abandoned inert program that is booted this tick does not pay maintenance until the following tick.
 
 ### 3.3 Inert programs
 
@@ -122,6 +125,7 @@ These are deliberately **not** treated as success or failure signals:
 - unmatched `next`
 - `for` with `LC <= 0` that successfully skips to the matching `next`
 - `giveE` / `giveM` with nonpositive requested amount
+- `listen` execution in Pass 1
 - `listen` when no packet is captured
 
 ### 4.2 Canonical set cases
@@ -276,6 +280,7 @@ That target simply receives no successful exclusive-class action this tick.
 | Nonpositive amount | neutral no-op |
 | Base cost timing | Pass 1 |
 | Additional cost | none |
+| Intentional asymmetry | base cost 0; moving energy is free once it already exists in the source working pool |
 | Success side effect | transfer energy |
 | `Flag` | clear on positive transfer; neutral on nonpositive request |
 
@@ -291,6 +296,7 @@ That target simply receives no successful exclusive-class action this tick.
 | Nonpositive amount | neutral no-op |
 | Base cost timing | Pass 1 |
 | Additional cost | none |
+| Intentional asymmetry | base cost 1; moving matter requires work even though the transferred mass comes from the source pool |
 | Success side effect | transfer mass |
 | `Flag` | clear on positive transfer; neutral on nonpositive request |
 
@@ -346,6 +352,8 @@ That target simply receives no successful exclusive-class action this tick.
 | On success | delete target instruction at `Dst mod size`, increment `Dst`, attacker gains 1 free mass, clear `Flag` |
 | On failure | no deletion, no `Dst` increment, no mass gain, no extra-cost payment, set `Flag = 1` |
 
+`delAdj` increments the attacker's `Dst` on success because the cursor is tracking a remote target. This differs intentionally from local `del`, which leaves `Dst` fixed so repeated self-deletions keep addressing the next surviving local instruction.
+
 ### `move`
 
 | Aspect | Rule |
@@ -393,7 +401,7 @@ Unknown byte values:
 ### 8.3 `listen`
 
 `listen` has two distinct effects:
-- in Pass 1 it marks the program open and marks it for packet capture
+- in Pass 1 it marks the program open and marks it for packet capture; this immediate execution is **Flag-neutral**
 - in Pass 3, if packets are captured, it gains total packet energy and sets `Msg`, `Dir`, and `Flag`
 
 If no packet is captured, `listen` is `Flag`-neutral.
@@ -402,9 +410,10 @@ If no packet is captured, `listen` is `Flag`-neutral.
 
 `absorb` does not open the cell.
 Repeated `absorb` in the same tick only expands footprint:
-- first call sets `absorb_dir = Dir`
+- first call sets `absorb_count = 1` and `absorb_dir = Dir`
 - later calls increment `absorb_count` up to 4
 - later calls do not change `absorb_dir`
+- calls after `absorb_count = 4` have no further effect
 
 ---
 
@@ -473,6 +482,7 @@ Only free energy / free mass are ordinary working pools.
 - base costs draw from free energy first, then optionally background radiation
 - additional costs draw only from free energy / free mass
 - maintenance draws from free energy, then free mass, then instructions
+- instructions destroyed by maintenance are consumed permanently rather than first entering the free-mass pool
 
 ## 10.4 Free-resource decay threshold invariant
 
@@ -535,8 +545,11 @@ For Pass 2, it is usually easiest to build:
 - unmatched `next` leaves `Flag` unchanged
 - `for` skip-found leaves `Flag` unchanged
 - `for` skip-missing sets `Flag`
+- `listen` execution itself leaves `Flag` unchanged in Pass 1
 - `listen` with no packet leaves `Flag` unchanged
 - `listen` with packet sets `Flag`
+- `senseSize` / `senseE` / `senseM` on empty neighbor clear `Flag`
+- `senseID` on empty neighbor sets `Flag`
 - Pass-2 conflict loss sets `Flag`
 - size-cap `appendAdj` failure sets `Flag`
 
@@ -545,10 +558,12 @@ For Pass 2, it is usually easiest to build:
 - additional cost may not be paid from background radiation
 - failed additional-cost payment does not refund base cost
 - failed additional-cost payment does not increment `Src`/`Dst`
+- maintenance-destroyed instructions are removed permanently and do not become free mass
 
 ## 13.3 Pass-2 tests
 - two `readAdj` into same target both succeed
 - multiple `giveE` into same target all succeed and sum
+- multiple `giveM` into same target all succeed and sum
 - `writeAdj` and `appendAdj` into same target conflict
 - `boot` + `boot` on same inert target both succeed
 - `boot` + hostile action on same target enters exclusive conflict resolution
@@ -558,12 +573,15 @@ For Pass 2, it is usually easiest to build:
 ## 13.4 Lifecycle tests
 - newborn spontaneous spawn does not act / age / mutate / pay maintenance until next tick
 - newborn booted offspring does not act / age / mutate / pay maintenance until next tick
+- booted previously abandoned inert program also skips maintenance on its boot tick
 - inert offspring stays open
+- append-then-boot in the same tick is impossible under pre-Pass-2 validation
 - abandonment timer resets on successful incoming `appendAdj` / `writeAdj`
 
 ## 13.5 Deletion tests
 - local `del` continues with next surviving instruction
 - `delAdj` adjusts stored target `IP` only when deleted index is strictly below it
+- local `del` leaves `Dst` fixed while successful `delAdj` increments the attacker's `Dst`
 - `Src` / `Dst` are never renormalized after deletion
 - `del` / `delAdj` against size-1 target fail
 
