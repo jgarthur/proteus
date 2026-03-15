@@ -11,3 +11,6 @@ name = "proteus"
 path = "src/lib.rs"
 
 [dependencies]
+
+[lints.clippy]
+all = "warn"
