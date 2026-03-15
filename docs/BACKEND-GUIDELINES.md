@@ -351,18 +351,24 @@ Start with two output channels:
 
 Keep the output logic in its own module. The tick loop should call `observer.record_tick(grid, tick)` and the observer decides what to write based on config. This keeps observation concerns out of the simulation logic.
 
-## WebSocket frontend interface
+## Frontend interface
 
 Add behind a feature flag (`--features web`). The sim runs in its own thread; the web layer is a separate tokio runtime that reads from a shared state.
 
 ```
 sim thread: tick loop -> writes latest grid state to Arc<RwLock<GridView>>
-web thread: axum server -> on client connect, streams GridView snapshots at requested FPS
+web thread: axum server -> REST endpoints + WebSocket streaming
 ```
 
-`GridView` is a lightweight rendering-friendly representation — not the full `Cell` struct. Just what the frontend needs to draw: cell color/type, program size, resource levels, maybe a selected cell's full state for an inspector panel.
+Transport is split between REST and WebSocket. See `API-SPEC.md` for the full contract.
 
-Protocol: JSON for control messages (pause, resume, step, set parameter, inspect cell). Binary for grid frames (a flat array of per-cell render data). Keep the per-cell render payload small — 4-8 bytes per cell means a 1K×1K grid frame is 4-8MB, fine for WebSocket at 10-30 FPS on localhost.
+**REST** (axum handlers) for request/response operations: simulation lifecycle (create, destroy), control (start, pause, resume, step, reset), cell inspection, snapshot save/load, config read. These are naturally one-shot interactions and benefit from standard HTTP semantics (status codes, caching, easy testing with curl).
+
+**WebSocket** (tokio-tungstenite) for continuous streaming only: grid frames (binary) and per-tick metrics (JSON). The client subscribes after connecting and the server pushes at or below the client's requested max FPS. Intermediate frames are dropped if the sim outruns the client.
+
+`GridView` is a lightweight rendering-friendly representation — not the full `Cell` struct. Just what the frontend needs to draw: cell occupancy, program size, resource levels. 8 bytes per cell means a 1K×1K grid frame is ~8MB, fine for WebSocket at 10-30 FPS on localhost. Cell inspection (exact values, full program state, disassembly) goes through the REST endpoint.
+
+Simulation config is immutable after creation. Changing parameters requires creating a new simulation. This preserves seed-based reproducibility.
 
 The frontend should be a separate directory (e.g., `web/`) with its own build. The Rust side doesn't know or care what the frontend looks like — it just serves the WebSocket and static files.
 

@@ -10,6 +10,7 @@ This folder contains the Proteus specification and related working documentation
 - `SPEC-CHANGELOG.md` - Semantic changes and design rationale across spec versions.
 - `BACKEND-GUIDELINES.md` - Backend architecture and implementation guidance that should remain consistent with the spec.
 - `BACKEND-TESTING.md` - Testing strategy covering test infrastructure, property-based testing, fuzzing, multi-tick scenarios, pass-boundary verification, parallelism correctness, and edge cases.
+- `API-SPEC.md` - Provisional external API specification for the frontend/backend interaction contract. REST + WebSocket hybrid.
 
 ## Key Folders
 
