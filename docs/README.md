@@ -8,6 +8,7 @@ This folder contains the Proteus specification and related working documentation
 - `SPEC-COMPANION.md` - Operational semantics, edge-case rules, invariants, and implementation-facing clarifications for the spec.
 - `SPEC-TOC.md` - Cross-reference map for finding related sections across the spec documents.
 - `SPEC-CHANGELOG.md` - Semantic changes and design rationale across spec versions.
+- `BACKLOG.md` - Durable backlog of explicitly deferred follow-up work that has been carried forward from completed handoffs.
 - `BACKEND-GUIDELINES.md` - Backend architecture and implementation guidance that should remain consistent with the spec.
 - `BACKEND-TESTING.md` - Testing strategy covering test infrastructure, property-based testing, fuzzing, multi-tick scenarios, pass-boundary verification, parallelism correctness, and edge cases.
 - `API-SPEC.md` - Provisional external API specification for the frontend/backend interaction contract. REST + WebSocket hybrid.
