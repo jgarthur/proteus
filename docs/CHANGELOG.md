@@ -1,5 +1,43 @@
 ## Recent Changes
 
+### 2026-03-14 (v0.2.0)
+
+- Replaced the old immediate-vs-1-tick execution split with a local/nonlocal model where every instruction costs a tick of local budget, programs get `max(1, floor(size^alpha))` local actions per tick, and each program may queue at most one nonlocal action.
+  - Why: this is the core anti-minimal-replicator change. Larger organisms can now buy more internal computation and metabolism without breaking the one-cell-per-tick interaction limit.
+- Separated the scaling of capability and upkeep by introducing explicit `alpha` and `beta` exponents for local execution budget and maintenance burden.
+  - Why: this makes complexity a tunable ecological question instead of baking in one fixed size tradeoff.
+- Promoted adjacent sensing into the local phase and defined it against a Pass-0 snapshot.
+  - Why: organisms can do more local perception each tick without creating iteration-order artifacts from neighbors updating in the same phase.
+- Reworked Pass 2 so benign additive/read-only actions can all succeed, while hostile structure-changing and occupancy-changing actions use conflict resolution.
+  - Why: this removes an artificial bottleneck where harmless reads or transfers would block each other just for sharing a target cell, while still preserving exclusivity for genuinely incompatible actions.
+- Standardized Pass-2 side effects so operands are captured and base costs are paid when the action is queued, but cursor increments and additional costs happen only on successful execution.
+  - Why: failure behavior is cleaner, easier to test, and avoids weird partial-success edge cases.
+- Added an explicit three-way `Flag` outcome: clear, set, or neutral.
+  - Why: harmless soft no-ops such as unknown bytes or unmatched `next` no longer accidentally overwrite a useful internal signal channel.
+- Split `absorb` into a cleaner metabolism instruction and a separate `listen` instruction for directed-radiation capture and messaging.
+  - Why: energy harvesting and communication are no longer entangled in one overloaded opcode.
+- Fixed directed-radiation accounting so each packet carries exactly one unit of energy plus an independent 16-bit message, and simultaneous `listen` captures choose a packet uniformly for `Msg`/`Dir`.
+  - Why: signaling no longer mints or destroys energy through message payloads, and simultaneous arrivals have deterministic semantics modulo explicit randomness.
+- Introduced background mass as a first-class ambient pool parallel to background radiation, plus `collect` as the active way to crystallize it into free mass.
+  - Why: the mass economy is now more symmetric with the energy economy, and foraging mass becomes an explicit behavioral choice.
+- Narrowed background-radiation emergency payment so it can cover only base instruction costs, not surcharges such as the extra energy required by `synthesize`.
+  - Why: ambient energy remains a last-ditch execution aid rather than a general substitute for stored working energy.
+- Removed direct siphoning instructions `takeE` and `takeM`, leaving predation primarily destructive rather than directly extractive.
+  - Why: ecological interaction is harsher and more legible; attackers must usually damage or dismantle neighbors instead of vacuuming out resources through open-state exploits.
+- Tightened program lifecycle semantics around live vs inert states, active construction grace periods, abandonment, and booting.
+  - Why: partially built organisms now have a much clearer ontological status and a more principled path from offspring fragment to active organism.
+- Moved spontaneous creation to the end of the tick, with newborns entering the next tick at age 0, and added one-time crystallization of ambient background resources at birth.
+  - Why: this removes birth-tick ambiguities around maintenance, execution, mutation, and aging.
+- Clarified protection/open-state rules so inert programs are always open, and openness comes from explicit states or events such as `nop`, `listen`, or failed energy payment rather than from quirks of the old immediate-execution cap.
+  - Why: vulnerability remains an important ecological tradeoff, but it is now tied to intelligible mechanics instead of scheduler artifacts.
+- Tightened code-editing semantics: deletion cannot remove the last instruction, `appendAdj` fails cleanly at the size cap, and deletion is interpreted as “continue with the next surviving instruction.”
+  - Why: self-modification is still powerful, but the machine now has much fewer ambiguous edge cases around cursor motion, liveness, and execution continuity.
+- Made arrival/decay/birth ordering and other operational details much more explicit, including decay-then-arrival semantics, end-of-tick spontaneous birth, and clarified newborn behavior.
+  - Why: the spec is much closer to implementation-ready and less likely to produce divergent simulators from innocent interpretation differences.
+- Expanded the seed/budget analysis and overall operational framing so the reference organism and economy are defined against the new execution model rather than inherited from the old one.
+  - Why: the spec now better matches the actual machine it describes, which should make early experiments easier to interpret.
+
+
 ### 2026-03-13
 
 - Added optional Cython helper acceleration for hot hash and loop-scan paths, with golden-archive parity tests to keep the Python reference engine authoritative.
