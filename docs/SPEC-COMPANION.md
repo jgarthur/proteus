@@ -34,9 +34,9 @@ For a single tick:
 
 2. **Pass 1 — Local execution / nonlocal queueing**
    - Only programs in `live_at_tick_start` execute.
-   - Each such program gets `local_budget = max(1, floor(size_at_tick_start ^ alpha))`.
-   - Local instructions execute immediately.
-   - The first nonlocal instruction reached is queued, `IP` advances by 1, and the program's tick ends.
+   - Each such program gets `local_action_budget = max(1, floor(size_at_tick_start ^ alpha))`.
+   - Local instructions execute directly in Pass 1.
+   - The first nonlocal instruction reached is queued, `IP` advances by 1, and that program stops executing for the remainder of the tick.
    - At most one nonlocal instruction may be queued per program.
 
 3. **Pass 2 — Nonlocal execution**
@@ -165,7 +165,7 @@ When an instruction is reached, its **base cost** is attempted first.
   - `IP` does not advance
   - execution halts for the tick
   - the cell is marked open
-  - remaining local budget is lost
+  - remaining local action budget is lost
   - this is a hard failure (`Flag = 1`)
 
 ## 5.2 Additional costs
@@ -384,7 +384,7 @@ That target simply receives no successful exclusive-class action this tick.
 
 Unknown byte values:
 - cost 0
-- consume 1 local budget
+- consume 1 local action
 - do not open the cell
 - are `Flag`-neutral
 - advance execution normally
@@ -401,7 +401,7 @@ Unknown byte values:
 ### 8.3 `listen`
 
 `listen` has two distinct effects:
-- in Pass 1 it marks the program open and marks it for packet capture; this immediate execution is **Flag-neutral**
+- in Pass 1 it marks the program open and marks it for packet capture; this Pass-1 execution is **Flag-neutral**
 - in Pass 3, if packets are captured, it gains total packet energy and sets `Msg`, `Dir`, and `Flag`
 
 If no packet is captured, `listen` is `Flag`-neutral.
@@ -436,7 +436,7 @@ Equivalent intuition:
 - after local self-deletion, execution continues with what was originally the next instruction after the deleted one, in post-deletion code.
 
 ### Nonlocal `delAdj`
-The target already finished its tick, so only stored next-tick `IP` matters.
+The target already finished its Pass-1 execution for the current tick, so only stored next-tick `IP` matters.
 If deleted index `i` is strictly less than target stored `IP`, decrement target stored `IP` by 1.
 
 ## 9.3 Size-1 deletion invariant

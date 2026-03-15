@@ -4,9 +4,9 @@
 
 ### 2026-03-14 (v0.2.0)
 
-- Replaced the old immediate-vs-1-tick execution split with a local/nonlocal model where every instruction costs a tick of local budget, programs get `max(1, floor(size^alpha))` local actions per tick, and each program may queue at most one nonlocal action.
+- Replaced the old immediate-vs-1-tick execution split with a local/nonlocal model where each tick gives a program `max(1, floor(size^alpha))` local actions, local instructions consume one local action each, and each program may queue at most one nonlocal action.
   - Why: this is the core anti-minimal-replicator change. Larger organisms can now buy more internal computation and metabolism without breaking the one-cell-per-tick interaction limit.
-- Separated the scaling of capability and upkeep by introducing explicit `alpha` and `beta` exponents for local execution budget and maintenance burden.
+- Separated the scaling of capability and upkeep by introducing explicit `alpha` and `beta` exponents for local action budget and maintenance burden.
   - Why: this makes complexity a tunable ecological question instead of baking in one fixed size tradeoff.
 - Promoted adjacent sensing into the local phase and defined it against a Pass-0 snapshot. Empty-cell sensing is now explicitly disambiguated: `senseSize`, `senseE`, and `senseM` treat emptiness as a valid 0-valued read, while `senseID` uses `Flag` to signal ambiguity with `ID = 0`.
   - Why: organisms can do more local perception each tick without creating iteration-order artifacts, and implementers now have precise empty-neighbor semantics.
@@ -15,7 +15,7 @@
 - Standardized Pass-2 side effects so operands are captured and base costs are paid when the action is queued, but cursor increments and additional costs happen only on successful execution.
   - Why: failure behavior is cleaner, easier to test, and avoids weird partial-success edge cases.
 - Added an explicit three-way `Flag` outcome: clear, set, or neutral. `listen` is now also explicitly specified as Pass-1 `Flag`-neutral, with any later packet capture setting `Flag` only in Pass 3.
-  - Why: harmless soft no-ops no longer overwrite useful internal signal state, and deferred instructions now have unambiguous immediate semantics.
+  - Why: harmless soft no-ops no longer overwrite useful internal signal state, and deferred instructions now have unambiguous Pass-1 semantics.
 - Split `absorb` into a cleaner metabolism instruction and a separate `listen` instruction for directed-radiation capture and messaging. The first `absorb` call in a tick now explicitly establishes a footprint of size 1 and locks `absorb_dir`; later calls only expand that footprint up to the cap.
   - Why: energy harvesting and communication are no longer entangled in one overloaded opcode, and the core harvesting behavior no longer depends on an implied first-call convention.
 - Fixed directed-radiation accounting so each packet carries exactly one unit of energy plus an independent 16-bit message, and simultaneous `listen` captures choose a packet uniformly for `Msg`/`Dir`.

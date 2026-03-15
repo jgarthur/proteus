@@ -15,7 +15,7 @@ At a high level, the `v0.2.0` spec defines:
 
 - a 2D cellular world with only local adjacency
 - conserved internal transfers of mass and energy, driven by external ambient inputs
-- single-cell programs with mutable instruction sequences, local execution budgets, and one nonlocal action per tick
+- single-cell programs with mutable instruction sequences, local action budgets, and one nonlocal action per tick
 - explicit lifecycle states for live, inert, abandoned, and newborn programs
 - emergent ecology through generic read, write, transfer, deletion, signaling, and harvesting primitives
 

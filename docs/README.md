@@ -4,7 +4,7 @@ This folder contains the Proteus specification and related working documentation
 
 ## Key Files
 
-- `SPEC.md` - The canonical specification for the Proteus simulation substrate.
+- `SPEC.md` - The canonical specification for the Proteus simulation substrate, including the tick/pass/local-action execution model.
 - `SPEC-COMPANION.md` - Operational semantics, edge-case rules, invariants, and implementation-facing clarifications for the spec.
 - `SPEC-TOC.md` - Cross-reference map for finding related sections across the spec documents.
 - `SPEC-CHANGELOG.md` - Semantic changes and design rationale across spec versions.

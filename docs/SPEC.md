@@ -10,7 +10,7 @@ The physics layer provides real resource constraints (spatial locality, maintena
 
 ### Changes from v0.1
 
-v0.2 makes one coherent structural change: **larger organisms get more local work per tick**. The immediate/1-tick instruction distinction is removed. Every instruction is a 1-tick instruction. Each live program executes `floor(size^alpha)` local instructions per tick, plus at most one nonlocal instruction. Maintenance scales as `size^beta`.
+v0.2 makes one coherent structural change: **larger organisms get more local work per tick**. The old immediate-vs-1-tick distinction is removed. Each live program receives a per-tick local action budget of `max(1, floor(size^alpha))` local actions, plus at most one nonlocal instruction. Maintenance scales as `size^beta`.
 
 Alongside this, the resource model is made symmetric: background mass is introduced as a new pool parallel to background radiation, requiring active harvesting via a new `collect` instruction. `absorb` is split into `absorb` (energy metabolism) and `listen` (communication). `takeM` and `takeE` are removed; predation is exclusively destructive (`delAdj`). Directed radiation energy semantics are fixed so each packet carries exactly 1 energy.
 
@@ -177,24 +177,24 @@ When a 16-bit stack value is written as an instruction (via `write`, `writeAdj`,
 
 ### Instruction Timing
 
-Every instruction is a **1-tick instruction**. Instructions are classified as either **local** or **nonlocal**:
+The old immediate-vs-1-tick distinction is removed. During each global tick, instructions are classified as either **local** or **nonlocal**:
 
 - **Local**: target the executing program's own cell or read-only adjacent state. Base energy cost is 0 or more depending on the instruction.
 - **Nonlocal**: modify or transfer resources to/from adjacent cells. Base energy cost is 0 or more depending on the instruction.
 
 ### Local Throughput
 
-Each live program receives a per-tick **local budget**:
+Each live program receives a per-tick **local action budget**:
 
 ```
-local_budget = max(1, floor(size_at_tick_start ^ alpha))
+local_action_budget = max(1, floor(size_at_tick_start ^ alpha))
 ```
 
 Where `alpha` is the `local_action_exponent` system parameter (default 1.0).
 
-During execution, local instructions consume 1 local budget each. When the first nonlocal instruction is reached, it is queued (consuming no local budget), `IP` advances by 1, and the tick ends for that program. If no nonlocal instruction is reached, the tick ends when local budget is exhausted or execution halts.
+During Pass 1 execution, each local instruction consumes 1 local action. When the first nonlocal instruction is reached, it is queued (consuming no local action), `IP` advances by 1, and that program stops executing for the remainder of the current tick. If no nonlocal instruction is reached, the program stops executing for the tick when its local action budget is exhausted or execution halts.
 
-At most **one nonlocal instruction** may be executed per program per tick.
+At most **one nonlocal instruction** may be queued per program per tick. A queued nonlocal instruction is then resolved in Pass 2.
 
 ### Energy Payment
 
@@ -205,7 +205,7 @@ When an instruction is reached:
 1. If the base cost is > 0, attempt to pay from free energy.
 2. If free energy is insufficient and background radiation is present in the cell, background radiation may be used to pay the **base cost only** (elevated mutation risk applies to this tick's mutation check).
 3. Additional costs are **never** paid from background radiation. They must be paid from the relevant working pool (`free_energy` or `free_mass` as specified by the instruction).
-4. If base-cost payment fails entirely, halt execution, do not advance `IP`, and mark the cell as open. The remaining local budget is forfeit.
+4. If base-cost payment fails entirely, halt execution, do not advance `IP`, and mark the cell as open. The remaining local action budget is forfeit.
 
 For local instructions, any additional cost is checked and paid when the instruction executes. For nonlocal instructions, the base cost is paid in Pass 1 when the instruction is queued; any additional cost is paid only if the instruction successfully executes in Pass 2.
 
@@ -220,7 +220,7 @@ Cells are **protected by default**. A cell becomes **open** (unprotected) for th
 
 **Empty cells are always open.**
 
-A program that exhausts its local budget without hitting a nonlocal instruction simply ends its tick normally; the cell remains protected (unless opened by one of the conditions above).
+A program that exhausts its local action budget without hitting a nonlocal instruction simply finishes executing for the tick normally; the cell remains protected (unless opened by one of the conditions above).
 
 The following instructions fail against a protected target cell:
 
@@ -255,9 +255,9 @@ Also record the set of programs that are **live at tick start**. Only those prog
 Only programs that were **live at tick start** execute. Inert programs and newborn live programs are skipped entirely.
 
 1. Each program executes instructions sequentially from `IP`:
-   - If the instruction is **local**: pay its base energy cost (if any), then pay any additional cost required by the instruction, execute it, and consume 1 local budget. If any required payment fails, halt and mark the cell open.
-   - If the instruction is **nonlocal**: pay its base energy cost, capture its operands, queue the instruction for Pass 2, advance `IP` by 1, and end the tick for this program. If base-cost payment fails, halt and mark the cell open.
-   - If local budget is exhausted, end the tick for this program.
+   - If the instruction is **local**: pay its base energy cost (if any), then pay any additional cost required by the instruction, execute it, and consume 1 local action. If any required payment fails, halt and mark the cell open.
+   - If the instruction is **nonlocal**: pay its base energy cost, capture its operands, queue the instruction for Pass 2, advance `IP` by 1, and stop executing that program for the remainder of the tick. If base-cost payment fails, halt and mark the cell open.
+   - If the local action budget is exhausted, stop executing that program for the remainder of the tick.
 2. Track per-program: `absorb_count` (0 if no `absorb` was executed; otherwise 1–4, capped), `absorb_dir` (Dir at first `absorb` call), whether `listen` was executed, whether `collect` was executed, whether `nop` was executed, and whether any base-cost payment this tick used background radiation.
 
 Pass 1 requires no inter-cell communication (sensing reads from the Pass-0 snapshot) and is trivially parallelizable.
@@ -327,7 +327,7 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 
 ## Instruction Set
 
-71 opcodes out of 256 possible byte values. All other byte values are no-ops: they cost 0 energy, consume 1 local budget, **do not** open the cell, and are **Flag-neutral**. They are simply skipped during execution.
+71 opcodes out of 256 possible byte values. All other byte values are no-ops: they cost 0 energy, consume 1 local action, **do not** open the cell, and are **Flag-neutral**. They are simply skipped during execution.
 
 ### Encoding
 
@@ -454,7 +454,7 @@ When an instruction at index `i` is deleted from a program, all instructions aft
 Deletion uses the heuristic **continue with the next surviving instruction**:
 
 - **Local `del`**: if the deleted instruction is at or before the currently executing instruction index, decrement `IP` by 1 before the normal fallthrough increment. Equivalently, execution continues with the instruction that would have followed the deleted instruction in the post-deletion program.
-- **Nonlocal `delAdj`**: the target program has already finished its tick, so only its stored next-tick `IP` matters. If the deleted index `i` is strictly less than the target program's stored `IP`, decrement that stored `IP` by 1.
+- **Nonlocal `delAdj`**: the target program has already finished its Pass-1 execution for the current tick, so only its stored next-tick `IP` matters. If the deleted index `i` is strictly less than the target program's stored `IP`, decrement that stored `IP` by 1.
 
 Neither `del` nor `delAdj` may delete the final remaining instruction of a program. If a deletion targets a size-1 program, it fails and sets `Flag = 1`.
 
@@ -501,7 +501,7 @@ Mutations do not affect the current tick's execution.
 | Synthesis cost | `N_synth` | Additional energy consumed per mass produced | 1 |
 | Baseline mutation exponent | `mutation_base_log2` | Baseline mutation rate is `2^(-value)` per program per tick | 16 |
 | Background mutation exponent | `mutation_background_log2` | Background-stressed mutation rate is `min(x / 2^(value), 1)` | 8 |
-| Local action exponent | `alpha` | Local budget = `max(1, floor(size^alpha))` | 1.0 |
+| Local action exponent | `alpha` | Local action budget = `max(1, floor(size^alpha))` | 1.0 |
 | Maintenance exponent | `beta` | Maintenance quanta = `size^beta` | 1.0 |
 
 ## Seed Replicator
@@ -519,15 +519,15 @@ setSrc          ;          reset Src to 0
 getSize         ;          push program size (12) for loop count
 for             ;          begin loop
   read          ; Tick 1+: read self[Src], Src++
-  appendAdj     ; Tick 2+: append to neighbor in Dir (nonlocal, ends tick)
+  appendAdj     ; Tick 2+: append to neighbor in Dir (nonlocal, stops execution for the tick)
 next            ;          decrement LC, loop if > 0
-boot            ; Tick N:  activate offspring (nonlocal, ends tick)
+boot            ; Tick N:  activate offspring (nonlocal, stops execution for the tick)
 nop             ;          padding (opens cell — vulnerability window)
 ;
 ; Execution trace:
 ;   Tick 1: absorb, collect, cw, push 0, setSrc, getSize, for, read
 ;           (8 local actions, all within budget of 12)
-;           then appendAdj (nonlocal, queued, tick ends)
+;           then appendAdj (nonlocal, queued, execution for the tick stops)
 ;   Tick 2–12: next, read (2 local actions), then appendAdj (nonlocal)
 ;   Tick 13: next (LC=0, falls through), boot (nonlocal)
 ;   Tick 14: nop (local, opens cell), absorb, collect, cw, ... cycle repeats

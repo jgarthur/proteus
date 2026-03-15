@@ -74,6 +74,18 @@ struct TickState {
 }
 ```
 
+Use a typed helper for base-cost payment instead of open-coded bookkeeping:
+
+```rust
+enum BaseCostPayment {
+    FreeEnergy,
+    BackgroundRadiation { amount: u32 },
+    Insufficient,
+}
+```
+
+That helper should return the exact amount of background radiation consumed so Pass 1 can update `bg_radiation_consumed` directly and the mutation logic stays decoupled from instruction dispatch.
+
 ## Program storage
 
 Start with `Vec<u8>` per program. This is simple, correct, and fast enough.
@@ -120,6 +132,26 @@ Lazy snapshotting (only snapshot cells adjacent to occupied cells) is a valid op
 
 Each pass is a function that borrows the grid (and snapshot where needed). Keep them visually and structurally separate — this is the most important architectural invariant.
 
+Also keep a thin top-level tick driver that orchestrates the passes and owns reusable scratch buffers:
+
+```rust
+struct Simulation {
+    grid: Grid,
+    packets: Vec<Packet>,
+    scratch: TickScratch,
+    config: SimConfig,
+    tick: u64,
+    seed: u64,
+}
+
+struct TickScratch {
+    snapshot: Vec<CellSnapshot>,
+    live_set: Vec<bool>,
+}
+```
+
+The driver should do as little logic as possible itself: build the snapshot, run Pass 1, run Pass 2, merge emitted packets into `self.packets`, run Pass 3, then run end-of-tick mutation. Keep pass-local scratch local to the pass unless it is large enough to justify reuse at the `Simulation` level.
+
 ### Pass 0
 
 ```rust
@@ -139,7 +171,7 @@ struct Pass1Output {
 fn pass1_local(grid: &mut Grid, snapshot: &[CellSnapshot], live_set: &[bool]) -> Pass1Output
 ```
 
-Embarrassingly parallel over cells. Each cell reads only its own mutable state and the immutable snapshot for neighbor sensing. Returns queued nonlocal actions plus newly emitted directed-radiation packets.
+Embarrassingly parallel over cells. Each cell reads only its own mutable state and the immutable snapshot for neighbor sensing. Each live program spends its local action budget here and returns queued nonlocal actions plus newly emitted directed-radiation packets.
 
 Use `par_chunks_mut` on the cell slice. Each chunk processes its cells independently, collecting `QueuedAction`s and emitted `Packet`s into thread-local vecs. Rayon merges them afterward.
 
@@ -152,6 +184,8 @@ fn pass2_nonlocal(grid: &mut Grid, actions: Vec<QueuedAction>)
 ```
 
 Group actions by target cell index. Sort the action vec by target index (or use a `HashMap<usize, SmallVec<[QueuedAction; 2]>>`). Process each target group independently.
+
+Because targets are already dense integer cell indices, prefer sort-by-target or reusable dense buckets over `HashMap` once you care about constant factors. `HashMap` is fine to get started, but it should not be the default long-term shape if profiling shows Pass 2 overhead.
 
 Resolve in class order: read-only, then additive transfers, then exclusive. Within each class, the spec guarantees order-independence, so no further sorting needed.
 
@@ -231,6 +265,8 @@ Cost is ~3-4ns per cell — noise compared to Pass 1 VM execution.
 Use `fastrand` (Wyrand) for all per-cell draws. It's ~1ns per call, the state is a single `u64`, and statistical quality is more than sufficient for simulation stochastics.
 
 If you need `rand_distr::Binomial` or other distributions from the `rand` ecosystem, write a thin trait wrapper around `fastrand::Rng`. Alternatively, for the parameter ranges typical in this sim (n up to a few hundred, p typically small), a direct loop of Bernoulli trials is competitive with BTPE and avoids the dependency. Benchmark both.
+
+Keep RNG adapters and distribution helpers in a dedicated `random` module with unit tests. This code is easy to get subtly wrong and should stay isolated from pass logic.
 
 ### Binomial sampling
 

@@ -13,7 +13,7 @@ Start here before opening the full spec. This file maps the major topics in `SPE
 | Topic | Read in `SPEC.md` | Then read in `SPEC-COMPANION.md` | Notes |
 |---|---|---|---|
 | Tick structure and pass ordering | `Execution Model` -> `Global Execution Order` | `2. Tick model at a glance`, `6. Pass-2 semantics`, `11. Arrival/decay ordering invariants` | This is the main execution-order bridge between the two docs. |
-| Local budgets and one-nonlocal limit | `Execution Model` -> `Instruction Timing`, `Local Throughput` | `2. Tick model at a glance`, `6. Pass-2 semantics` | Use both when reasoning about per-tick work and queueing. |
+| Local action budgets and one-nonlocal limit | `Execution Model` -> `Instruction Timing`, `Local Throughput` | `2. Tick model at a glance`, `6. Pass-2 semantics` | Use both when reasoning about per-tick work and queueing. |
 | Program lifecycle, inert state, and newborns | `Physics` -> `Program Age`, `Program Lifecycle`, `Spontaneous Program Creation`; `Programs` -> `Newborn Program State` | `3. Entity eligibility sets`, `11. Arrival/decay ordering invariants`, `13.4 Lifecycle tests` | Covers who can act, age, mutate, or pay maintenance. |
 | Mass, energy, decay, and conversion | `Physics` -> `Mass and Energy`, `Resource Pool Summary`, `Decay`, `Synthesis` | `10. Resource and conservation invariants`, `11. Arrival/decay ordering invariants`, `14. Non-obvious consequences worth remembering` | Use this path for harvest, decay, and conservation questions. |
 | Maintenance and abandonment | `Physics` -> `Maintenance`, `Program Lifecycle` | `3.3 Inert programs`, `10.4 Free-resource decay threshold invariant`, `11. Arrival/decay ordering invariants`, `13.4 Lifecycle tests` | Important for live vs inert upkeep rules. |
