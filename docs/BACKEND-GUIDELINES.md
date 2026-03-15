@@ -69,9 +69,8 @@ struct TickState {
     did_collect: bool,
     did_nop: bool,
     is_open: bool,
-    used_bg_for_base_cost: bool,
+    bg_radiation_consumed: u32,  // total bg radiation used for base costs (drives mutation rate)
     is_newborn: bool,
-    queued_nonlocal: Option<QueuedAction>,
 }
 ```
 
@@ -82,6 +81,20 @@ Start with `Vec<u8>` per program. This is simple, correct, and fast enough.
 If profiling later shows that memory is tight at scale or that cache performance suffers, consider a deduplicated program pool (programs stored once, cells hold an index + diff). This optimization mirrors the low-diversity property of evolved populations but adds complexity — don't do it preemptively.
 
 The program size cap (2^15 - 1) means a `u16` is sufficient for IP, Src, Dst, and stack values. The code itself is `u8` per instruction.
+
+## Directed radiation packets
+
+Directed radiation packets live in a global `Vec<Packet>`, not per-cell. Each packet carries a position, direction, and message value; energy is implicit (1 per packet).
+
+```rust
+struct Packet {
+    position: usize,   // cell index
+    direction: Dir,
+    message: i16,
+}
+```
+
+The simulation state owns the vec and reuses it across ticks with `clear()` + refill. `emit` (local, Pass 1) appends new packets to a thread-local vec that Rayon merges, same pattern as `QueuedAction`. Pass 3 steps 1–3 (propagation, listening, collision) consume and update this vec.
 
 ## Snapshot strategy
 
@@ -137,6 +150,13 @@ Group actions by target cell index. Sort the action vec by target index (or use 
 
 Resolve in class order: read-only, then additive transfers, then exclusive. Within each class, the spec guarantees order-independence, so no further sorting needed.
 
+Exclusive-class special cases to handle:
+
+- **Boot multi-success**: if the only exclusive-class instructions targeting a cell are `boot`s and the target is inert, all of them succeed — no conflict resolution needed.
+- **`appendAdj` into empty cell**: creates a new inert program with default registers (Dir and ID randomized), empty stack, age 0, abandonment timer 0. Protection check is skipped (empty cells are always open).
+- **`delAdj` additional cost**: the additional energy cost equals the target's **strength** (`min(target_size, target_free_energy)` in pre-Pass-2 state), paid by the source only on success. This can be expensive.
+- **Additional costs generally**: base costs were paid in Pass 1 and are never refunded. Additional costs (mass for `appendAdj`, energy for `delAdj` and `synthesize`) are paid only on success from working pools, never from background pools. If the tentative winner can't pay, the instruction fails with no fallback winner.
+
 This pass is parallel across target cells but the number of target cells with actions is typically small. Parallelism may not help here; profile before reaching for Rayon. A simple sequential loop over target groups is probably fine for a long time.
 
 ### Pass 3
@@ -147,9 +167,25 @@ fn pass3_physics(grid: &mut Grid, live_set: &[bool])
 
 Follow the spec's sub-step ordering (radiation propagation, listening, collision, absorb resolution, bg radiation decay/arrival, collect, bg mass decay/arrival, inert lifecycle, maintenance, free-resource decay, age update, spontaneous creation).
 
-Most sub-steps are per-cell and parallel. Directed radiation propagation is the exception — packets move between cells, so you need to handle it carefully. A clean approach: collect all packets into a `Vec<Packet>` with their new positions, then distribute them to target cells in a second pass.
+Most sub-steps are per-cell and parallel. Two exceptions need care:
+
+- **Directed radiation propagation** (step 1): packets move between cells. Use the global `Vec<Packet>` — update each packet's position, then process listening/collision per-cell.
+- **Absorb resolution** (step 4): this is a many-to-many distribution. Each cell's background radiation is split (floor division, remainder stays) among all programs whose absorb footprint includes that cell. A program's footprint can cover up to 5 cells, and multiple programs can overlap on the same cell. Build a mapping of cell → list of absorbing programs, then distribute.
 
 For stochastic draws, derive each cell's Wyrand RNG from `(master_seed, tick, cell_index)` — see the RNG section below. Do not store RNG state in cells or share RNG state across threads.
+
+### Mutation (end of tick)
+
+After Pass 3's 12 sub-steps, run mutation for every program that was live at tick start. This is logically step 13 of the tick.
+
+Each eligible program mutates with probability based on whether it consumed background radiation for base-cost payment this tick:
+
+- **Normal**: `2^(-mutation_base_log2)` per tick.
+- **Background-stressed**: `min(x / 2^(mutation_background_log2), 1)` where `x` is `bg_radiation_consumed` from `TickState`.
+
+If triggered, pick one instruction uniformly at random, flip one random bit in its 8-bit opcode. Mutation does not affect the current tick.
+
+This is embarrassingly parallel (per-program, no inter-cell communication).
 
 ## RNG and reproducibility
 
@@ -220,6 +256,15 @@ enum QueuedAction {
 ```
 
 Capture everything the action needs to resolve in Pass 2. Source and target are cell indices. Operands (popped values, cursor positions) are captured at queue time in Pass 1 so that Pass 2 doesn't need to touch the source program's stack.
+
+### Deletion and IP adjustment
+
+When an instruction is deleted, all later instructions shift down by 1. `Src` and `Dst` are not adjusted (they're interpreted modulo size at point of use). IP needs careful handling:
+
+- **Local `del`** (Pass 1): if the deleted index is at or before the currently executing IP, decrement IP by 1 before the normal post-instruction increment. Effect: execution continues with the next surviving instruction.
+- **`delAdj`** (Pass 2): if the deleted index is strictly less than the target program's stored next-tick IP, decrement that stored IP by 1.
+
+Neither `del` nor `delAdj` may delete the last instruction of a size-1 program — fail and set `Flag`.
 
 ## Config
 
