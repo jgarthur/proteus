@@ -3,12 +3,16 @@ use std::fmt;
 
 use crate::config::{ConfigError, SimConfig};
 use crate::grid::{Grid, GridError};
-use crate::model::{CellSnapshot, Packet};
+use crate::model::{CellSnapshot, Packet, QueuedAction};
+use crate::pass1::{pass1_local, Pass1Output};
+use crate::pass2::{pass2_nonlocal, Pass2Output};
+use crate::pass3::{pass3_ambient, pass3_packets, Pass3AmbientOutput, Pass3TailContext};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TickScratch {
     snapshot: Vec<CellSnapshot>,
     live_set: Vec<bool>,
+    existed_set: Vec<bool>,
 }
 
 impl TickScratch {
@@ -16,6 +20,7 @@ impl TickScratch {
         Self {
             snapshot: vec![CellSnapshot::default(); cell_count],
             live_set: vec![false; cell_count],
+            existed_set: vec![false; cell_count],
         }
     }
 
@@ -35,9 +40,14 @@ impl TickScratch {
         &self.live_set
     }
 
+    pub fn existed_set(&self) -> &[bool] {
+        &self.existed_set
+    }
+
     fn resize(&mut self, cell_count: usize) {
         self.snapshot.resize(cell_count, CellSnapshot::default());
         self.live_set.resize(cell_count, false);
+        self.existed_set.resize(cell_count, false);
     }
 }
 
@@ -101,6 +111,13 @@ impl Simulation {
         &self.packets
     }
 
+    pub fn extend_packets<I>(&mut self, packets: I)
+    where
+        I: IntoIterator<Item = Packet>,
+    {
+        self.packets.extend(packets);
+    }
+
     pub fn tick(&self) -> u64 {
         self.tick
     }
@@ -121,9 +138,12 @@ impl Simulation {
             .snapshot
             .iter_mut()
             .zip(self.scratch.live_set.iter_mut())
+            .zip(self.scratch.existed_set.iter_mut())
             .zip(self.grid.cells().iter())
         {
+            let ((snapshot, live_slot), existed_slot) = (snapshot, live_slot);
             *snapshot = CellSnapshot::from(cell);
+            *existed_slot = cell.program.is_some();
             *live_slot = cell
                 .program
                 .as_ref()
@@ -134,7 +154,70 @@ impl Simulation {
             tick: self.tick,
             snapshot: &self.scratch.snapshot,
             live_set: &self.scratch.live_set,
+            existed_set: &self.scratch.existed_set,
         }
+    }
+
+    pub fn run_pass1(&mut self) -> Pass1Output {
+        self.prepare_tick();
+        pass1_local(
+            &mut self.grid,
+            self.scratch.snapshot(),
+            self.scratch.live_set(),
+            &self.config,
+            self.tick,
+            self.seed,
+        )
+    }
+
+    pub fn run_pass2(&mut self, actions: &[QueuedAction]) -> Pass2Output {
+        pass2_nonlocal(&mut self.grid, actions, self.tick, self.seed)
+    }
+
+    pub fn run_pass3_packets(&mut self) {
+        pass3_packets(&mut self.grid, &mut self.packets, self.tick, self.seed);
+    }
+
+    pub fn run_pass3_ambient(&mut self) -> Pass3AmbientOutput {
+        pass3_ambient(&mut self.grid, &self.config, self.tick, self.seed)
+    }
+
+    pub fn run_tick(&mut self) {
+        self.prepare_tick();
+
+        let pass1 = pass1_local(
+            &mut self.grid,
+            self.scratch.snapshot(),
+            self.scratch.live_set(),
+            &self.config,
+            self.tick,
+            self.seed,
+        );
+        let pass2 = pass2_nonlocal(&mut self.grid, &pass1.actions, self.tick, self.seed);
+        self.packets.extend(pass1.emitted_packets);
+        pass3_packets(&mut self.grid, &mut self.packets, self.tick, self.seed);
+        let ambient = pass3_ambient(&mut self.grid, &self.config, self.tick, self.seed);
+        crate::pass3::pass3_tail(
+            &mut self.grid,
+            Pass3TailContext {
+                existed_set: self.scratch.existed_set(),
+                live_set: self.scratch.live_set(),
+                incoming_writes: &pass2.incoming_writes,
+                spawn_candidates: &ambient.spawn_candidates,
+                config: &self.config,
+                tick: self.tick,
+                seed: self.seed,
+            },
+        );
+        crate::pass3::mutate_end_of_tick(
+            &mut self.grid,
+            self.scratch.live_set(),
+            &self.config,
+            self.tick,
+            self.seed,
+        );
+        clear_newborn_flags(&mut self.grid);
+        self.tick = self.tick.wrapping_add(1);
     }
 }
 
@@ -143,6 +226,15 @@ pub struct PreparedTick<'a> {
     pub tick: u64,
     pub snapshot: &'a [CellSnapshot],
     pub live_set: &'a [bool],
+    pub existed_set: &'a [bool],
+}
+
+fn clear_newborn_flags(grid: &mut Grid) {
+    for cell in grid.cells_mut() {
+        if let Some(program) = cell.program.as_mut() {
+            program.tick.is_newborn = false;
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -214,6 +306,7 @@ mod tests {
             tick,
             snapshot,
             live_set,
+            existed_set,
         } = sim.prepare_tick();
 
         assert_eq!(tick, 0);
@@ -224,6 +317,7 @@ mod tests {
         assert_eq!(snapshot[0].program_size, 2);
         assert_eq!(snapshot[0].program_id, 9);
         assert_eq!(live_set, &[true, false]);
+        assert_eq!(existed_set, &[true, true]);
     }
 
     #[test]

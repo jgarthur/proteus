@@ -81,6 +81,15 @@ impl TickState {
     pub fn reset_for_new_tick(&mut self) {
         *self = Self::default();
     }
+
+    pub fn reset_for_pass1(&mut self, is_inert: bool) {
+        let is_newborn = self.is_newborn;
+        *self = Self {
+            is_open: is_inert,
+            is_newborn,
+            ..Self::default()
+        };
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
