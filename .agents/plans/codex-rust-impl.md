@@ -37,6 +37,9 @@ Completed in the new `rust/` crate:
 - deterministic multi-tick scenarios for absorb accumulation and inert-grace expiry
 - weighted-tie sanity coverage for exclusive Pass-2 conflicts
 - deterministic multi-tick scenarios for repeated `delAdj` pressure and extinction-to-respawn flow
+- Pass-2 transfer-cap coverage for extreme requested `giveE` / `giveM` amounts plus dense many-to-one additive transfer
+- deterministic nonzero-rate accounting coverage for forced arrivals with `absorb` and `collect`
+- dense packet-ring stress coverage for collision-free packet preservation and destination-bucket ordering
 
 Validation baseline currently expected after each implementation batch:
 
@@ -173,14 +176,16 @@ Optional hardening before or during M4:
 
 - completed:
   - nonpositive `giveE` / `giveM` tested as `Flag`-neutral no-ops
+  - large requested `giveE` / `giveM` amounts capped at available resources
   - `delAdj` stored-`IP` adjustment covered directly per [docs/SPEC-COMPANION.md:588](../../docs/SPEC-COMPANION.md#L588)
   - size-1 `delAdj` failure covered directly per [docs/SPEC-COMPANION.md:591](../../docs/SPEC-COMPANION.md#L591)
   - protected-target rejection for `writeAdj` / occupied-target `appendAdj` covered directly
   - size-cap `appendAdj` failure covered directly
   - deterministic winner selection under reordered action lists covered for equal-strength conflicts
   - weighted-tie selection sanity-covered over many trials for unequal-size equal-strength conflicts
+  - dense many-to-one additive transfer covered directly
 - still worth adding later if needed:
-  - explicit `giveE` / `giveM` cap-at-available tests at extreme requested values
+  - larger randomized additive-transfer stress cases beyond the current 100-to-1 deterministic case
 
 User note:
 
@@ -224,6 +229,7 @@ Exit criteria:
 - lifecycle/newborn semantics are regression-tested
 - longer-horizon deterministic scenarios cover resource accumulation and grace-window maintenance timing
 - repeated `delAdj` pressure and extinction-to-respawn flows are regression-tested
+- at least one forced-arrival nonzero-rate accounting case is regression-tested exactly
 
 Implementation note:
 

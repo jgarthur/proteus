@@ -1,3 +1,4 @@
+#[macro_use]
 mod helpers;
 
 use helpers::{run_ticks, ProgramBuilder, WorldBuilder};
@@ -69,4 +70,48 @@ fn zero_rate_world_preserves_total_energy_and_mass_under_internal_transfers() {
     run_ticks(&mut simulation, 5);
     assert_eq!(total_energy(&simulation), initial_energy);
     assert_eq!(total_mass(&simulation), initial_mass);
+}
+
+#[test]
+fn forced_arrivals_with_absorb_and_collect_have_exact_accounting() {
+    let mut simulation = WorldBuilder::new(2, 1)
+        .configure(|config| {
+            config.r_energy = 1.0;
+            config.r_mass = 1.0;
+            config.d_energy = 0.0;
+            config.d_mass = 0.0;
+            config.maintenance_rate = 0.0;
+            config.p_spawn = 0.0;
+            config.mutation_base_log2 = 32;
+            config.mutation_background_log2 = 32;
+        })
+        .at(0, 0, ProgramBuilder::new().code(&[0x51, 0x50]))
+        .bg_radiation_at(0, 0, 3)
+        .at(1, 0, ProgramBuilder::new().code(&[0x53, 0x50]))
+        .bg_mass_at(1, 0, 2)
+        .build_simulation();
+
+    let initial_energy = total_energy(&simulation);
+    let initial_mass = total_mass(&simulation);
+
+    simulation.run_tick();
+
+    assert_eq!(initial_energy, 3);
+    assert_eq!(initial_mass, 6);
+    assert_eq!(total_energy(&simulation), initial_energy + 2);
+    assert_eq!(total_mass(&simulation), initial_mass + 2);
+    assert_cell!(
+        simulation.grid(),
+        (0, 0),
+        free_energy == 3,
+        bg_radiation == 1,
+        bg_mass == 1
+    );
+    assert_cell!(
+        simulation.grid(),
+        (1, 0),
+        free_mass == 2,
+        bg_radiation == 1,
+        bg_mass == 1
+    );
 }

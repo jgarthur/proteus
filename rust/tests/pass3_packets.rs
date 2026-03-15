@@ -99,3 +99,67 @@ fn single_uncaptured_packet_persists_to_the_next_tick_position() {
         }]
     );
 }
+
+#[test]
+fn dense_ring_of_packets_preserves_all_packet_energy_without_collisions() {
+    let mut simulation = WorldBuilder::new(4, 1).build_simulation();
+    simulation.extend_packets([
+        Packet {
+            position: 0,
+            direction: Direction::Right,
+            message: 1,
+        },
+        Packet {
+            position: 1,
+            direction: Direction::Right,
+            message: 2,
+        },
+        Packet {
+            position: 2,
+            direction: Direction::Right,
+            message: 3,
+        },
+        Packet {
+            position: 3,
+            direction: Direction::Right,
+            message: 4,
+        },
+    ]);
+
+    simulation.run_pass3_packets();
+
+    assert_eq!(
+        simulation.packets(),
+        &[
+            Packet {
+                position: 0,
+                direction: Direction::Right,
+                message: 4,
+            },
+            Packet {
+                position: 1,
+                direction: Direction::Right,
+                message: 1,
+            },
+            Packet {
+                position: 2,
+                direction: Direction::Right,
+                message: 2,
+            },
+            Packet {
+                position: 3,
+                direction: Direction::Right,
+                message: 3,
+            }
+        ]
+    );
+    assert_eq!(
+        simulation
+            .grid()
+            .cells()
+            .iter()
+            .map(|cell| cell.free_energy)
+            .sum::<u32>(),
+        0
+    );
+}

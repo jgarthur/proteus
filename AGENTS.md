@@ -10,3 +10,8 @@
 
 - Use semantic versioning: `x.y.z`.
 - After a change to the `y` version, update the top-level `README.md` so it stays aligned with the current spec generation.
+
+## Failure Analysis
+
+- When a test fails, explain the failure explicitly before or alongside the fix.
+- Reason from first principles when possible: describe the relevant execution steps, invariants, or data-flow that produce the observed result rather than just naming the changed assertion or implementation detail.

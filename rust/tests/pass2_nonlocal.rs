@@ -199,6 +199,24 @@ fn nonpositive_give_amounts_are_flag_neutral_no_ops() {
 }
 
 #[test]
+fn give_e_caps_transfer_at_available_energy_for_large_requested_amounts() {
+    let mut simulation = WorldBuilder::new(2, 1)
+        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_energy(7))
+        .at(1, 0, ProgramBuilder::new().code(&[0x50]).free_energy(2))
+        .build_simulation();
+
+    simulation.run_pass2(&[QueuedAction::GiveE {
+        source: 0,
+        target: 1,
+        amount: i16::MAX,
+    }]);
+
+    assert_cell!(simulation.grid(), (0, 0), free_energy == 0, free_mass == 0);
+    assert_cell!(simulation.grid(), (1, 0), free_energy == 9, free_mass == 0);
+    assert_program!(simulation.grid(), (0, 0), flag == false);
+}
+
+#[test]
 fn multiple_give_m_actions_sum_into_the_same_target() {
     let mut simulation = WorldBuilder::new(3, 1)
         .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_mass(5))
@@ -224,6 +242,54 @@ fn multiple_give_m_actions_sum_into_the_same_target() {
     assert_cell!(simulation.grid(), (2, 0), free_energy == 0, free_mass == 5);
     assert_program!(simulation.grid(), (0, 0), flag == false);
     assert_program!(simulation.grid(), (1, 0), flag == false);
+}
+
+#[test]
+fn give_m_caps_transfer_at_available_mass_for_large_requested_amounts() {
+    let mut simulation = WorldBuilder::new(2, 1)
+        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_mass(6))
+        .at(1, 0, ProgramBuilder::new().code(&[0x50]).free_mass(3))
+        .build_simulation();
+
+    simulation.run_pass2(&[QueuedAction::GiveM {
+        source: 0,
+        target: 1,
+        amount: i16::MAX,
+    }]);
+
+    assert_cell!(simulation.grid(), (0, 0), free_energy == 0, free_mass == 0);
+    assert_cell!(simulation.grid(), (1, 0), free_energy == 0, free_mass == 9);
+    assert_program!(simulation.grid(), (0, 0), flag == false);
+}
+
+#[test]
+fn one_hundred_give_e_actions_to_the_same_target_all_succeed() {
+    let mut builder = WorldBuilder::new(101, 1);
+    for x in 0..100_u32 {
+        builder = builder.at(x, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1));
+    }
+    let mut simulation = builder.build_simulation();
+
+    let actions = (0..100_usize)
+        .map(|source| QueuedAction::GiveE {
+            source,
+            target: 100,
+            amount: 1,
+        })
+        .collect::<Vec<_>>();
+
+    simulation.run_pass2(&actions);
+
+    for x in 0..100_u32 {
+        assert_cell!(simulation.grid(), (x, 0), free_energy == 0, free_mass == 0);
+        assert_program!(simulation.grid(), (x, 0), flag == false);
+    }
+    assert_cell!(
+        simulation.grid(),
+        (100, 0),
+        free_energy == 100,
+        free_mass == 0
+    );
 }
 
 #[test]
