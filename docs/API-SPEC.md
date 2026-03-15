@@ -10,7 +10,7 @@
 
 ## 1. Purpose and Status
 
-This document defines the **external API contract** between the Proteus simulator backend and any frontend or external client. It specifies how a client creates, controls, observes, and persists simulations.
+This document defines the **external API contract** between the Proteus simulator backend and any frontend or external client. It specifies how a client creates, controls, and observes simulations, plus the deferred target design for persistence/snapshots.
 
 This is a design document, not a generated API reference. It is provisional: fields and endpoints marked **stable** are unlikely to change; those marked **deferred** are placeholders that will be specified once the engine internals settle.
 
@@ -28,7 +28,7 @@ The API is independent of any specific frontend implementation.
 - Per-tick metrics output
 - Grid frame streaming for visualization
 - Cell and program inspection
-- Snapshot save/load (product-level)
+- Snapshot save/load target design (deferred; not implemented in the current backend)
 - Error model
 - Versioning and compatibility
 
@@ -70,7 +70,7 @@ WebSocket messages include an `api_version` field in the initial handshake.
 
 ### REST (HTTP/JSON)
 
-Used for: simulation lifecycle, control, inspection, snapshot management, configuration.
+Used for: simulation lifecycle, control, inspection, configuration, and the deferred snapshot-management design surface.
 
 - Content-Type: `application/json` for request and response bodies.
 - Standard HTTP status codes for errors.
@@ -118,7 +118,7 @@ The API exposes one primary resource: the **simulation**. Because there is one s
 |----------|-------------|
 | Simulation | The running (or idle) simulation instance |
 | Cell | A single grid cell, addressed by index |
-| Snapshot | A saved simulation state, addressed by ID |
+| Snapshot | Deferred target resource for saved simulation state; no snapshot routes are implemented in the current backend |
 
 ---
 
@@ -450,7 +450,7 @@ Response `200 OK`:
     "src": 8,
     "dst": 0,
     "dir": 1,
-    "flag": 0,
+    "flag": false,
     "msg": 0,
     "id": 3,
     "lc": 4,
@@ -464,9 +464,11 @@ If the cell has no program, the `program` field is `null`.
 
 `abandonment_timer` is present only for inert programs (null for live programs, null when no program).
 
-`dir` is encoded as: 0 = North, 1 = East, 2 = South, 3 = West.
+`dir` uses the master `Dir` encoding from `docs/SPEC.md`: `0 = right`, `1 = up`, `2 = left`, `3 = down`.
 
-Returns `400` if the index is out of bounds. Returns `404` if no simulation exists.
+`flag` is serialized as a JSON boolean.
+
+Returns `400` if the requested index or coordinates are out of bounds. Returns `404` if no simulation exists.
 
 ### Inspect a region (batch)
 
@@ -476,15 +478,17 @@ GET /v1/sim/cells?x=10&y=10&w=5&h=5
 
 Returns an array of cell objects for the rectangular region. Same schema as single-cell inspection. Useful for inspector panels that show a neighborhood.
 
-Maximum region size: 100 cells (w × h ≤ 100). Returns `400` if exceeded.
+Maximum region size: 100 cells (w × h ≤ 100). Returns `400` if exceeded or if the requested rectangle extends outside the grid. Returns `404` if no simulation exists.
 
 ---
 
-## 13. Snapshot Operations
+## 13. Snapshot Operations (Deferred)
 
-Snapshots are product-level save points — opaque to the client. The server manages storage. A snapshot captures the full simulation state: grid, config, tick number, and all internal state needed for deterministic resumption.
+Current backend status: deferred/unimplemented. The Rust backend does **not** currently expose any `/v1/sim/snapshot*` routes. The routes below describe the intended product surface once the backend has a settled, non-speculative snapshot boundary.
 
-### Save snapshot
+In that target design, snapshots are product-level save points — opaque to the client. The server manages storage. A snapshot captures the full simulation state: grid, config, tick number, and all internal state needed for deterministic resumption.
+
+### Save snapshot (target design)
 
 ```
 POST /v1/sim/snapshot
@@ -498,7 +502,7 @@ Optional request body:
 }
 ```
 
-Response `201 Created`:
+When implemented, response `201 Created`:
 
 ```json
 {
@@ -510,13 +514,13 @@ Response `201 Created`:
 }
 ```
 
-### List snapshots
+### List snapshots (target design)
 
 ```
 GET /v1/sim/snapshots
 ```
 
-Response `200 OK`:
+When implemented, response `200 OK`:
 
 ```json
 {
@@ -532,23 +536,23 @@ Response `200 OK`:
 }
 ```
 
-### Load snapshot
+### Load snapshot (target design)
 
 ```
 POST /v1/sim/snapshot/:id/load
 ```
 
-Replaces the current simulation state with the snapshot. The simulation is paused after loading. Returns `200 OK` with the simulation status at the restored tick. Any active WebSocket subscribers receive an updated frame/metrics.
+When implemented, this replaces the current simulation state with the snapshot. The simulation is paused after loading. The route returns `200 OK` with the simulation status at the restored tick. Any active WebSocket subscribers receive an updated frame/metrics.
 
-Returns `404` if the snapshot ID is not found.
+When implemented, returns `404` if the snapshot ID is not found.
 
-### Delete snapshot
+### Delete snapshot (target design)
 
 ```
 DELETE /v1/sim/snapshot/:id
 ```
 
-Returns `204 No Content`. Returns `404` if not found.
+When implemented, returns `204 No Content`. Returns `404` if not found.
 
 ---
 
@@ -570,8 +574,8 @@ All error responses use a consistent JSON body:
 
 | HTTP Status | When |
 |-------------|------|
-| 400 | Invalid config, out-of-bounds index, malformed request |
-| 404 | No simulation exists, snapshot not found, cell index out of bounds |
+| 400 | Out-of-bounds inspection coordinates/index, malformed request, or other invalid request input |
+| 404 | No simulation exists |
 | 409 | Conflict (sim already exists, wrong state for operation) |
 | 422 | Config validation failure (e.g. width = 0, negative probability) |
 | 500 | Internal server error |
@@ -586,8 +590,15 @@ All error responses use a consistent JSON body:
 | `SIM_NOT_PAUSED` | Operation requires paused state |
 | `SIM_NOT_CREATED` | Operation requires created state |
 | `INVALID_CONFIG` | Config validation failure |
-| `CELL_OUT_OF_BOUNDS` | Cell index exceeds grid size |
+| `CELL_OUT_OF_BOUNDS` | Cell index or coordinates exceed grid size |
 | `REGION_TOO_LARGE` | Batch inspection region exceeds limit |
+| `BAD_REQUEST` | Malformed or semantically invalid request input |
+| `INTERNAL_ERROR` | Unexpected server error |
+
+Deferred snapshot routes are expected to add:
+
+| Code | Meaning |
+|------|---------|
 | `SNAPSHOT_NOT_FOUND` | Snapshot ID not found |
 
 ### WebSocket errors
@@ -617,7 +628,6 @@ These are specified and unlikely to change:
 - Control operations (start, pause, resume, step, reset)
 - Core metrics fields (population, energy, mass, births, deaths)
 - Cell inspection (full program state + disassembly)
-- Snapshot save/load/list/delete
 - Error model structure
 - Transport split (REST + WS)
 
@@ -638,6 +648,7 @@ These are acknowledged but not yet specified:
 | Replay / deterministic playback API | Requires tick-level recording; deferred |
 | Grid frame compression | The 8-byte CellView is already compact; delta compression deferred |
 | Debug/pass-level inspection | Internal to engine; not part of the external API |
+| Snapshot save/load/list/delete | Deferred until the backend exposes a settled snapshot boundary |
 
 ---
 
@@ -645,9 +656,9 @@ These are acknowledged but not yet specified:
 
 1. **Frame CellView program_size scaling.** The current spec scales program size to fit u8 (size / 128, capped at 255). With the spec's size cap of 32767, this gives ~128-instruction resolution. Is this sufficient for visualization, or should the scaling factor be configurable?
 
-2. **Snapshot storage.** The spec does not prescribe where snapshots are stored. File-based storage (one file per snapshot in a configured directory) is the likely implementation, but the API intentionally hides this. Should snapshots support export/import (download/upload raw snapshot data) for portability between server instances?
+2. **Snapshot storage.** When snapshot routes are implemented, the spec does not prescribe where snapshots are stored. File-based storage (one file per snapshot in a configured directory) is the likely implementation, but the API intentionally hides this. Should snapshots support export/import (download/upload raw snapshot data) for portability between server instances?
 
-3. **Metrics `total_energy` / `total_mass` accounting.** These sums need a precise definition of what pools are included. The current spec includes free energy + bg radiation for total energy, and free mass + bg mass + program instructions for total mass. Directed radiation packets in flight also carry energy. Should in-flight packet energy be included?
+3. **Future packet-energy visibility.** `total_energy` intentionally means free energy + background radiation across the grid; it does **not** include in-flight directed-radiation packets. If packet visibility is needed later, it should be added as a separate metric rather than by redefining `total_energy`.
 
 4. **WebSocket reconnection semantics.** If a client's WebSocket connection drops and reconnects, should subscriptions be stateless (client must re-subscribe) or should the server remember subscription state by some client identifier? Stateless is simpler and recommended.
 

@@ -22,7 +22,7 @@ This is a design spec intended to be concrete enough for implementation. Feature
 - Simulation lifecycle controls
 - Real-time metrics display and charting
 - Cell inspection with program disassembly
-- Snapshot management
+- Snapshot management target design (deferred until backend support exists)
 - Config editing for simulation creation
 
 ### Non-goals
@@ -61,13 +61,15 @@ This is a design spec intended to be concrete enough for implementation. Feature
   ┌──────────┐     ───────────────────────►  ┌──────────┐
   │          │    POST /v1/sim, /v1/sim/start │          │
   │          │    GET  /v1/sim/cell/:index    │          │
-  │ Frontend │    POST /v1/sim/snapshot       │ Backend  │
+  │ Frontend │    POST /v1/sim/snapshot*      │ Backend  │
   │  (React) │                                │  (Rust)  │
   │          │     ◄───────────────────────   │          │
   │          │        WebSocket /v1/ws        │          │
   └──────────┘     binary frames + JSON       └──────────┘
                         metrics
 ```
+
+`/v1/sim/snapshot*` is a deferred target surface in the current backend, not an available MVP route.
 
 ### Component tree
 
@@ -83,7 +85,7 @@ App
 │   │   ├── LifecycleControls  (create/start/pause/resume/step/reset/destroy)
 │   │   ├── FrameRateControl   (max_fps slider for frame subscription)
 │   │   ├── MetricsSampling    (every_n_ticks control)
-│   │   ├── SnapshotPanel      (save/load/list/delete)
+│   │   ├── SnapshotPanel      (deferred; hidden or disabled until backend support lands)
 │   │   └── ConfigEditor       (creation-time config form)
 │   └── InspectorTab
 │       └── CellInspector      (selected cell details + disassembly)
@@ -349,7 +351,7 @@ interface ChartDef {
 |-------|--------|--------|
 | Population | `live_count`, `inert_count`, `population` | Count |
 | Energy & Mass | `total_energy`, `total_mass` | Total (dual axis) |
-| Births / Deaths / Mutations | `births`, `deaths`, `mutations` | Per-tick count |
+| Births / Deaths / Mutations | `births`, `deaths`, `mutations` | Per-tick count; `births` aggregates both `boot` and spontaneous spawn |
 | Program Size | `mean_program_size`, `max_program_size` | Instructions (dual axis) |
 | Diversity | `unique_genomes` | Count |
 
@@ -400,6 +402,8 @@ The inspector fetches cell data via `GET /v1/sim/cell?x={x}&y={y}` (API-SPEC §1
 | Stack | array display |
 | Abandonment timer | shown for inert programs |
 
+The `dir` register arrives as the API integer encoding from API-SPEC §12: `0 = right`, `1 = up`, `2 = left`, `3 = down`. The UI should render a human-readable label alongside the numeric value.
+
 **Disassembly view**:
 
 A scrollable list of instructions with:
@@ -418,15 +422,17 @@ A scrollable list of instructions with:
 
 ## 8. Snapshot Management
 
-Snapshot UI lives in the **Controls** tab, below the lifecycle controls. The interface is minimal — the backend handles all storage.
+Current backend status: deferred/unimplemented. The Rust backend does **not** currently expose snapshot routes, so the frontend must not assume save/load/list/delete is available.
+
+For the current backend, the snapshot panel should either be hidden or rendered in a disabled "Unavailable in current backend" state. The operations below describe the intended UI/API behavior once snapshot support lands.
 
 ### Operations
 
-| Action | UI element | API call | Notes |
+| Action | UI element | Target API call | Notes |
 |--------|-----------|----------|-------|
-| Save | "Save Snapshot" button + optional label text input | `POST /v1/sim/snapshot` with `{"label": "..."}` | Button disabled when `simStatus === 'none'` |
+| Save | "Save Snapshot" button + optional label text input | `POST /v1/sim/snapshot` with `{"label": "..."}` | Deferred in current backend; when implemented, button disabled when `simStatus === 'none'` |
 | List | Auto-populated list below the save button | `GET /v1/sim/snapshots` | Refreshed on save, load, delete, and on tab focus |
-| Load | "Load" button on each snapshot row | `POST /v1/sim/snapshot/:id/load` | Confirm dialog. Sim is paused after load (per API-SPEC §13) |
+| Load | "Load" button on each snapshot row | `POST /v1/sim/snapshot/:id/load` | Confirm dialog. Sim is paused after load in the target API-SPEC §13 design |
 | Delete | "Delete" button on each snapshot row | `DELETE /v1/sim/snapshot/:id` | Confirm dialog |
 
 ### Snapshot list display
@@ -561,7 +567,7 @@ With metrics drawer expanded:
 
 Two tabs at the top of the sidebar:
 
-- **Controls**: Lifecycle buttons, frame rate, metrics sampling, snapshot panel, config editor
+- **Controls**: Lifecycle buttons, frame rate, metrics sampling, deferred snapshot panel, config editor
 - **Inspector**: Cell inspector (empty state shows "Click a cell to inspect")
 
 The active tab is stored in app state. Clicking a cell on the grid auto-switches to the Inspector tab.

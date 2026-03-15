@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::grid::Grid;
-use crate::model::{Cell, Direction, Program};
+use crate::model::{Cell, Program};
 use crate::opcode::Opcode;
 use crate::simulation::TickReport;
 
@@ -198,7 +198,7 @@ fn program_inspection(program: &Program) -> ProgramInspection {
         ip: program.registers.ip,
         src: program.registers.src,
         dst: program.registers.dst,
-        dir: api_direction(program.registers.dir),
+        dir: program.registers.dir as u8,
         flag: program.registers.flag,
         msg: program.registers.msg,
         id: program.registers.id,
@@ -209,17 +209,6 @@ fn program_inspection(program: &Program) -> ProgramInspection {
         } else {
             Some(program.abandonment_timer)
         },
-    }
-}
-
-fn api_direction(direction: Direction) -> u8 {
-    // API-SPEC §12 uses North/East/South/West numbering, while the engine stores
-    // Right/Up/Left/Down. Keep the transport mapping local to the API surface.
-    match direction {
-        Direction::Up => 0,
-        Direction::Right => 1,
-        Direction::Down => 2,
-        Direction::Left => 3,
     }
 }
 
@@ -314,14 +303,21 @@ mod tests {
     }
 
     #[test]
-    fn cell_inspection_uses_api_direction_encoding() {
-        let mut grid = Grid::new(1, 1).expect("grid should build");
-        let program =
-            Program::new_live(vec![0x50], Direction::Up, 2).expect("program should build");
-        grid.get_mut(0).expect("cell should exist").program = Some(program);
+    fn cell_inspection_uses_spec_direction_encoding() {
+        for (direction, expected) in [
+            (Direction::Right, 0),
+            (Direction::Up, 1),
+            (Direction::Left, 2),
+            (Direction::Down, 3),
+        ] {
+            let mut grid = Grid::new(1, 1).expect("grid should build");
+            let program =
+                Program::new_live(vec![0x50], direction, 2).expect("program should build");
+            grid.get_mut(0).expect("cell should exist").program = Some(program);
 
-        let cell = inspect_cell(&grid, 0);
-        assert_eq!(cell.program.expect("program should exist").dir, 0);
+            let cell = inspect_cell(&grid, 0);
+            assert_eq!(cell.program.expect("program should exist").dir, expected);
+        }
     }
 
     #[test]
