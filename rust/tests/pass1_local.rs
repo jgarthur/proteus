@@ -2,7 +2,7 @@
 mod helpers;
 
 use helpers::{ProgramBuilder, WorldBuilder};
-use proteus::{Direction, Packet, Pass1Output, QueuedAction};
+use proteus::{Direction, Packet, Pass1Output, QueuedAction, PROGRAM_SIZE_CAP};
 
 #[test]
 fn listen_is_flag_neutral_and_opens_the_cell() {
@@ -142,4 +142,44 @@ fn emit_creates_packet_and_consumes_base_energy() {
     );
     assert_cell!(simulation.grid(), (0, 0), free_energy == 0);
     assert_program!(simulation.grid(), (0, 0), ip == 0, stack == &[][..]);
+}
+
+#[test]
+fn push_literal_at_stack_capacity_sets_flag_and_leaves_stack_unchanged() {
+    let full_stack: Vec<i16> = (0..usize::from(PROGRAM_SIZE_CAP))
+        .map(|value| i16::try_from(value).expect("stack test values should fit in i16"))
+        .collect();
+    let mut simulation = WorldBuilder::new(1, 1)
+        .at(0, 0, ProgramBuilder::new().code(&[0x07]).stack(&full_stack))
+        .build_simulation();
+
+    simulation.run_pass1();
+
+    let program = simulation
+        .grid()
+        .get(simulation.grid().index(0, 0))
+        .expect("cell should exist")
+        .program
+        .as_ref()
+        .expect("program should exist");
+    assert!(program.registers.flag);
+    assert_eq!(program.registers.ip, 0);
+    assert_eq!(program.stack, full_stack);
+}
+
+#[test]
+fn drop_on_empty_stack_sets_flag_and_leaves_stack_empty() {
+    let mut simulation = WorldBuilder::new(1, 1)
+        .at(0, 0, ProgramBuilder::new().code(&[0x11]))
+        .build_simulation();
+
+    simulation.run_pass1();
+
+    assert_program!(
+        simulation.grid(),
+        (0, 0),
+        flag == true,
+        ip == 0,
+        stack == &[][..]
+    );
 }

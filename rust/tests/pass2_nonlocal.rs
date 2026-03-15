@@ -2,7 +2,7 @@
 mod helpers;
 
 use helpers::{ProgramBuilder, WorldBuilder};
-use proteus::{Direction, Pass2Output, QueuedAction, PROGRAM_SIZE_CAP};
+use proteus::{pass2_nonlocal, Direction, Pass2Output, QueuedAction, PROGRAM_SIZE_CAP};
 
 #[test]
 fn two_read_adj_actions_against_same_target_both_succeed() {
@@ -663,5 +663,73 @@ fn move_transfers_program_and_free_resources_but_leaves_background_behind() {
         free_mass == 4,
         bg_radiation == 7,
         bg_mass == 8
+    );
+}
+
+#[test]
+fn weighted_tie_break_prefers_larger_program_over_many_trials() {
+    let (base_grid, _) = WorldBuilder::new(3, 1)
+        .at(
+            0,
+            0,
+            ProgramBuilder::new().code(&[0x50, 0x50]).free_energy(2),
+        )
+        .at(
+            1,
+            0,
+            ProgramBuilder::new()
+                .code(&[0x50, 0x50, 0x50, 0x50, 0x50, 0x50])
+                .free_energy(2),
+        )
+        .at(2, 0, ProgramBuilder::new().code(&[0x00]).open(true))
+        .build();
+
+    let actions = [
+        QueuedAction::WriteAdj {
+            source: 0,
+            target: 2,
+            value: 0x11,
+            dst_cursor: 0,
+        },
+        QueuedAction::WriteAdj {
+            source: 1,
+            target: 2,
+            value: 0x22,
+            dst_cursor: 0,
+        },
+    ];
+
+    let mut larger_program_wins = 0_u32;
+    let trials = 2048_u32;
+
+    for trial in 0..trials {
+        let mut grid = base_grid.clone();
+        pass2_nonlocal(
+            &mut grid,
+            &actions,
+            u64::from(trial),
+            u64::from(trial).wrapping_mul(17),
+        );
+
+        let winning_value = grid
+            .get(grid.index(2, 0))
+            .expect("target cell should exist")
+            .program
+            .as_ref()
+            .expect("target program should exist")
+            .code[0];
+        if winning_value == 0x22 {
+            larger_program_wins += 1;
+        }
+    }
+
+    let win_ratio = f64::from(larger_program_wins) / f64::from(trials);
+    assert!(
+        larger_program_wins > (trials / 2),
+        "larger program should win more often than the smaller program, ratio={win_ratio:.3}"
+    );
+    assert!(
+        (0.68..0.82).contains(&win_ratio),
+        "weighted tie ratio should stay near the expected 0.75, got {win_ratio:.3}"
     );
 }

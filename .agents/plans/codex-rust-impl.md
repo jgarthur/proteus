@@ -32,6 +32,11 @@ Completed in the new `rust/` crate:
 - deterministic `run_tick()` replay coverage
 - zero-rate conservation coverage for full-tick internal transfers
 - multi-tick regression coverage for packet wrapping and absorb/collect arrival ordering
+- randomized invariant coverage for toroidal wrapping, snapshot-isolated sensing, and additive-transfer order independence
+- direct Pass-1 stack-boundary coverage for overflow/underflow behavior
+- deterministic multi-tick scenarios for absorb accumulation and inert-grace expiry
+- weighted-tie sanity coverage for exclusive Pass-2 conflicts
+- deterministic multi-tick scenarios for repeated `delAdj` pressure and extinction-to-respawn flow
 
 Validation baseline currently expected after each implementation batch:
 
@@ -173,8 +178,8 @@ Optional hardening before or during M4:
   - protected-target rejection for `writeAdj` / occupied-target `appendAdj` covered directly
   - size-cap `appendAdj` failure covered directly
   - deterministic winner selection under reordered action lists covered for equal-strength conflicts
+  - weighted-tie selection sanity-covered over many trials for unequal-size equal-strength conflicts
 - still worth adding later if needed:
-  - broader probabilistic sanity checks around weighted tie frequency
   - explicit `giveE` / `giveM` cap-at-available tests at extreme requested values
 
 User note:
@@ -183,7 +188,7 @@ User note:
 
 ### M4. Pass 3 Physics, Lifecycle, and Mutation
 
-Status: mechanically complete, regression coverage still expanding
+Status: mechanically complete, regression coverage materially expanded; fuzz/property-style work still open
 
 Implement Pass 3 in strict order, then end-of-tick mutation.
 
@@ -217,6 +222,8 @@ Exit criteria:
 - one full tick executes end-to-end
 - conservation holds in zero-rate worlds
 - lifecycle/newborn semantics are regression-tested
+- longer-horizon deterministic scenarios cover resource accumulation and grace-window maintenance timing
+- repeated `delAdj` pressure and extinction-to-respawn flows are regression-tested
 
 Implementation note:
 
@@ -232,6 +239,7 @@ Scope:
 - `diff_grids`-backed diagnostics
 - seed replicator smoke test
 - multi-tick ecology sanity checks
+- additional stochastic-accounting and fuzz-style stress coverage once the seed is settled
 
 Primary tests:
 
