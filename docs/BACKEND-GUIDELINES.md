@@ -296,7 +296,7 @@ enum QueuedAction {
 }
 ```
 
-Capture everything the action needs to resolve in Pass 2. Source and target are cell indices. Operands (popped values, cursor positions) are captured at queue time in Pass 1 so that Pass 2 doesn't need to touch the source program's stack.
+Capture everything the action needs to resolve in Pass 2. Source and target are cell indices. Operand capture is attempted at the nonlocal boundary in Pass 1; if capture succeeds, store the popped values and cursor positions in the queued action so Pass 2 doesn't need to touch the source program's stack. If capture fails, create no queued action.
 
 ### Deletion and IP adjustment
 

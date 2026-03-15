@@ -36,7 +36,8 @@ For a single tick:
    - Only programs in `live_at_tick_start` execute.
    - Each such program gets `local_action_budget = max(1, floor(size_at_tick_start ^ alpha))`.
    - Local instructions execute directly in Pass 1.
-   - The first nonlocal instruction reached is queued, `IP` advances by 1, and that program stops executing for the remainder of the tick.
+   - The first nonlocal instruction reached attempts queueing. If operand capture succeeds, it is queued. If operand capture fails, no action is queued and `Flag` is set.
+   - After successful base-cost payment, that first nonlocal instruction always advances `IP` by 1 and ends Pass 1 for that program for the remainder of the tick, whether or not operand capture succeeded.
    - At most one nonlocal instruction may be queued per program.
 
 3. **Pass 2 — Nonlocal execution**
@@ -190,8 +191,9 @@ If an instruction cannot pay a required additional cost:
 - Both must succeed for the instruction to succeed.
 
 ### Nonlocal instructions
-- Base cost is paid in Pass 1 when the instruction is queued.
+- Base cost is paid in Pass 1 when queueing is attempted.
 - Operands are captured in Pass 1.
+- Operand capture is atomic. If it fails (for example due to stack underflow), base cost is not refunded, no operands are consumed, no action is queued, `Flag = 1`, `IP` advances by 1, the program stops for the remainder of the tick, and the cell does **not** open.
 - Additional cost, if any, is checked only in Pass 2 and only for a candidate that otherwise succeeds.
 - If the candidate later fails, there is no refund of base cost and no restoration of operands.
 
@@ -558,6 +560,7 @@ For Pass 2, it is usually easiest to build:
 - additional cost may not be paid from background radiation
 - failed additional-cost payment does not refund base cost
 - failed additional-cost payment does not increment `Src`/`Dst`
+- failed nonlocal operand capture does not refund base cost, does not queue an action, and still advances `IP`
 - maintenance-destroyed instructions are removed permanently and do not become free mass
 
 ## 13.3 Pass-2 tests

@@ -167,7 +167,7 @@ Common **set** cases include:
 
 ### Stack
 
-LIFO stack of signed 16-bit integers. Maximum size: 2^15 − 1. Instructions (8-bit) are zero-padded to 16 bits when placed on the stack. Stack underflow/overflow sets `Flag` to 1; the failing operation is otherwise skipped.
+LIFO stack of signed 16-bit integers. Maximum size: 2^15 − 1. Instructions (8-bit) are zero-padded to 16 bits when placed on the stack. Stack underflow/overflow sets `Flag` to 1; the failing operation is otherwise skipped. For nonlocal instructions, Pass-1 operand capture is atomic: if required stack operands are unavailable, no operands are consumed and no Pass-2 action is created.
 
 ### Stack-to-Instruction Truncation
 
@@ -192,7 +192,7 @@ local_action_budget = max(1, floor(size_at_tick_start ^ alpha))
 
 Where `alpha` is the `local_action_exponent` system parameter (default 1.0).
 
-During Pass 1 execution, each local instruction consumes 1 local action. When the first nonlocal instruction is reached, it is queued (consuming no local action), `IP` advances by 1, and that program stops executing for the remainder of the current tick. If no nonlocal instruction is reached, the program stops executing for the tick when its local action budget is exhausted or execution halts.
+During Pass 1 execution, each local instruction consumes 1 local action. When the first nonlocal instruction is reached, Pass 1 attempts to queue it. If operand capture succeeds, the instruction is queued (consuming no local action), `IP` advances by 1, and that program stops executing for the remainder of the current tick. If operand capture fails, no action is queued, but `IP` still advances by 1 and that program still stops executing for the remainder of the tick. If no nonlocal instruction is reached, the program stops executing for the tick when its local action budget is exhausted or execution halts.
 
 At most **one nonlocal instruction** may be queued per program per tick. A queued nonlocal instruction is then resolved in Pass 2.
 
@@ -207,7 +207,7 @@ When an instruction is reached:
 3. Additional costs are **never** paid from background radiation. They must be paid from the relevant working pool (`free_energy` or `free_mass` as specified by the instruction).
 4. If base-cost payment fails entirely, halt execution, do not advance `IP`, and mark the cell as open. The remaining local action budget is forfeit.
 
-For local instructions, any additional cost is checked and paid when the instruction executes. For nonlocal instructions, the base cost is paid in Pass 1 when the instruction is queued; any additional cost is paid only if the instruction successfully executes in Pass 2.
+For local instructions, any additional cost is checked and paid when the instruction executes. For nonlocal instructions, the base cost is paid in Pass 1 when queueing is attempted. Operand capture also happens in Pass 1. If operand capture fails, the base cost is not refunded, no action is queued, `IP` still advances by 1, execution for that program ends for the tick, and the cell does **not** open. Any additional cost is paid only if the instruction successfully executes in Pass 2.
 
 ### Protection Model
 
@@ -256,7 +256,7 @@ Only programs that were **live at tick start** execute. Inert programs and newbo
 
 1. Each program executes instructions sequentially from `IP`:
    - If the instruction is **local**: pay its base energy cost (if any), then pay any additional cost required by the instruction, execute it, and consume 1 local action. If any required payment fails, halt and mark the cell open.
-   - If the instruction is **nonlocal**: pay its base energy cost, capture its operands, queue the instruction for Pass 2, advance `IP` by 1, and stop executing that program for the remainder of the tick. If base-cost payment fails, halt and mark the cell open.
+   - If the instruction is **nonlocal**: pay its base energy cost, then attempt to capture its operands. If base-cost payment fails, halt and mark the cell open. If operand capture succeeds, queue the instruction for Pass 2. If operand capture fails, queue nothing and set `Flag = 1`; this is **not** an open-cell event. In either case after successful base-cost payment, advance `IP` by 1 and stop executing that program for the remainder of the tick.
    - If the local action budget is exhausted, stop executing that program for the remainder of the tick.
 2. Track per-program: `absorb_count` (0 if no `absorb` was executed; otherwise 1–4, capped), `absorb_dir` (Dir at first `absorb` call), whether `listen` was executed, whether `collect` was executed, whether `nop` was executed, and whether any base-cost payment this tick used background radiation.
 

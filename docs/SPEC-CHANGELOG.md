@@ -12,7 +12,7 @@
   - Why: organisms can do more local perception each tick without creating iteration-order artifacts, and implementers now have precise empty-neighbor semantics.
 - Reworked Pass 2 so benign additive/read-only actions can all succeed, while hostile structure-changing and occupancy-changing actions use conflict resolution.
   - Why: this removes an artificial bottleneck where harmless reads or transfers would block each other just for sharing a target cell, while still preserving exclusivity for genuinely incompatible actions.
-- Standardized Pass-2 side effects so operands are captured and base costs are paid when the action is queued, but cursor increments and additional costs happen only on successful execution.
+- Standardized Pass-2 side effects so base costs are paid and operand capture is attempted at the first nonlocal boundary in Pass 1; successful capture creates the queued action, failed capture still advances `IP` and ends Pass 1 for that program, and cursor increments plus additional costs happen only on successful execution.
   - Why: failure behavior is cleaner, easier to test, and avoids weird partial-success edge cases.
 - Added an explicit three-way `Flag` outcome: clear, set, or neutral. `listen` is now also explicitly specified as Pass-1 `Flag`-neutral, with any later packet capture setting `Flag` only in Pass 3.
   - Why: harmless soft no-ops no longer overwrite useful internal signal state, and deferred instructions now have unambiguous Pass-1 semantics.
