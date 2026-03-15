@@ -80,11 +80,11 @@ Start with `Vec<u8>` per program. This is simple, correct, and fast enough.
 
 If profiling later shows that memory is tight at scale or that cache performance suffers, consider a deduplicated program pool (programs stored once, cells hold an index + diff). This optimization mirrors the low-diversity property of evolved populations but adds complexity — don't do it preemptively.
 
-The program size cap (2^15 - 1) means a `u16` is sufficient for IP, Src, Dst, and stack values. The code itself is `u8` per instruction.
+The spec fixes the program size cap at `2^15 - 1`, so a `u16` is sufficient for `IP`, `Src`, and `Dst`. Stack values and `Msg` remain `i16`. The code itself is `u8` per instruction.
 
 ## Directed radiation packets
 
-Directed radiation packets live in a global `Vec<Packet>`, not per-cell. Each packet carries a position, direction, and message value; energy is implicit (1 per packet).
+Directed radiation packets live in a persistent `Vec<Packet>`, not per-cell. Each packet carries a position, direction, and message value; energy is implicit (1 per packet).
 
 ```rust
 struct Packet {
@@ -94,7 +94,7 @@ struct Packet {
 }
 ```
 
-The simulation state owns the vec and reuses it across ticks with `clear()` + refill. `emit` (local, Pass 1) appends new packets to a thread-local vec that Rayon merges, same pattern as `QueuedAction`. Pass 3 steps 1–3 (propagation, listening, collision) consume and update this vec.
+The top-level tick driver should own this vec and thread it explicitly through the passes. `emit` (local, Pass 1) appends new packets to a thread-local vec that Rayon merges, same pattern as `QueuedAction`; Pass 1 returns those packets alongside queued nonlocal actions. Before Pass 3, the tick driver extends the persistent packet vec with the newly emitted packets. Pass 3 steps 1-3 then mutate that vec in place and retain only surviving packets for the next tick. Reuse allocations, but do not treat the packet list itself as per-tick scratch state because lone packets can persist across ticks.
 
 ## Snapshot strategy
 
@@ -131,12 +131,17 @@ Embarrassingly parallel. `par_iter` over cells, write snapshot. Also record `liv
 ### Pass 1
 
 ```rust
-fn pass1_local(grid: &mut Grid, snapshot: &[CellSnapshot], live_set: &[bool]) -> Vec<QueuedAction>
+struct Pass1Output {
+    actions: Vec<QueuedAction>,
+    emitted_packets: Vec<Packet>,
+}
+
+fn pass1_local(grid: &mut Grid, snapshot: &[CellSnapshot], live_set: &[bool]) -> Pass1Output
 ```
 
-Embarrassingly parallel over cells. Each cell reads only its own mutable state and the immutable snapshot for neighbor sensing. Returns a collected vec of queued nonlocal actions.
+Embarrassingly parallel over cells. Each cell reads only its own mutable state and the immutable snapshot for neighbor sensing. Returns queued nonlocal actions plus newly emitted directed-radiation packets.
 
-Use `par_chunks_mut` on the cell slice. Each chunk processes its cells independently, collecting `QueuedAction`s into a thread-local vec. Rayon merges them afterward.
+Use `par_chunks_mut` on the cell slice. Each chunk processes its cells independently, collecting `QueuedAction`s and emitted `Packet`s into thread-local vecs. Rayon merges them afterward.
 
 The inner loop is opcode dispatch. A `match` on the instruction byte is fine — the compiler will generate a jump table. Do not try to optimize this with function pointer tables or computed gotos; the `match` is idiomatic, readable, and the compiler handles it.
 
@@ -152,7 +157,7 @@ Resolve in class order: read-only, then additive transfers, then exclusive. With
 
 Exclusive-class special cases to handle:
 
-- **Boot multi-success**: if the only exclusive-class instructions targeting a cell are `boot`s and the target is inert, all of them succeed — no conflict resolution needed.
+- **Boot multi-success**: if the only valid exclusive-class instructions targeting a cell are `boot`s and the target is inert, all of them succeed — no conflict resolution needed.
 - **`appendAdj` into empty cell**: creates a new inert program with default registers (Dir and ID randomized), empty stack, age 0, abandonment timer 0. Protection check is skipped (empty cells are always open).
 - **`delAdj` additional cost**: the additional energy cost equals the target's **strength** (`min(target_size, target_free_energy)` in pre-Pass-2 state), paid by the source only on success. This can be expensive.
 - **Additional costs generally**: base costs were paid in Pass 1 and are never refunded. Additional costs (mass for `appendAdj`, energy for `delAdj` and `synthesize`) are paid only on success from working pools, never from background pools. If the tentative winner can't pay, the instruction fails with no fallback winner.
@@ -162,14 +167,14 @@ This pass is parallel across target cells but the number of target cells with ac
 ### Pass 3
 
 ```rust
-fn pass3_physics(grid: &mut Grid, live_set: &[bool])
+fn pass3_physics(grid: &mut Grid, live_set: &[bool], packets: &mut Vec<Packet>)
 ```
 
 Follow the spec's sub-step ordering (radiation propagation, listening, collision, absorb resolution, bg radiation decay/arrival, collect, bg mass decay/arrival, inert lifecycle, maintenance, free-resource decay, age update, spontaneous creation).
 
 Most sub-steps are per-cell and parallel. Two exceptions need care:
 
-- **Directed radiation propagation** (step 1): packets move between cells. Use the global `Vec<Packet>` — update each packet's position, then process listening/collision per-cell.
+- **Directed radiation propagation / listening / collision** (steps 1-3): packets move between cells and may survive into the next tick. Update `packets` in place, bucket by destination cell for listening/collision, then compact surviving uncaptured single packets back into the vec.
 - **Absorb resolution** (step 4): this is a many-to-many distribution. Each cell's background radiation is split (floor division, remainder stays) among all programs whose absorb footprint includes that cell. A program's footprint can cover up to 5 cells, and multiple programs can overlap on the same cell. Build a mapping of cell → list of absorbing programs, then distribute.
 
 For stochastic draws, derive each cell's Wyrand RNG from `(master_seed, tick, cell_index)` — see the RNG section below. Do not store RNG state in cells or share RNG state across threads.
@@ -289,11 +294,16 @@ struct SimConfig {
     p_spawn: f64,
     mutation_base_log2: u32,
     mutation_background_log2: u32,
-    program_size_cap: u16,
 }
 ```
 
-No parameter should be a compile-time constant. Everything comes from config so experiments can vary parameters without recompilation.
+Keep the program size cap as a fixed implementation constant, not a config field:
+
+```rust
+const PROGRAM_SIZE_CAP: u16 = 0x7fff;
+```
+
+Everything else should come from config so experiments can vary parameters without recompilation.
 
 ## Output and observation
 
