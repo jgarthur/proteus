@@ -12,10 +12,10 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [x] Integration test suite (tick driver + web API)
 - [x] API caveat reconciliation (docs aligned with backend)
 - [x] Frontend spec (`FRONTEND-SPEC.md`)
+- [x] Boot the simulator end-to-end and observe it (via `/debug/smoke`)
 
 ## Next
 
-- [ ] Boot the simulator end-to-end and observe it (even via `curl` / WebSocket script)
 - [ ] Design 1–2 minimal self-replicating seed programs
 - [ ] SEED-BOOTSTRAP: Extract seed-program bootstrap module
 - [ ] CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine

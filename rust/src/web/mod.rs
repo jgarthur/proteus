@@ -9,7 +9,7 @@ use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path, Query, State, WebSocketUpgrade};
 use axum::http::header::HeaderName;
 use axum::http::{HeaderValue, StatusCode};
-use axum::response::Response;
+use axum::response::{Html, Response};
 use axum::routing::{get, post};
 use axum::{serve as axum_serve, Json, Router};
 use tokio::net::TcpListener;
@@ -25,6 +25,8 @@ pub use types::{
 
 use self::types::{CellQuery, CellRegionQuery, StepQuery};
 
+const SMOKE_TEST_HTML: &str = include_str!("smoke_test.html");
+
 /// Stores the shared controller handle for request handlers.
 #[derive(Clone)]
 struct AppState {
@@ -37,6 +39,7 @@ pub fn router(controller: SimulationController) -> Router {
     let version_header_value = HeaderValue::from_static(API_VERSION);
 
     Router::new()
+        .route("/debug/smoke", get(smoke_test))
         .route("/v1/sim", post(create_sim).get(get_sim).delete(delete_sim))
         .route("/v1/sim/config", get(get_config))
         .route("/v1/sim/start", post(start_sim))
@@ -176,6 +179,11 @@ async fn get_cells(
 /// Upgrades one connection into the WebSocket control/data stream.
 async fn websocket(State(state): State<AppState>, websocket: WebSocketUpgrade) -> Response {
     websocket.on_upgrade(move |socket| ws::handle_socket(socket, state.controller))
+}
+
+/// Serves a minimal browser-based simulator viewer for visual smoke tests.
+async fn smoke_test() -> Html<&'static str> {
+    Html(SMOKE_TEST_HTML)
 }
 
 /// Unwraps a JSON request body or converts parser failures into API errors.

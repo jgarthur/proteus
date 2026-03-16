@@ -234,6 +234,25 @@ async fn rest_errors_use_expected_status_codes_and_payloads() {
 }
 
 #[tokio::test]
+async fn smoke_test_page_is_served() {
+    let (_controller, app) = app();
+
+    let response = app
+        .oneshot(empty_request(Method::GET, "/debug/smoke"))
+        .await
+        .expect("smoke page request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()["content-type"],
+        "text/html; charset=utf-8"
+    );
+    let body = response_text(response).await;
+    assert!(body.contains("Proteus Smoke Test"));
+    assert!(body.contains("/v1/ws"));
+}
+
+#[tokio::test]
 async fn websocket_subscriptions_stream_current_state_and_report_errors() {
     let controller = SimulationController::new();
     let config = CreateSimulationRequest {
@@ -375,6 +394,16 @@ async fn response_json(response: axum::response::Response) -> Value {
         .expect("body should collect")
         .to_bytes();
     serde_json::from_slice(&bytes).expect("body should contain JSON")
+}
+
+async fn response_text(response: axum::response::Response) -> String {
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body should collect")
+        .to_bytes();
+    String::from_utf8(bytes.to_vec()).expect("body should contain utf-8 text")
 }
 
 async fn next_text_message(

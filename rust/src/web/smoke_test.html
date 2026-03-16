@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proteus Smoke Test</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d1117;
+      --panel: #111827;
+      --panel-2: #172033;
+      --border: #30415f;
+      --text: #e6edf3;
+      --muted: #9fb0c6;
+      --accent: #7dd3fc;
+      --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top, #162238 0%, var(--bg) 42%),
+        linear-gradient(180deg, #0a0f18 0%, var(--bg) 100%);
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    .sidebar, .viewer { padding: 16px; }
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: rgba(13, 17, 23, 0.78);
+      backdrop-filter: blur(8px);
+      overflow: auto;
+    }
+    h1, h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    h1 { color: var(--accent); }
+    .card {
+      margin-bottom: 14px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(23, 32, 51, 0.95), rgba(17, 24, 39, 0.95));
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .row:last-child { margin-bottom: 0; }
+    button, select, input, textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+    }
+    button, select, input { padding: 8px 10px; }
+    textarea {
+      min-height: 220px;
+      padding: 10px;
+      resize: vertical;
+    }
+    button {
+      cursor: pointer;
+      background: var(--panel-2);
+    }
+    button:hover { border-color: var(--accent); }
+    .split > * { flex: 1 1 0; }
+    .status {
+      color: var(--muted);
+      min-height: 18px;
+    }
+    .status.warn { color: var(--warn); }
+    .viewer {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      min-width: 0;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .toolbar label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+    }
+    .canvas-wrap {
+      min-height: 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: auto;
+      background:
+        linear-gradient(180deg, rgba(13, 17, 23, 0.92), rgba(9, 12, 18, 0.98));
+      box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.06);
+    }
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      cursor: crosshair;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--muted);
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .metric {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(17, 24, 39, 0.92);
+    }
+    .metric .label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .metric .value { font-size: 18px; }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="card">
+        <h1>Proteus Smoke Test</h1>
+        <div class="status" id="status">Idle.</div>
+      </div>
+      <div class="card">
+        <h2>Presets</h2>
+        <div class="row split">
+          <button id="preset-blank" type="button">Blank World</button>
+          <button id="preset-dot" type="button">Single Cell</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Create Config</h2>
+        <textarea id="config"></textarea>
+        <div class="row split" style="margin-top: 8px;">
+          <button id="create" type="button">Create</button>
+          <button id="destroy" type="button">Destroy</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Run Control</h2>
+        <div class="row split">
+          <button id="start" type="button">Start</button>
+          <button id="pause" type="button">Pause</button>
+        </div>
+        <div class="row split">
+          <button id="step1" type="button">Step 1</button>
+          <button id="step10" type="button">Step 10</button>
+        </div>
+        <div class="row">
+          <button id="reset" type="button">Reset</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Selected Cell</h2>
+        <pre id="cell">No cell selected.</pre>
+      </div>
+    </aside>
+    <main class="viewer">
+      <div class="toolbar">
+        <label>
+          Color
+          <select id="color-mode">
+            <option value="occupancy">Occupancy</option>
+            <option value="free_energy">Free Energy</option>
+            <option value="free_mass">Free Mass</option>
+            <option value="bg_radiation">Background Radiation</option>
+            <option value="bg_mass">Background Mass</option>
+            <option value="program_id">Program ID</option>
+          </select>
+        </label>
+        <label>
+          Cell Size
+          <input id="pixel-size" type="range" min="4" max="20" value="10">
+        </label>
+        <div id="summary" class="status">No simulation.</div>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="canvas"></canvas>
+      </div>
+      <section class="metrics">
+        <div class="metric"><div class="label">Tick</div><div class="value" id="metric-tick">0</div></div>
+        <div class="metric"><div class="label">Population</div><div class="value" id="metric-population">0</div></div>
+        <div class="metric"><div class="label">Energy</div><div class="value" id="metric-energy">0</div></div>
+        <div class="metric"><div class="label">Mass</div><div class="value" id="metric-mass">0</div></div>
+      </section>
+    </main>
+  </div>
+  <script>
+    const defaultBlankConfig = { width: 64, height: 48, seed: 1 };
+    const defaultSingleCellConfig = {
+      width: 64,
+      height: 48,
+      seed: 1,
+      seed_programs: [{ x: 32, y: 24, code: [80, 80, 80, 80], free_energy: 20, free_mass: 12 }]
+    };
+    const statusEl = document.getElementById("status");
+    const summaryEl = document.getElementById("summary");
+    const configEl = document.getElementById("config");
+    const cellEl = document.getElementById("cell");
+    const colorModeEl = document.getElementById("color-mode");
+    const pixelSizeEl = document.getElementById("pixel-size");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const metricEls = {
+      tick: document.getElementById("metric-tick"),
+      population: document.getElementById("metric-population"),
+      energy: document.getElementById("metric-energy"),
+      mass: document.getElementById("metric-mass")
+    };
+    let socket = null;
+    let latestFrame = null;
+    let selectedCell = null;
+    let pixelSize = Number(pixelSizeEl.value);
+    configEl.value = JSON.stringify(defaultBlankConfig, null, 2);
+
+    function setStatus(message, warn = false) {
+      statusEl.textContent = message;
+      statusEl.className = warn ? "status warn" : "status";
+    }
+
+    function setPreset(config) {
+      configEl.value = JSON.stringify(config, null, 2);
+    }
+
+    function wsUrl() {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      return protocol + "//" + window.location.host + "/v1/ws";
+    }
+
+    function parseFrame(buffer) {
+      const view = new DataView(buffer);
+      return {
+        tick: Number(view.getBigUint64(0, true)),
+        width: view.getUint32(8, true),
+        height: view.getUint32(12, true),
+        cells: new DataView(buffer, 16)
+      };
+    }
+
+    function rgb(r, g, b) {
+      return "rgb(" + r + "," + g + "," + b + ")";
+    }
+
+    function hashColor(id) {
+      const hue = (id * 47) % 360;
+      return "hsl(" + hue + " 70% 55%)";
+    }
+
+    function colorForCell(cells, offset) {
+      const flags = cells.getUint8(offset);
+      const hasProgram = (flags & 0b001) !== 0;
+      const isLive = (flags & 0b010) !== 0;
+      const programId = cells.getUint8(offset + 1);
+      const freeEnergy = cells.getUint8(offset + 3);
+      const freeMass = cells.getUint8(offset + 4);
+      const bgRadiation = cells.getUint8(offset + 5);
+      const bgMass = cells.getUint8(offset + 6);
+      switch (colorModeEl.value) {
+        case "free_energy": return rgb(0, freeEnergy, 40);
+        case "free_mass": return rgb(20, 80, freeMass);
+        case "bg_radiation": return rgb(bgRadiation, 20, 20);
+        case "bg_mass": return rgb(50, bgMass, 120);
+        case "program_id": return hasProgram ? hashColor(programId) : rgb(6, 10, 16);
+        case "occupancy":
+        default:
+          if (!hasProgram) return rgb(5, 8, 14);
+          return isLive ? rgb(230, 237, 243) : rgb(110, 123, 143);
+      }
+    }
+
+    function render() {
+      if (!latestFrame) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+      const { width, height, cells } = latestFrame;
+      canvas.width = width * pixelSize;
+      canvas.height = height * pixelSize;
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          const offset = (y * width + x) * 8;
+          ctx.fillStyle = colorForCell(cells, offset);
+          ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
+        }
+      }
+      if (selectedCell) {
+        ctx.strokeStyle = "#f59e0b";
+        ctx.lineWidth = Math.max(1, Math.floor(pixelSize / 6));
+        ctx.strokeRect(selectedCell.x * pixelSize + 0.5, selectedCell.y * pixelSize + 0.5, pixelSize - 1, pixelSize - 1);
+      }
+      summaryEl.textContent = "Grid " + width + "x" + height + " | tick " + latestFrame.tick + " | pixel " + pixelSize;
+    }
+
+    async function request(path, options) {
+      const response = await fetch(path, options);
+      if (response.status === 204) return null;
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message = body && body.error ? body.error.message : response.statusText;
+        throw new Error(message);
+      }
+      return body;
+    }
+
+    async function refreshStatus() {
+      try {
+        const status = await request("/v1/sim", { method: "GET" });
+        summaryEl.textContent = "State " + status.status + " | tick " + status.tick + " | tps " + status.ticks_per_second.toFixed(2);
+      } catch (_error) {
+        summaryEl.textContent = "No simulation.";
+      }
+    }
+
+    function connectSocket() {
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+      socket = new WebSocket(wsUrl());
+      socket.binaryType = "arraybuffer";
+      socket.addEventListener("open", () => {
+        setStatus("WebSocket connected.");
+        socket.send(JSON.stringify({ subscribe: "frames", max_fps: 15 }));
+        socket.send(JSON.stringify({ subscribe: "metrics", every_n_ticks: 1 }));
+      });
+      socket.addEventListener("message", (event) => {
+        if (typeof event.data === "string") {
+          const message = JSON.parse(event.data);
+          if (message.type === "metrics") {
+            metricEls.tick.textContent = String(message.tick);
+            metricEls.population.textContent = String(message.population);
+            metricEls.energy.textContent = String(message.total_energy);
+            metricEls.mass.textContent = String(message.total_mass);
+          } else if (message.type === "error") {
+            setStatus("WebSocket error: " + message.message, true);
+          }
+          return;
+        }
+        latestFrame = parseFrame(event.data);
+        render();
+      });
+      socket.addEventListener("close", () => {
+        setStatus("WebSocket closed.");
+      });
+    }
+
+    async function inspectCell(x, y) {
+      try {
+        const cell = await request("/v1/sim/cell?x=" + x + "&y=" + y, { method: "GET" });
+        cellEl.textContent = JSON.stringify(cell, null, 2);
+      } catch (error) {
+        cellEl.textContent = String(error);
+      }
+    }
+
+    async function runAction(label, action) {
+      try {
+        const result = await action();
+        setStatus(label + " ok.");
+        await refreshStatus();
+        render();
+        return result;
+      } catch (error) {
+        setStatus(label + " failed: " + error.message, true);
+        throw error;
+      }
+    }
+
+    document.getElementById("preset-blank").addEventListener("click", () => setPreset(defaultBlankConfig));
+    document.getElementById("preset-dot").addEventListener("click", () => setPreset(defaultSingleCellConfig));
+    document.getElementById("create").addEventListener("click", async () => {
+      const payload = JSON.parse(configEl.value);
+      await runAction("Create", () => request("/v1/sim", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      }));
+      connectSocket();
+    });
+    document.getElementById("destroy").addEventListener("click", async () => {
+      await runAction("Destroy", () => request("/v1/sim", { method: "DELETE" }));
+      latestFrame = null;
+      selectedCell = null;
+      cellEl.textContent = "No cell selected.";
+      render();
+    });
+    document.getElementById("start").addEventListener("click", () => runAction("Start", () => request("/v1/sim/start", { method: "POST" })));
+    document.getElementById("pause").addEventListener("click", () => runAction("Pause", () => request("/v1/sim/pause", { method: "POST" })));
+    document.getElementById("step1").addEventListener("click", () => runAction("Step", () => request("/v1/sim/step?count=1", { method: "POST" })));
+    document.getElementById("step10").addEventListener("click", () => runAction("Step", () => request("/v1/sim/step?count=10", { method: "POST" })));
+    document.getElementById("reset").addEventListener("click", () => runAction("Reset", () => request("/v1/sim/reset", { method: "POST" })));
+    colorModeEl.addEventListener("change", render);
+    pixelSizeEl.addEventListener("input", () => {
+      pixelSize = Number(pixelSizeEl.value);
+      render();
+    });
+    canvas.addEventListener("click", async (event) => {
+      if (!latestFrame) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor((event.clientX - rect.left) / pixelSize);
+      const y = Math.floor((event.clientY - rect.top) / pixelSize);
+      if (x < 0 || y < 0 || x >= latestFrame.width || y >= latestFrame.height) return;
+      selectedCell = { x, y };
+      render();
+      await inspectCell(x, y);
+    });
+    connectSocket();
+    refreshStatus();
+  </script>
+</body>
+</html>
