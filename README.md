@@ -4,7 +4,7 @@ Proteus is an artificial life simulator specified as a discrete 2D world where s
 
 This README is a high-level orientation only. It was updated for spec `v0.2.0`.
 
-*Proteus was designed by Joey Arthur with plenty of help from AI models. They have been especially useful for surfacing edge cases and contradictions in the [main spec](docs/SPEC.md), which started as a hand-written document but has taken on a life of its own (ha!). The code itself has been mostly written by agents, at breakneck speed.*
+*Proteus was designed by Joey Arthur with inspiration from Tom Ray's [Tierra](https://tomray.me/pubs/doc/index.html) and Max Robinson's [The Life Engine](https://thelifeengine.net/). There is been much AI assistance, especially for surfacing edge cases and contradictions in the [main spec](docs/SPEC.md), which started as a hand-written document but has taken on a life of its own (ha!). The code itself has been mostly written by agents, at breakneck speed.*
 
 ## Project Orientation
 
