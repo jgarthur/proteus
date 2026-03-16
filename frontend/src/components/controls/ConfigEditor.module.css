@@ -1,0 +1,107 @@
+.panel {
+  padding: 16px;
+  display: grid;
+  gap: 18px;
+}
+
+.title {
+  margin: 0;
+  color: #f2f7fb;
+  font-size: 0.92rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.group {
+  display: grid;
+  gap: 10px;
+}
+
+.groupTitle {
+  margin: 0;
+  color: #d5e1ed;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  color: #c7d7e7;
+  font-size: 0.9rem;
+}
+
+.input,
+.textarea {
+  width: 100%;
+  border: 1px solid rgba(157, 176, 196, 0.14);
+  background: rgba(18, 31, 46, 0.92);
+  color: #f5fbff;
+  border-radius: 10px;
+  padding: 9px 10px;
+}
+
+.textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.error {
+  color: #ff9d94;
+  font-size: 0.8rem;
+}
+
+.banner {
+  border: 1px solid rgba(224, 104, 98, 0.25);
+  background: rgba(87, 30, 34, 0.6);
+  color: #ffcec9;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.bannerStrong {
+  border: 1px solid rgba(255, 164, 107, 0.45);
+  background: rgba(112, 55, 18, 0.72);
+  color: #ffe0c7;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 600;
+}
+
+.seedCard {
+  border: 1px solid rgba(157, 176, 196, 0.14);
+  border-radius: 14px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.buttonRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.button {
+  border: 1px solid rgba(157, 176, 196, 0.14);
+  border-radius: 12px;
+  background: #173250;
+  color: #eff7ff;
+  padding: 9px 12px;
+}
+
+.buttonSecondary {
+  background: rgba(18, 31, 46, 0.92);
+}
+
+.muted {
+  color: #8ea1b6;
+  margin: 0;
+}

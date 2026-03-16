@@ -36,3 +36,18 @@ References: `docs/API-SPEC.md` §10, `docs/API-SPEC.md` §16, `rust/src/observe.
 
 Context: additive only. Keep the existing aggregate `births` metric.
 References: `docs/API-SPEC.md` §10, `docs/FRONTEND-SPEC.md` §6, `rust/src/observe.rs`, `rust/tests/tick_driver.rs`
+
+### CONFIG-RATES: Rework backend ambient/decay config fields from probabilities to true rates
+
+Context: the current backend validates `r_energy`, `r_mass`, `d_energy`, and `d_mass` as probabilities in `[0, 1]`, but the intended tuning model treats them as rates. Reconcile the engine, API docs, and frontend defaults around a single rate-based semantics.
+References: `docs/SPEC.md`, `docs/API-SPEC.md` §8, `rust/src/config.rs`, `rust/src/pass3.rs`, `frontend/src/constants.ts`
+
+### COORDINATE-CONVENTIONS: Standardize frontend coordinates as 0-indexed and display them in `(y, x)` order
+
+Context: current frontend UI and config tooling still lean on `x, y` ordering from the API surface. Reconcile the display language, validation messaging, and editor fields so the UI is consistently 0-indexed and uses `(y, x)` ordering. This is intentionally marked tricky because it cuts across inspector display, seed-program editing, hit-testing labels, and API request mapping.
+References: `docs/FRONTEND-SPEC.md`, `docs/API-SPEC.md` §12, `frontend/src/components/controls/ConfigEditor.tsx`, `frontend/src/components/inspector/InspectorTab.tsx`, `frontend/src/components/GridCanvas.tsx`
+
+### NO-SIM-STATUS: Replace the frontend startup `404 /v1/sim` probe with a cleaner no-simulation status path
+
+Context: the frontend currently probes `GET /v1/sim` on load and treats `404` as the expected "no sim exists" case. This is functionally fine, but it produces a noisy red network entry in browser devtools. Low priority cleanup: add a cleaner backend/API path for empty-state status or otherwise remove the expected-404 startup probe.
+References: `docs/API-SPEC.md` §7, `rust/src/web/mod.rs`, `frontend/src/context/SimContext.tsx`, `frontend/src/lib/api.ts`

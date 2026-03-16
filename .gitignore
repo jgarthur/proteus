@@ -39,6 +39,9 @@ __pypackages__/
 
 # Frontend dependencies
 node_modules/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # Native and compiled artifacts
 target/

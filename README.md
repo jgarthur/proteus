@@ -8,8 +8,45 @@ This README is a high-level orientation only. It was updated for spec `v0.2.0`.
 
 - `STATUS.md` tracks what is done and what is next. Keep it current.
 - `docs/` contains the active specification and related working documentation. See `docs/README.md`.
+- `frontend/` contains the active React + TypeScript simulator UI. See `frontend/README.md`.
 - `rust/` contains the active Rust backend implementation surface. See `rust/README.md`.
 - `legacy/` contains archived implementation prototypes and experiments that are kept for reference during the upcoming rewrite. See `legacy/README.md`.
+
+## Quick Start
+
+For local development, run the backend and frontend in separate terminals.
+
+Backend:
+
+```bash
+cd rust
+cargo run --bin proteus-server --features web
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Default local endpoints:
+
+- frontend dev server: `http://localhost:5173`
+- backend API/WebSocket: `http://localhost:3000`
+
+Basic build commands:
+
+```bash
+cd rust
+cargo test
+```
+
+```bash
+cd frontend
+npm run build
+```
 
 ## Current Spec Shape
 

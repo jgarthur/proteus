@@ -1,0 +1,30 @@
+.app {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(27, 52, 82, 0.1), transparent 30%),
+    #08111a;
+  color: #f4f8fb;
+  font-family:
+    'IBM Plex Sans',
+    'Segoe UI',
+    sans-serif;
+}
+
+.main {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  position: relative;
+  overflow: hidden;
+}
+
+.mainCollapsed {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  position: relative;
+  overflow: hidden;
+}

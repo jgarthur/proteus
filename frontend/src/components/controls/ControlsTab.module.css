@@ -1,0 +1,151 @@
+.stack {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.topPanels {
+  display: grid;
+  gap: 16px;
+}
+
+.configWrap {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid rgba(157, 176, 196, 0.14);
+  border-radius: 18px;
+  background: rgba(10, 18, 29, 0.84);
+}
+
+.configHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid rgba(157, 176, 196, 0.1);
+}
+
+.configBody {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 4px 4px 0;
+}
+
+.configBodyOpen {
+  min-height: 0;
+  overflow: auto;
+}
+
+.configBodyClosed {
+  display: none;
+}
+
+.configButton {
+  border: 1px solid rgba(157, 176, 196, 0.14);
+  border-radius: 12px;
+  background: rgba(18, 31, 46, 0.92);
+  color: #eff7ff;
+  padding: 9px 12px;
+}
+
+.panel {
+  border: 1px solid rgba(157, 176, 196, 0.14);
+  border-radius: 18px;
+  background: rgba(10, 18, 29, 0.84);
+  padding: 16px;
+}
+
+.title {
+  margin: 0 0 12px;
+  color: #f2f7fb;
+  font-size: 0.92rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.button {
+  border: 1px solid rgba(157, 176, 196, 0.14);
+  border-radius: 12px;
+  background: #173250;
+  color: #eff7ff;
+  padding: 9px 12px;
+}
+
+.button:disabled {
+  opacity: 0.45;
+}
+
+.danger {
+  background: #5a2330;
+}
+
+.fieldRow {
+  display: grid;
+  gap: 8px;
+  color: #c7d7e7;
+}
+
+.rangeRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.sliderBlock {
+  display: grid;
+  gap: 8px;
+}
+
+.scaleLabels {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  color: #8ea1b6;
+  font-size: 0.74rem;
+  padding-right: 56px;
+}
+
+.scaleLabels span {
+  text-align: center;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid rgba(157, 176, 196, 0.14);
+  background: rgba(18, 31, 46, 0.92);
+  color: #f5fbff;
+  border-radius: 10px;
+  padding: 9px 10px;
+}
+
+.muted {
+  color: #8ea1b6;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.note {
+  margin: 10px 0 0;
+  color: #a9bdd1;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.noteStable {
+  margin: 10px 0 0;
+  min-height: 2.4em;
+  color: #a9bdd1;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}

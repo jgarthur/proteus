@@ -1,0 +1,40 @@
+.bar {
+  height: 48px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 0 16px;
+  border-top: 1px solid rgba(157, 176, 196, 0.12);
+  background: rgba(8, 15, 24, 0.96);
+}
+
+.metrics {
+  display: flex;
+  gap: 16px;
+  min-width: 0;
+  overflow: auto;
+  white-space: nowrap;
+  color: #dce7f2;
+  font-size: 0.92rem;
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.select,
+.button {
+  border: 1px solid rgba(157, 176, 196, 0.16);
+  background: rgba(18, 31, 46, 0.92);
+  color: #f5fbff;
+  border-radius: 10px;
+  padding: 7px 10px;
+}
+
+.status {
+  color: #8ea1b6;
+  font-size: 0.84rem;
+}
