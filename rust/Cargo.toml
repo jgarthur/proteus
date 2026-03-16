@@ -24,6 +24,7 @@ web = [
 [dependencies]
 axum = { version = "0.7", features = ["http1", "json", "tokio", "ws"], optional = true }
 fastrand = "2"
+strum = { version = "0.26", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"], optional = true }
 rand_core = "0.6"
 rand_distr = "0.4"

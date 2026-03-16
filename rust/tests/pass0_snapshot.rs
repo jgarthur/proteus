@@ -2,6 +2,7 @@
 mod helpers;
 
 use helpers::{diff_grids, GridDiff, ProgramBuilder, WorldBuilder};
+use proteus::op;
 use proteus::Direction;
 
 #[test]
@@ -12,7 +13,7 @@ fn world_builder_drives_snapshot_and_live_set_tests() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x50, 0x51])
+                .code(&[op::NOP, op::ABSORB])
                 .dir(Direction::Right)
                 .id(9)
                 .free_energy(7)
@@ -24,7 +25,7 @@ fn world_builder_drives_snapshot_and_live_set_tests() {
             1,
             0,
             ProgramBuilder::new()
-                .code(&[0x50])
+                .code(&[op::NOP])
                 .dir(Direction::Up)
                 .id(3)
                 .newborn(true),

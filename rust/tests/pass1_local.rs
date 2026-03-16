@@ -2,12 +2,13 @@
 mod helpers;
 
 use helpers::{ProgramBuilder, WorldBuilder};
+use proteus::op;
 use proteus::{Direction, Packet, Pass1Output, QueuedAction, PROGRAM_SIZE_CAP};
 
 #[test]
 fn listen_is_flag_neutral_and_opens_the_cell() {
     let mut simulation = WorldBuilder::new(1, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x52]).flag(true))
+        .at(0, 0, ProgramBuilder::new().code(&[op::LISTEN]).flag(true))
         .build_simulation();
 
     let output = simulation.run_pass1();
@@ -30,7 +31,7 @@ fn absorb_expands_footprint_without_opening_the_cell() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x51, 0x40, 0x51, 0x51, 0x51, 0x51])
+                .code(&[op::ABSORB, op::CW, op::ABSORB, op::ABSORB, op::ABSORB, op::ABSORB])
                 .dir(Direction::Up),
         )
         .build_simulation();
@@ -51,7 +52,7 @@ fn absorb_expands_footprint_without_opening_the_cell() {
 fn synthesize_additional_cost_failure_halts_without_advancing_ip() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| config.n_synth = 2)
-        .at(0, 0, ProgramBuilder::new().code(&[0x58]).free_energy(1))
+        .at(0, 0, ProgramBuilder::new().code(&[op::SYNTHESIZE]).free_energy(1))
         .build_simulation();
 
     let output = simulation.run_pass1();
@@ -73,7 +74,7 @@ fn failed_nonlocal_operand_capture_consumes_base_cost_and_stops_tick() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[0x5e, 0x01]).free_energy(1),
+            ProgramBuilder::new().code(&[op::WRITE_ADJ, op::push(1)]).free_energy(1),
         )
         .build_simulation();
 
@@ -98,7 +99,7 @@ fn successful_nonlocal_queue_attempt_stops_before_later_local_work() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x01, 0x5f, 0x07])
+                .code(&[op::push(1), op::APPEND_ADJ, op::push(7)])
                 .free_energy(1)
                 .free_mass(3),
         )
@@ -124,7 +125,7 @@ fn emit_creates_packet_and_consumes_base_energy() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x02, 0x54])
+                .code(&[op::push(2), op::EMIT])
                 .dir(Direction::Left)
                 .free_energy(1),
         )
@@ -150,7 +151,7 @@ fn push_literal_at_stack_capacity_sets_flag_and_leaves_stack_unchanged() {
         .map(|value| i16::try_from(value).expect("stack test values should fit in i16"))
         .collect();
     let mut simulation = WorldBuilder::new(1, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x07]).stack(&full_stack))
+        .at(0, 0, ProgramBuilder::new().code(&[op::push(7)]).stack(&full_stack))
         .build_simulation();
 
     simulation.run_pass1();
@@ -170,7 +171,7 @@ fn push_literal_at_stack_capacity_sets_flag_and_leaves_stack_unchanged() {
 #[test]
 fn drop_on_empty_stack_sets_flag_and_leaves_stack_empty() {
     let mut simulation = WorldBuilder::new(1, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x11]))
+        .at(0, 0, ProgramBuilder::new().code(&[op::DROP]))
         .build_simulation();
 
     simulation.run_pass1();
@@ -188,7 +189,7 @@ fn drop_on_empty_stack_sets_flag_and_leaves_stack_empty() {
 fn for_without_matching_next_sets_flag_and_advances() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| config.local_action_exponent = 0.0)
-        .at(0, 0, ProgramBuilder::new().code(&[0x30, 0x50]).stack(&[0]))
+        .at(0, 0, ProgramBuilder::new().code(&[op::FOR, op::NOP]).stack(&[0]))
         .build_simulation();
 
     simulation.run_pass1();
@@ -211,7 +212,7 @@ fn for_can_find_next_via_wraparound_scan() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x31, 0x50, 0x30])
+                .code(&[op::NEXT, op::NOP, op::FOR])
                 .ip(2)
                 .flag(true)
                 .stack(&[0]),
@@ -234,7 +235,7 @@ fn for_can_find_next_via_wraparound_scan() {
 fn unmatched_next_is_flag_neutral_and_advances() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| config.local_action_exponent = 0.0)
-        .at(0, 0, ProgramBuilder::new().code(&[0x31, 0x50]).flag(true))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NEXT, op::NOP]).flag(true))
         .build_simulation();
 
     simulation.run_pass1();
@@ -253,7 +254,7 @@ fn unmatched_next_is_flag_neutral_and_advances() {
 fn jmp_to_self_stays_within_local_action_budget() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| config.local_action_exponent = 3.0)
-        .at(0, 0, ProgramBuilder::new().code(&[0x00, 0x32]))
+        .at(0, 0, ProgramBuilder::new().code(&[op::push(0), op::JMP]))
         .build_simulation();
 
     simulation.run_pass1();
@@ -273,7 +274,7 @@ fn nested_for_next_overwrites_single_loop_counter_register() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[0x02, 0x30, 0x03, 0x30, 0x31]),
+            ProgramBuilder::new().code(&[op::push(2), op::FOR, op::push(3), op::FOR, op::NEXT]),
         )
         .build_simulation();
 

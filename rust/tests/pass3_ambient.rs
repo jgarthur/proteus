@@ -2,6 +2,7 @@
 mod helpers;
 
 use helpers::{ProgramBuilder, WorldBuilder};
+use proteus::op;
 use proteus::{Direction, Pass3AmbientOutput};
 
 #[test]
@@ -17,7 +18,7 @@ fn overlapping_absorb_footprints_split_background_radiation() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x51])
+                .code(&[op::ABSORB])
                 .absorb_count(2)
                 .absorb_dir(Direction::Right),
         )
@@ -26,7 +27,7 @@ fn overlapping_absorb_footprints_split_background_radiation() {
             2,
             0,
             ProgramBuilder::new()
-                .code(&[0x51])
+                .code(&[op::ABSORB])
                 .absorb_count(2)
                 .absorb_dir(Direction::Left),
         )
@@ -69,7 +70,7 @@ fn collect_converts_background_mass_into_free_mass_before_mass_arrival() {
             config.d_mass = 0.0;
             config.r_mass = 1.0;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[0x53]).did_collect(true))
+        .at(0, 0, ProgramBuilder::new().code(&[op::COLLECT]).did_collect(true))
         .bg_mass_at(0, 0, 4)
         .build_simulation();
 
@@ -94,7 +95,7 @@ fn empty_cell_mass_arrival_marks_spawn_candidate() {
             config.d_mass = 0.0;
             config.r_mass = 1.0;
         })
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]))
         .build_simulation();
 
     let output = simulation.run_pass3_ambient();

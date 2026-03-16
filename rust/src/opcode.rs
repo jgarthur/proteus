@@ -1,7 +1,9 @@
 pub const SPEC_OPCODE_COUNT: usize = 71;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display)]
+#[strum(serialize_all = "camelCase")]
 pub enum Opcode {
+    #[strum(to_string = "push {0}")]
     PushLiteral(i16),
     Dup,
     Drop,
@@ -58,6 +60,7 @@ pub enum Opcode {
     GiveM,
     Move,
     Boot,
+    #[strum(to_string = "noop 0x{0:02x}")]
     NoOp(u8),
 }
 
@@ -181,6 +184,87 @@ pub enum AdditionalCost {
     TargetStrengthEnergy,
 }
 
+/// Byte-level constants for every opcode, usable in `vec![]` and `&[..]` contexts.
+///
+/// ```
+/// use proteus::op::*;
+/// let program = vec![push(2), EMIT];     // instead of vec![0x02, 0x54]
+/// let code: &[u8] = &[ABSORB, CW, NOP]; // instead of &[0x51, 0x40, 0x50]
+/// ```
+pub mod op {
+    // Push literal: use the `push` const fn below.
+
+    /// Encode a push-literal value (−8 ..= 7) to its byte.
+    pub const fn push(n: i16) -> u8 {
+        (n & 0x0f) as u8
+    }
+
+    // Stack
+    pub const DUP: u8 = 0x10;
+    pub const DROP: u8 = 0x11;
+    pub const SWAP: u8 = 0x12;
+    pub const OVER: u8 = 0x13;
+    pub const RAND: u8 = 0x14;
+
+    // Arithmetic / logic
+    pub const ADD: u8 = 0x20;
+    pub const SUB: u8 = 0x21;
+    pub const NEG: u8 = 0x22;
+    pub const EQ: u8 = 0x23;
+    pub const LT: u8 = 0x24;
+    pub const GT: u8 = 0x25;
+    pub const NOT: u8 = 0x26;
+    pub const AND: u8 = 0x27;
+    pub const OR: u8 = 0x28;
+
+    // Control flow
+    pub const FOR: u8 = 0x30;
+    pub const NEXT: u8 = 0x31;
+    pub const JMP: u8 = 0x32;
+    pub const JMP_NZ: u8 = 0x33;
+    pub const JMP_Z: u8 = 0x34;
+
+    // Direction / registers / local access
+    pub const CW: u8 = 0x40;
+    pub const CCW: u8 = 0x41;
+    pub const GET_SIZE: u8 = 0x42;
+    pub const GET_IP: u8 = 0x43;
+    pub const GET_FLAG: u8 = 0x44;
+    pub const GET_MSG: u8 = 0x45;
+    pub const GET_ID: u8 = 0x46;
+    pub const GET_SRC: u8 = 0x47;
+    pub const GET_DST: u8 = 0x48;
+    pub const SET_DIR: u8 = 0x49;
+    pub const SET_SRC: u8 = 0x4a;
+    pub const SET_DST: u8 = 0x4b;
+    pub const SET_ID: u8 = 0x4c;
+    pub const GET_E: u8 = 0x4d;
+    pub const GET_M: u8 = 0x4e;
+
+    // World interaction
+    pub const NOP: u8 = 0x50;
+    pub const ABSORB: u8 = 0x51;
+    pub const LISTEN: u8 = 0x52;
+    pub const COLLECT: u8 = 0x53;
+    pub const EMIT: u8 = 0x54;
+    pub const READ: u8 = 0x55;
+    pub const WRITE: u8 = 0x56;
+    pub const DEL: u8 = 0x57;
+    pub const SYNTHESIZE: u8 = 0x58;
+    pub const SENSE_SIZE: u8 = 0x59;
+    pub const SENSE_E: u8 = 0x5a;
+    pub const SENSE_M: u8 = 0x5b;
+    pub const SENSE_ID: u8 = 0x5c;
+    pub const READ_ADJ: u8 = 0x5d;
+    pub const WRITE_ADJ: u8 = 0x5e;
+    pub const APPEND_ADJ: u8 = 0x5f;
+    pub const DEL_ADJ: u8 = 0x60;
+    pub const GIVE_E: u8 = 0x61;
+    pub const GIVE_M: u8 = 0x62;
+    pub const MOVE: u8 = 0x63;
+    pub const BOOT: u8 = 0x64;
+}
+
 fn sign_extend_4bit(value: u8) -> i16 {
     let nibble = value & 0x0f;
     if nibble & 0x08 == 0 {
@@ -233,5 +317,85 @@ mod tests {
             .count();
 
         assert_eq!(count, SPEC_OPCODE_COUNT);
+    }
+
+    #[test]
+    fn op_constants_roundtrip_through_decode() {
+        use super::op::*;
+
+        // Push literals
+        for n in -8_i16..=7 {
+            let byte = push(n);
+            assert_eq!(Opcode::decode(byte), Opcode::PushLiteral(n), "push({n})");
+        }
+
+        // Every named constant must decode to the expected Opcode variant.
+        let pairs: &[(u8, Opcode)] = &[
+            (DUP, Opcode::Dup),
+            (DROP, Opcode::Drop),
+            (SWAP, Opcode::Swap),
+            (OVER, Opcode::Over),
+            (RAND, Opcode::Rand),
+            (ADD, Opcode::Add),
+            (SUB, Opcode::Sub),
+            (NEG, Opcode::Neg),
+            (EQ, Opcode::Eq),
+            (LT, Opcode::Lt),
+            (GT, Opcode::Gt),
+            (NOT, Opcode::Not),
+            (AND, Opcode::And),
+            (OR, Opcode::Or),
+            (FOR, Opcode::For),
+            (NEXT, Opcode::Next),
+            (JMP, Opcode::Jmp),
+            (JMP_NZ, Opcode::JmpNz),
+            (JMP_Z, Opcode::JmpZ),
+            (CW, Opcode::Cw),
+            (CCW, Opcode::Ccw),
+            (GET_SIZE, Opcode::GetSize),
+            (GET_IP, Opcode::GetIp),
+            (GET_FLAG, Opcode::GetFlag),
+            (GET_MSG, Opcode::GetMsg),
+            (GET_ID, Opcode::GetId),
+            (GET_SRC, Opcode::GetSrc),
+            (GET_DST, Opcode::GetDst),
+            (SET_DIR, Opcode::SetDir),
+            (SET_SRC, Opcode::SetSrc),
+            (SET_DST, Opcode::SetDst),
+            (SET_ID, Opcode::SetId),
+            (GET_E, Opcode::GetE),
+            (GET_M, Opcode::GetM),
+            (NOP, Opcode::Nop),
+            (ABSORB, Opcode::Absorb),
+            (LISTEN, Opcode::Listen),
+            (COLLECT, Opcode::Collect),
+            (EMIT, Opcode::Emit),
+            (READ, Opcode::Read),
+            (WRITE, Opcode::Write),
+            (DEL, Opcode::Del),
+            (SYNTHESIZE, Opcode::Synthesize),
+            (SENSE_SIZE, Opcode::SenseSize),
+            (SENSE_E, Opcode::SenseE),
+            (SENSE_M, Opcode::SenseM),
+            (SENSE_ID, Opcode::SenseId),
+            (READ_ADJ, Opcode::ReadAdj),
+            (WRITE_ADJ, Opcode::WriteAdj),
+            (APPEND_ADJ, Opcode::AppendAdj),
+            (DEL_ADJ, Opcode::DelAdj),
+            (GIVE_E, Opcode::GiveE),
+            (GIVE_M, Opcode::GiveM),
+            (MOVE, Opcode::Move),
+            (BOOT, Opcode::Boot),
+        ];
+
+        assert_eq!(
+            pairs.len(),
+            SPEC_OPCODE_COUNT - 16,
+            "table should cover all non-push opcodes"
+        );
+
+        for &(byte, expected) in pairs {
+            assert_eq!(Opcode::decode(byte), expected, "byte 0x{byte:02x}");
+        }
     }
 }

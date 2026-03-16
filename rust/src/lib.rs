@@ -19,7 +19,7 @@ pub use model::{
     Cell, CellSnapshot, Direction, Packet, Program, ProgramError, QueuedAction, Registers,
     TickState,
 };
-pub use opcode::{AdditionalCost, Locality, Opcode, SPEC_OPCODE_COUNT};
+pub use opcode::{op, AdditionalCost, Locality, Opcode, SPEC_OPCODE_COUNT};
 pub use pass1::{local_action_budget, pass1_local, Pass1Output};
 pub use pass2::{pass2_nonlocal, Pass2Output};
 pub use pass3::{

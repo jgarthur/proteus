@@ -1,6 +1,7 @@
 mod helpers;
 
 use helpers::{diff_grids, run_ticks, ProgramBuilder, WorldBuilder};
+use proteus::op;
 use proteus::Simulation;
 
 fn build_deterministic_fixture() -> Simulation {
@@ -21,7 +22,7 @@ fn build_deterministic_fixture() -> Simulation {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x14, 0x50])
+                .code(&[op::RAND, op::NOP])
                 .free_energy(4)
                 .free_mass(1)
                 .bg_radiation(2),
@@ -29,18 +30,18 @@ fn build_deterministic_fixture() -> Simulation {
         .at(
             1,
             0,
-            ProgramBuilder::new().code(&[0x02, 0x54]).free_energy(6),
+            ProgramBuilder::new().code(&[op::push(2), op::EMIT]).free_energy(6),
         )
         .at(
             2,
             0,
-            ProgramBuilder::new().code(&[0x52, 0x50]).free_energy(1),
+            ProgramBuilder::new().code(&[op::LISTEN, op::NOP]).free_energy(1),
         )
         .at(
             4,
             0,
             ProgramBuilder::new()
-                .code(&[0x51, 0x53, 0x50])
+                .code(&[op::ABSORB, op::COLLECT, op::NOP])
                 .free_energy(2)
                 .bg_radiation(3)
                 .bg_mass(2),
@@ -48,14 +49,14 @@ fn build_deterministic_fixture() -> Simulation {
         .at(
             0,
             1,
-            ProgramBuilder::new().code(&[0x01, 0x61]).free_energy(4),
+            ProgramBuilder::new().code(&[op::push(1), op::GIVE_E]).free_energy(4),
         )
-        .at(1, 1, ProgramBuilder::new().code(&[0x01, 0x62]).free_mass(4))
+        .at(1, 1, ProgramBuilder::new().code(&[op::push(1), op::GIVE_M]).free_mass(4))
         .at(
             3,
             1,
             ProgramBuilder::new()
-                .code(&[0x10, 0x11])
+                .code(&[op::DUP, op::DROP])
                 .live(false)
                 .open(true)
                 .abandonment_timer(4),

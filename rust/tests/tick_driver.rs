@@ -2,6 +2,7 @@
 mod helpers;
 
 use helpers::{run_ticks, ProgramBuilder, WorldBuilder};
+use proteus::op;
 
 #[test]
 fn abandoned_inert_program_pays_maintenance_and_can_die() {
@@ -19,7 +20,7 @@ fn abandoned_inert_program_pays_maintenance_and_can_die() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x10, 0x11])
+                .code(&[op::DUP, op::DROP])
                 .live(false)
                 .abandonment_timer(10),
         )
@@ -52,13 +53,13 @@ fn incoming_write_resets_inert_abandonment_timer_and_skips_maintenance() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[0x01, 0x5e]).free_energy(1),
+            ProgramBuilder::new().code(&[op::push(1), op::WRITE_ADJ]).free_energy(1),
         )
         .at(
             1,
             0,
             ProgramBuilder::new()
-                .code(&[0x10, 0x11])
+                .code(&[op::DUP, op::DROP])
                 .live(false)
                 .abandonment_timer(9)
                 .open(true),
@@ -70,7 +71,7 @@ fn incoming_write_resets_inert_abandonment_timer_and_skips_maintenance() {
     assert_program!(
         simulation.grid(),
         (1, 0),
-        code == &[0x01, 0x11][..],
+        code == &[op::push(1), op::DROP][..],
         abandonment_timer == 0
     );
 }
@@ -143,12 +144,12 @@ fn booted_abandoned_inert_program_skips_maintenance_on_boot_tick() {
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[0x64]))
+        .at(0, 0, ProgramBuilder::new().code(&[op::BOOT]))
         .at(
             1,
             0,
             ProgramBuilder::new()
-                .code(&[0x50])
+                .code(&[op::NOP])
                 .live(false)
                 .abandonment_timer(4)
                 .open(true),
@@ -186,7 +187,7 @@ fn free_resource_decay_only_hits_excess_above_threshold() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x50])
+                .code(&[op::NOP])
                 .free_energy(5)
                 .free_mass(4),
         )
@@ -210,7 +211,7 @@ fn forced_mutation_changes_a_live_program_that_started_the_tick() {
             config.mutation_base_log2 = 0;
             config.mutation_background_log2 = 0;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[0x50, 0x50]))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP, op::NOP]))
         .build_simulation();
 
     simulation.run_tick();
@@ -220,7 +221,7 @@ fn forced_mutation_changes_a_live_program_that_started_the_tick() {
         .get(simulation.grid().index(0, 0))
         .expect("cell should exist");
     let program = cell.program.as_ref().expect("program should exist");
-    assert_ne!(program.code, vec![0x50, 0x50]);
+    assert_ne!(program.code, vec![op::NOP, op::NOP]);
     assert_eq!(program.age, 1);
 }
 
@@ -236,7 +237,7 @@ fn maintenance_destroyed_instructions_do_not_become_free_mass() {
             config.r_mass = 0.0;
             config.p_spawn = 0.0;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]))
         .build_simulation();
 
     simulation.run_tick();

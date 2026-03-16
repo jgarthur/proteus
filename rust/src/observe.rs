@@ -159,7 +159,7 @@ pub fn inspect_region(grid: &Grid, x: u32, y: u32, w: u32, h: u32) -> Vec<CellIn
 
 pub fn disassemble(code: &[u8]) -> Vec<String> {
     code.iter()
-        .map(|byte| opcode_mnemonic(Opcode::decode(*byte)))
+        .map(|byte| Opcode::decode(*byte).to_string())
         .collect()
 }
 
@@ -212,72 +212,12 @@ fn program_inspection(program: &Program) -> ProgramInspection {
     }
 }
 
-fn opcode_mnemonic(opcode: Opcode) -> String {
-    match opcode {
-        Opcode::PushLiteral(value) => format!("push {value}"),
-        Opcode::Dup => "dup".to_owned(),
-        Opcode::Drop => "drop".to_owned(),
-        Opcode::Swap => "swap".to_owned(),
-        Opcode::Over => "over".to_owned(),
-        Opcode::Rand => "rand".to_owned(),
-        Opcode::Add => "add".to_owned(),
-        Opcode::Sub => "sub".to_owned(),
-        Opcode::Neg => "neg".to_owned(),
-        Opcode::Eq => "eq".to_owned(),
-        Opcode::Lt => "lt".to_owned(),
-        Opcode::Gt => "gt".to_owned(),
-        Opcode::Not => "not".to_owned(),
-        Opcode::And => "and".to_owned(),
-        Opcode::Or => "or".to_owned(),
-        Opcode::For => "for".to_owned(),
-        Opcode::Next => "next".to_owned(),
-        Opcode::Jmp => "jmp".to_owned(),
-        Opcode::JmpNz => "jmpNz".to_owned(),
-        Opcode::JmpZ => "jmpZ".to_owned(),
-        Opcode::Cw => "cw".to_owned(),
-        Opcode::Ccw => "ccw".to_owned(),
-        Opcode::GetSize => "getSize".to_owned(),
-        Opcode::GetIp => "getIp".to_owned(),
-        Opcode::GetFlag => "getFlag".to_owned(),
-        Opcode::GetMsg => "getMsg".to_owned(),
-        Opcode::GetId => "getId".to_owned(),
-        Opcode::GetSrc => "getSrc".to_owned(),
-        Opcode::GetDst => "getDst".to_owned(),
-        Opcode::SetDir => "setDir".to_owned(),
-        Opcode::SetSrc => "setSrc".to_owned(),
-        Opcode::SetDst => "setDst".to_owned(),
-        Opcode::SetId => "setId".to_owned(),
-        Opcode::GetE => "getE".to_owned(),
-        Opcode::GetM => "getM".to_owned(),
-        Opcode::Nop => "nop".to_owned(),
-        Opcode::Absorb => "absorb".to_owned(),
-        Opcode::Listen => "listen".to_owned(),
-        Opcode::Collect => "collect".to_owned(),
-        Opcode::Emit => "emit".to_owned(),
-        Opcode::Read => "read".to_owned(),
-        Opcode::Write => "write".to_owned(),
-        Opcode::Del => "del".to_owned(),
-        Opcode::Synthesize => "synthesize".to_owned(),
-        Opcode::SenseSize => "senseSize".to_owned(),
-        Opcode::SenseE => "senseE".to_owned(),
-        Opcode::SenseM => "senseM".to_owned(),
-        Opcode::SenseId => "senseId".to_owned(),
-        Opcode::ReadAdj => "readAdj".to_owned(),
-        Opcode::WriteAdj => "writeAdj".to_owned(),
-        Opcode::AppendAdj => "appendAdj".to_owned(),
-        Opcode::DelAdj => "delAdj".to_owned(),
-        Opcode::GiveE => "giveE".to_owned(),
-        Opcode::GiveM => "giveM".to_owned(),
-        Opcode::Move => "move".to_owned(),
-        Opcode::Boot => "boot".to_owned(),
-        Opcode::NoOp(byte) => format!("noop 0x{byte:02x}"),
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::{collect_metrics, disassemble, encode_grid_frame, inspect_cell};
     use crate::model::{Cell, Direction, Program};
+    use crate::opcode::op;
     use crate::simulation::TickReport;
     use crate::Grid;
 
@@ -285,7 +225,7 @@ mod tests {
     fn frame_encoding_uses_specified_header_and_cell_layout() {
         let mut cells = vec![Cell::default(), Cell::default()];
         let mut program =
-            Program::new_live(vec![0x50, 0x64], Direction::Up, 7).expect("program should build");
+            Program::new_live(vec![op::NOP, op::BOOT], Direction::Up, 7).expect("program should build");
         program.tick.is_open = true;
         cells[0].program = Some(program);
         cells[0].free_energy = 300;
@@ -312,7 +252,7 @@ mod tests {
         ] {
             let mut grid = Grid::new(1, 1).expect("grid should build");
             let program =
-                Program::new_live(vec![0x50], direction, 2).expect("program should build");
+                Program::new_live(vec![op::NOP], direction, 2).expect("program should build");
             grid.get_mut(0).expect("cell should exist").program = Some(program);
 
             let cell = inspect_cell(&grid, 0);
@@ -324,9 +264,9 @@ mod tests {
     fn metrics_use_live_programs_for_size_statistics() {
         let mut cells = vec![Cell::default(), Cell::default()];
         cells[0].program =
-            Some(Program::new_live(vec![0x50, 0x51], Direction::Right, 1).expect("live program"));
+            Some(Program::new_live(vec![op::NOP, op::ABSORB], Direction::Right, 1).expect("live program"));
         cells[1].program =
-            Some(Program::new_inert(vec![0x50], Direction::Right, 2).expect("inert program"));
+            Some(Program::new_inert(vec![op::NOP], Direction::Right, 2).expect("inert program"));
         cells[0].free_energy = 3;
         cells[1].bg_radiation = 4;
 
@@ -357,7 +297,7 @@ mod tests {
     #[test]
     fn disassembly_uses_api_facing_mnemonics() {
         assert_eq!(
-            disassemble(&[0x00, 0x40, 0x4a, 0x5f, 0xff]),
+            disassemble(&[op::push(0), op::CW, op::SET_SRC, op::APPEND_ADJ, 0xff]),
             vec!["push 0", "cw", "setSrc", "appendAdj", "noop 0xff"]
         );
     }

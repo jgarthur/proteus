@@ -2,6 +2,7 @@
 mod helpers;
 
 use helpers::{ProgramBuilder, WorldBuilder};
+use proteus::op;
 
 #[test]
 fn absorb_loop_accumulates_energy_after_the_initial_arrival_lag() {
@@ -16,7 +17,7 @@ fn absorb_loop_accumulates_energy_after_the_initial_arrival_lag() {
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[0x51, 0x50]))
+        .at(0, 0, ProgramBuilder::new().code(&[op::ABSORB, op::NOP]))
         .build_simulation();
 
     simulation.run_tick();
@@ -57,7 +58,7 @@ fn inert_program_only_pays_maintenance_after_grace_window_expires() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x50, 0x50, 0x50, 0x50, 0x50])
+                .code(&[op::NOP, op::NOP, op::NOP, op::NOP, op::NOP])
                 .live(false)
                 .free_energy(4),
         )
@@ -69,7 +70,7 @@ fn inert_program_only_pays_maintenance_after_grace_window_expires() {
         (0, 0),
         live == false,
         abandonment_timer == 1,
-        code == &[0x50, 0x50, 0x50, 0x50, 0x50][..]
+        code == &[op::NOP, op::NOP, op::NOP, op::NOP, op::NOP][..]
     );
     assert_cell!(simulation.grid(), (0, 0), free_energy == 4);
 
@@ -79,7 +80,7 @@ fn inert_program_only_pays_maintenance_after_grace_window_expires() {
         (0, 0),
         live == false,
         abandonment_timer == 2,
-        code == &[0x50, 0x50, 0x50, 0x50, 0x50][..]
+        code == &[op::NOP, op::NOP, op::NOP, op::NOP, op::NOP][..]
     );
     assert_cell!(simulation.grid(), (0, 0), free_energy == 4);
 
@@ -89,7 +90,7 @@ fn inert_program_only_pays_maintenance_after_grace_window_expires() {
         (0, 0),
         live == false,
         abandonment_timer == 3,
-        code == &[0x50, 0x50, 0x50, 0x50][..]
+        code == &[op::NOP, op::NOP, op::NOP, op::NOP][..]
     );
     assert_cell!(simulation.grid(), (0, 0), free_energy == 0);
 }
@@ -107,12 +108,12 @@ fn repeated_deladj_pressure_grows_predator_until_the_size_one_guard_stops_it() {
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[0x60]).free_energy(3))
+        .at(0, 0, ProgramBuilder::new().code(&[op::DEL_ADJ]).free_energy(3))
         .at(
             1,
             0,
             ProgramBuilder::new()
-                .code(&[0x10, 0x11, 0x12])
+                .code(&[op::DUP, op::DROP, op::SWAP])
                 .live(false)
                 .open(true),
         )
@@ -124,7 +125,7 @@ fn repeated_deladj_pressure_grows_predator_until_the_size_one_guard_stops_it() {
     assert_program!(
         simulation.grid(),
         (1, 0),
-        code == &[0x11, 0x12][..],
+        code == &[op::DROP, op::SWAP][..],
         live == false
     );
 
@@ -134,7 +135,7 @@ fn repeated_deladj_pressure_grows_predator_until_the_size_one_guard_stops_it() {
     assert_program!(
         simulation.grid(),
         (1, 0),
-        code == &[0x11][..],
+        code == &[op::DROP][..],
         live == false
     );
 
@@ -144,7 +145,7 @@ fn repeated_deladj_pressure_grows_predator_until_the_size_one_guard_stops_it() {
     assert_program!(
         simulation.grid(),
         (1, 0),
-        code == &[0x11][..],
+        code == &[op::DROP][..],
         live == false
     );
 }
@@ -163,7 +164,7 @@ fn extinct_cell_can_respawn_on_a_later_tick_when_mass_arrives() {
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]))
         .build_simulation();
 
     simulation.run_tick();

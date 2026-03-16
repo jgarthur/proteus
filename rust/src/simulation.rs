@@ -297,6 +297,7 @@ mod tests {
     use crate::config::SimConfig;
     use crate::grid::Grid;
     use crate::model::{Cell, Direction, Program};
+    use crate::opcode::op;
 
     #[test]
     fn simulation_prepares_snapshot_and_live_set_from_grid_state() {
@@ -307,7 +308,7 @@ mod tests {
         };
         let mut cells = vec![Cell::default(), Cell::default()];
 
-        let mut live = Program::new_live(vec![0x50, 0x51], Direction::Right, 9)
+        let mut live = Program::new_live(vec![op::NOP, op::ABSORB], Direction::Right, 9)
             .expect("live program should build");
         live.tick.is_newborn = false;
         cells[0].program = Some(live);
@@ -317,7 +318,7 @@ mod tests {
         cells[0].bg_mass = 2;
 
         let mut newborn =
-            Program::new_live(vec![0x50], Direction::Up, 3).expect("newborn program should build");
+            Program::new_live(vec![op::NOP], Direction::Up, 3).expect("newborn program should build");
         newborn.tick.is_newborn = true;
         cells[1].program = Some(newborn);
 

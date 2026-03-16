@@ -1,6 +1,7 @@
 mod helpers;
 
 use helpers::{ProgramBuilder, WorldBuilder};
+use proteus::op;
 use proteus::{pass1_local, pass2_nonlocal, Direction, Grid, QueuedAction, WyRand};
 
 #[test]
@@ -46,7 +47,7 @@ fn sensing_uses_frozen_snapshot_after_target_cell_mutates() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x5a, 0x5b, 0x59, 0x5c])
+                .code(&[op::SENSE_E, op::SENSE_M, op::SENSE_SIZE, op::SENSE_ID])
                 .dir(Direction::Right),
         );
 
@@ -55,7 +56,7 @@ fn sensing_uses_frozen_snapshot_after_target_cell_mutates() {
                 1,
                 0,
                 ProgramBuilder::new()
-                    .code(&vec![0x50; initial_size])
+                    .code(&vec![op::NOP; initial_size])
                     .id(initial_id)
                     .free_energy(initial_energy)
                     .free_mass(initial_mass),
@@ -91,7 +92,7 @@ fn sensing_uses_frozen_snapshot_after_target_cell_mutates() {
             .get_mut(target_index)
             .expect("target cell should exist");
         *target_cell = ProgramBuilder::new()
-            .code(&vec![0x50; mutated_size])
+            .code(&vec![op::NOP; mutated_size])
             .id(initial_id.wrapping_add(1))
             .free_energy(mutated_energy)
             .free_mass(mutated_mass)
@@ -163,7 +164,7 @@ fn additive_transfer_resolution_is_order_independent_across_randomized_cases() {
                 0,
                 0,
                 ProgramBuilder::new()
-                    .code(&[0x50])
+                    .code(&[op::NOP])
                     .free_energy(source0_energy)
                     .free_mass(source0_mass),
             )
@@ -171,7 +172,7 @@ fn additive_transfer_resolution_is_order_independent_across_randomized_cases() {
                 1,
                 0,
                 ProgramBuilder::new()
-                    .code(&[0x50])
+                    .code(&[op::NOP])
                     .free_energy(source1_energy)
                     .free_mass(source1_mass),
             )
@@ -179,7 +180,7 @@ fn additive_transfer_resolution_is_order_independent_across_randomized_cases() {
                 2,
                 0,
                 ProgramBuilder::new()
-                    .code(&[0x50])
+                    .code(&[op::NOP])
                     .free_energy(source2_energy)
                     .free_mass(source2_mass),
             )
@@ -187,7 +188,7 @@ fn additive_transfer_resolution_is_order_independent_across_randomized_cases() {
                 3,
                 0,
                 ProgramBuilder::new()
-                    .code(&[0x50])
+                    .code(&[op::NOP])
                     .free_energy(target_energy)
                     .free_mass(target_mass),
             )

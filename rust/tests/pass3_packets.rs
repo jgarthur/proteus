@@ -2,6 +2,7 @@
 mod helpers;
 
 use helpers::{ProgramBuilder, WorldBuilder};
+use proteus::op;
 use proteus::{Direction, Packet};
 
 #[test]
@@ -11,11 +12,11 @@ fn emitted_packet_is_captured_by_a_listener_after_propagation() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x02, 0x54])
+                .code(&[op::push(2), op::EMIT])
                 .dir(Direction::Right)
                 .free_energy(1),
         )
-        .at(1, 0, ProgramBuilder::new().code(&[0x52]))
+        .at(1, 0, ProgramBuilder::new().code(&[op::LISTEN]))
         .build_simulation();
 
     let pass1 = simulation.run_pass1();
@@ -38,7 +39,7 @@ fn emitted_packet_is_captured_by_a_listener_after_propagation() {
 #[test]
 fn listen_without_packets_leaves_flag_unchanged_in_packet_phase() {
     let mut simulation = WorldBuilder::new(1, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x52]).flag(true))
+        .at(0, 0, ProgramBuilder::new().code(&[op::LISTEN]).flag(true))
         .build_simulation();
 
     let pass1 = simulation.run_pass1();

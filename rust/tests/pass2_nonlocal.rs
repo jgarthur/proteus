@@ -2,14 +2,15 @@
 mod helpers;
 
 use helpers::{ProgramBuilder, WorldBuilder};
+use proteus::op;
 use proteus::{pass2_nonlocal, Direction, Pass2Output, QueuedAction, PROGRAM_SIZE_CAP};
 
 #[test]
 fn two_read_adj_actions_against_same_target_both_succeed() {
     let mut simulation = WorldBuilder::new(3, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).src(4))
-        .at(1, 0, ProgramBuilder::new().code(&[0x11, 0x22]))
-        .at(2, 0, ProgramBuilder::new().code(&[0x50]).src(9))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).src(4))
+        .at(1, 0, ProgramBuilder::new().code(&[op::DROP, op::NEG]))
+        .at(2, 0, ProgramBuilder::new().code(&[op::NOP]).src(9))
         .build_simulation();
 
     let output = simulation.run_pass2(&[
@@ -51,9 +52,9 @@ fn two_read_adj_actions_against_same_target_both_succeed() {
 #[test]
 fn read_adj_uses_pre_pass2_target_code() {
     let mut simulation = WorldBuilder::new(3, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]))
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1))
-        .at(2, 0, ProgramBuilder::new().code(&[0x10]).open(true))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1))
+        .at(2, 0, ProgramBuilder::new().code(&[op::DUP]).open(true))
         .build_simulation();
 
     simulation.run_pass2(&[
@@ -82,8 +83,8 @@ fn read_adj_uses_pre_pass2_target_code() {
 #[test]
 fn multiple_give_e_actions_sum_into_the_same_target() {
     let mut simulation = WorldBuilder::new(3, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_energy(5))
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]).free_energy(4))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(5))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(4))
         .free_energy_at(2, 0, 1)
         .build_simulation();
 
@@ -110,10 +111,10 @@ fn multiple_give_e_actions_sum_into_the_same_target() {
 #[test]
 fn additive_transfers_do_not_block_exclusive_writes() {
     let mut simulation = WorldBuilder::new(4, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_energy(2))
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]).free_energy(3))
-        .at(2, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1))
-        .at(3, 0, ProgramBuilder::new().code(&[0x10]).open(true))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(2))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(3))
+        .at(2, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1))
+        .at(3, 0, ProgramBuilder::new().code(&[op::DUP]).open(true))
         .build_simulation();
 
     simulation.run_pass2(&[
@@ -143,8 +144,8 @@ fn additive_transfers_do_not_block_exclusive_writes() {
 #[test]
 fn give_e_can_feed_a_protected_target() {
     let mut simulation = WorldBuilder::new(2, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_energy(4))
-        .at(1, 0, ProgramBuilder::new().code(&[0x10]).flag(true))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(4))
+        .at(1, 0, ProgramBuilder::new().code(&[op::DUP]).flag(true))
         .build_simulation();
 
     simulation.run_pass2(&[QueuedAction::GiveE {
@@ -166,7 +167,7 @@ fn nonpositive_give_amounts_are_flag_neutral_no_ops() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x50])
+                .code(&[op::NOP])
                 .flag(true)
                 .free_energy(4)
                 .free_mass(5),
@@ -174,9 +175,9 @@ fn nonpositive_give_amounts_are_flag_neutral_no_ops() {
         .at(
             1,
             0,
-            ProgramBuilder::new().code(&[0x50]).flag(true).free_mass(3),
+            ProgramBuilder::new().code(&[op::NOP]).flag(true).free_mass(3),
         )
-        .at(2, 0, ProgramBuilder::new().code(&[0x10]))
+        .at(2, 0, ProgramBuilder::new().code(&[op::DUP]))
         .build_simulation();
 
     simulation.run_pass2(&[
@@ -202,8 +203,8 @@ fn nonpositive_give_amounts_are_flag_neutral_no_ops() {
 #[test]
 fn give_e_caps_transfer_at_available_energy_for_large_requested_amounts() {
     let mut simulation = WorldBuilder::new(2, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_energy(7))
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]).free_energy(2))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(7))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(2))
         .build_simulation();
 
     simulation.run_pass2(&[QueuedAction::GiveE {
@@ -220,8 +221,8 @@ fn give_e_caps_transfer_at_available_energy_for_large_requested_amounts() {
 #[test]
 fn multiple_give_m_actions_sum_into_the_same_target() {
     let mut simulation = WorldBuilder::new(3, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_mass(5))
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]).free_mass(2))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_mass(5))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]).free_mass(2))
         .free_mass_at(2, 0, 1)
         .build_simulation();
 
@@ -248,8 +249,8 @@ fn multiple_give_m_actions_sum_into_the_same_target() {
 #[test]
 fn give_m_caps_transfer_at_available_mass_for_large_requested_amounts() {
     let mut simulation = WorldBuilder::new(2, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_mass(6))
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]).free_mass(3))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_mass(6))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]).free_mass(3))
         .build_simulation();
 
     simulation.run_pass2(&[QueuedAction::GiveM {
@@ -267,7 +268,7 @@ fn give_m_caps_transfer_at_available_mass_for_large_requested_amounts() {
 fn one_hundred_give_e_actions_to_the_same_target_all_succeed() {
     let mut builder = WorldBuilder::new(101, 1);
     for x in 0..100_u32 {
-        builder = builder.at(x, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1));
+        builder = builder.at(x, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1));
     }
     let mut simulation = builder.build_simulation();
 
@@ -296,16 +297,16 @@ fn one_hundred_give_e_actions_to_the_same_target_all_succeed() {
 #[test]
 fn write_adj_and_append_adj_conflict_on_the_same_target() {
     let mut simulation = WorldBuilder::new(3, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1))
         .at(
             1,
             0,
             ProgramBuilder::new()
-                .code(&[0x50, 0x50, 0x50])
+                .code(&[op::NOP, op::NOP, op::NOP])
                 .free_energy(3)
                 .free_mass(1),
         )
-        .at(2, 0, ProgramBuilder::new().code(&[0x10]).open(true))
+        .at(2, 0, ProgramBuilder::new().code(&[op::DUP]).open(true))
         .build_simulation();
 
     let output = simulation.run_pass2(&[
@@ -318,7 +319,7 @@ fn write_adj_and_append_adj_conflict_on_the_same_target() {
         QueuedAction::AppendAdj {
             source: 1,
             target: 2,
-            value: 0x33,
+            value: op::JMP_NZ,
         },
     ]);
 
@@ -328,17 +329,17 @@ fn write_adj_and_append_adj_conflict_on_the_same_target() {
         simulation.grid(),
         (1, 0),
         flag == false,
-        code == &[0x50, 0x50, 0x50][..]
+        code == &[op::NOP, op::NOP, op::NOP][..]
     );
     assert_cell!(simulation.grid(), (1, 0), free_mass == 0);
-    assert_program!(simulation.grid(), (2, 0), code == &[0x10, 0x33][..]);
+    assert_program!(simulation.grid(), (2, 0), code == &[op::DUP, op::JMP_NZ][..]);
 }
 
 #[test]
 fn write_adj_fails_against_a_protected_target() {
     let mut simulation = WorldBuilder::new(2, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1))
-        .at(1, 0, ProgramBuilder::new().code(&[0x10]).dst(4))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1))
+        .at(1, 0, ProgramBuilder::new().code(&[op::DUP]).dst(4))
         .build_simulation();
 
     simulation.run_pass2(&[QueuedAction::WriteAdj {
@@ -349,7 +350,7 @@ fn write_adj_fails_against_a_protected_target() {
     }]);
 
     assert_program!(simulation.grid(), (0, 0), flag == true, dst == 0);
-    assert_program!(simulation.grid(), (1, 0), code == &[0x10][..], dst == 4);
+    assert_program!(simulation.grid(), (1, 0), code == &[op::DUP][..], dst == 4);
 }
 
 #[test]
@@ -359,33 +360,33 @@ fn occupied_append_adj_fails_against_a_protected_target_without_spending_mass() 
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x50])
+                .code(&[op::NOP])
                 .free_energy(1)
                 .free_mass(2),
         )
-        .at(1, 0, ProgramBuilder::new().code(&[0x10]))
+        .at(1, 0, ProgramBuilder::new().code(&[op::DUP]))
         .build_simulation();
 
     simulation.run_pass2(&[QueuedAction::AppendAdj {
         source: 0,
         target: 1,
-        value: 0x33,
+        value: op::JMP_NZ,
     }]);
 
     assert_program!(simulation.grid(), (0, 0), flag == true);
     assert_cell!(simulation.grid(), (0, 0), free_mass == 2);
-    assert_program!(simulation.grid(), (1, 0), code == &[0x10][..]);
+    assert_program!(simulation.grid(), (1, 0), code == &[op::DUP][..]);
 }
 
 #[test]
 fn append_adj_size_cap_failure_sets_flag_without_spending_mass() {
-    let full_program = vec![0x10; usize::from(PROGRAM_SIZE_CAP)];
+    let full_program = vec![op::DUP; usize::from(PROGRAM_SIZE_CAP)];
     let mut simulation = WorldBuilder::new(2, 1)
         .at(
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x50])
+                .code(&[op::NOP])
                 .free_energy(1)
                 .free_mass(1),
         )
@@ -395,7 +396,7 @@ fn append_adj_size_cap_failure_sets_flag_without_spending_mass() {
     simulation.run_pass2(&[QueuedAction::AppendAdj {
         source: 0,
         target: 1,
-        value: 0x33,
+        value: op::JMP_NZ,
     }]);
 
     assert_program!(simulation.grid(), (0, 0), flag == true);
@@ -410,18 +411,18 @@ fn append_into_empty_cell_cannot_be_booted_in_the_same_tick() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x50])
+                .code(&[op::NOP])
                 .free_energy(1)
                 .free_mass(1),
         )
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]))
         .build_simulation();
 
     simulation.run_pass2(&[
         QueuedAction::AppendAdj {
             source: 0,
             target: 2,
-            value: 0x33,
+            value: op::JMP_NZ,
         },
         QueuedAction::Boot {
             source: 1,
@@ -434,7 +435,7 @@ fn append_into_empty_cell_cannot_be_booted_in_the_same_tick() {
     assert_program!(
         simulation.grid(),
         (2, 0),
-        code == &[0x33][..],
+        code == &[op::JMP_NZ][..],
         live == false,
         is_open == true,
         is_newborn == false
@@ -444,9 +445,9 @@ fn append_into_empty_cell_cannot_be_booted_in_the_same_tick() {
 #[test]
 fn boot_plus_boot_on_same_inert_target_all_succeed() {
     let mut simulation = WorldBuilder::new(3, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).flag(true))
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]).flag(true))
-        .at(2, 0, ProgramBuilder::new().code(&[0x10]).live(false))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).flag(true))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]).flag(true))
+        .at(2, 0, ProgramBuilder::new().code(&[op::DUP]).live(false))
         .build_simulation();
 
     simulation.run_pass2(&[
@@ -479,15 +480,15 @@ fn del_adj_additional_cost_failure_has_no_fallback_winner() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x50, 0x50, 0x50, 0x50])
+                .code(&[op::NOP, op::NOP, op::NOP, op::NOP])
                 .free_energy(2),
         )
-        .at(1, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1))
+        .at(1, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1))
         .at(
             2,
             0,
             ProgramBuilder::new()
-                .code(&[0x20, 0x21, 0x22])
+                .code(&[op::ADD, op::SUB, op::NEG])
                 .free_energy(3)
                 .open(true),
         )
@@ -510,7 +511,7 @@ fn del_adj_additional_cost_failure_has_no_fallback_winner() {
     assert_program!(simulation.grid(), (0, 0), flag == true, dst == 0);
     assert_program!(simulation.grid(), (1, 0), flag == true, dst == 0);
     assert_cell!(simulation.grid(), (0, 0), free_energy == 2, free_mass == 0);
-    assert_program!(simulation.grid(), (2, 0), code == &[0x20, 0x21, 0x22][..]);
+    assert_program!(simulation.grid(), (2, 0), code == &[op::ADD, op::SUB, op::NEG][..]);
 }
 
 #[test]
@@ -519,26 +520,26 @@ fn del_adj_adjusts_target_ip_only_when_deletion_is_strictly_before_it() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[0x50]).free_energy(5).dst(9),
+            ProgramBuilder::new().code(&[op::NOP]).free_energy(5).dst(9),
         )
         .at(
             1,
             0,
             ProgramBuilder::new()
-                .code(&[0x10, 0x11, 0x12])
+                .code(&[op::DUP, op::DROP, op::SWAP])
                 .ip(2)
                 .open(true),
         )
         .at(
             2,
             0,
-            ProgramBuilder::new().code(&[0x50]).free_energy(5).dst(1),
+            ProgramBuilder::new().code(&[op::NOP]).free_energy(5).dst(1),
         )
         .at(
             3,
             0,
             ProgramBuilder::new()
-                .code(&[0x20, 0x21, 0x22])
+                .code(&[op::ADD, op::SUB, op::NEG])
                 .ip(1)
                 .open(true),
         )
@@ -562,13 +563,13 @@ fn del_adj_adjusts_target_ip_only_when_deletion_is_strictly_before_it() {
     assert_program!(
         simulation.grid(),
         (1, 0),
-        code == &[0x10, 0x12][..],
+        code == &[op::DUP, op::SWAP][..],
         ip == 1
     );
     assert_program!(
         simulation.grid(),
         (3, 0),
-        code == &[0x20, 0x22][..],
+        code == &[op::ADD, op::NEG][..],
         ip == 1
     );
 }
@@ -576,8 +577,8 @@ fn del_adj_adjusts_target_ip_only_when_deletion_is_strictly_before_it() {
 #[test]
 fn del_adj_fails_against_size_one_target() {
     let mut simulation = WorldBuilder::new(2, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[0x50]).free_energy(3))
-        .at(1, 0, ProgramBuilder::new().code(&[0x10]).open(true))
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(3))
+        .at(1, 0, ProgramBuilder::new().code(&[op::DUP]).open(true))
         .build_simulation();
 
     simulation.run_pass2(&[QueuedAction::DelAdj {
@@ -588,7 +589,7 @@ fn del_adj_fails_against_size_one_target() {
 
     assert_program!(simulation.grid(), (0, 0), flag == true, dst == 0);
     assert_cell!(simulation.grid(), (0, 0), free_energy == 3, free_mass == 0);
-    assert_program!(simulation.grid(), (1, 0), code == &[0x10][..]);
+    assert_program!(simulation.grid(), (1, 0), code == &[op::DUP][..]);
 }
 
 #[test]
@@ -598,7 +599,7 @@ fn opposing_moves_do_not_swap() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x10])
+                .code(&[op::DUP])
                 .dir(Direction::Right)
                 .free_energy(2)
                 .free_mass(1),
@@ -607,7 +608,7 @@ fn opposing_moves_do_not_swap() {
             1,
             0,
             ProgramBuilder::new()
-                .code(&[0x20])
+                .code(&[op::ADD])
                 .dir(Direction::Left)
                 .free_energy(3)
                 .free_mass(2),
@@ -625,8 +626,8 @@ fn opposing_moves_do_not_swap() {
         },
     ]);
 
-    assert_program!(simulation.grid(), (0, 0), code == &[0x10][..], flag == true);
-    assert_program!(simulation.grid(), (1, 0), code == &[0x20][..], flag == true);
+    assert_program!(simulation.grid(), (0, 0), code == &[op::DUP][..], flag == true);
+    assert_program!(simulation.grid(), (1, 0), code == &[op::ADD][..], flag == true);
     assert_cell!(simulation.grid(), (0, 0), free_energy == 2, free_mass == 1);
     assert_cell!(simulation.grid(), (1, 0), free_energy == 3, free_mass == 2);
 }
@@ -638,41 +639,41 @@ fn exclusive_conflict_tiebreak_is_deterministic_under_action_reordering() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[0x50, 0x50]).free_energy(2),
+            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
         )
         .at(
             1,
             0,
-            ProgramBuilder::new().code(&[0x50, 0x50]).free_energy(2),
+            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
         )
-        .at(2, 0, ProgramBuilder::new().code(&[0x10]).open(true))
+        .at(2, 0, ProgramBuilder::new().code(&[op::DUP]).open(true))
         .build_simulation();
     let mut right = WorldBuilder::new(3, 1)
         .seed(17)
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[0x50, 0x50]).free_energy(2),
+            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
         )
         .at(
             1,
             0,
-            ProgramBuilder::new().code(&[0x50, 0x50]).free_energy(2),
+            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
         )
-        .at(2, 0, ProgramBuilder::new().code(&[0x10]).open(true))
+        .at(2, 0, ProgramBuilder::new().code(&[op::DUP]).open(true))
         .build_simulation();
 
     let left_actions = [
         QueuedAction::WriteAdj {
             source: 0,
             target: 2,
-            value: 0x11,
+            value: op::DROP,
             dst_cursor: 0,
         },
         QueuedAction::WriteAdj {
             source: 1,
             target: 2,
-            value: 0x22,
+            value: op::NEG,
             dst_cursor: 0,
         },
     ];
@@ -691,8 +692,8 @@ fn many_exclusive_writes_pick_one_deterministic_winner_independent_of_action_ord
     let mut left_builder = WorldBuilder::new(SOURCE_COUNT + 1, 1).seed(29);
     let mut right_builder = WorldBuilder::new(SOURCE_COUNT + 1, 1).seed(29);
     for x in 0..SOURCE_COUNT {
-        left_builder = left_builder.at(x, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1));
-        right_builder = right_builder.at(x, 0, ProgramBuilder::new().code(&[0x50]).free_energy(1));
+        left_builder = left_builder.at(x, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1));
+        right_builder = right_builder.at(x, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1));
     }
     left_builder = left_builder.at(
         SOURCE_COUNT,
@@ -758,7 +759,7 @@ fn move_transfers_program_and_free_resources_but_leaves_background_behind() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[0x10])
+                .code(&[op::DUP])
                 .free_energy(2)
                 .free_mass(3)
                 .bg_radiation(4)
@@ -787,7 +788,7 @@ fn move_transfers_program_and_free_resources_but_leaves_background_behind() {
     assert_program!(
         simulation.grid(),
         (1, 0),
-        code == &[0x10][..],
+        code == &[op::DUP][..],
         flag == false
     );
     assert_cell!(
@@ -806,29 +807,29 @@ fn weighted_tie_break_prefers_larger_program_over_many_trials() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[0x50, 0x50]).free_energy(2),
+            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
         )
         .at(
             1,
             0,
             ProgramBuilder::new()
-                .code(&[0x50, 0x50, 0x50, 0x50, 0x50, 0x50])
+                .code(&[op::NOP, op::NOP, op::NOP, op::NOP, op::NOP, op::NOP])
                 .free_energy(2),
         )
-        .at(2, 0, ProgramBuilder::new().code(&[0x00]).open(true))
+        .at(2, 0, ProgramBuilder::new().code(&[op::push(0)]).open(true))
         .build();
 
     let actions = [
         QueuedAction::WriteAdj {
             source: 0,
             target: 2,
-            value: 0x11,
+            value: op::DROP,
             dst_cursor: 0,
         },
         QueuedAction::WriteAdj {
             source: 1,
             target: 2,
-            value: 0x22,
+            value: op::NEG,
             dst_cursor: 0,
         },
     ];
@@ -852,7 +853,7 @@ fn weighted_tie_break_prefers_larger_program_over_many_trials() {
             .as_ref()
             .expect("target program should exist")
             .code[0];
-        if winning_value == 0x22 {
+        if winning_value == op::NEG {
             larger_program_wins += 1;
         }
     }

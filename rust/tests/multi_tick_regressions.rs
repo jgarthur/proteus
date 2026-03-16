@@ -2,6 +2,7 @@
 mod helpers;
 
 use helpers::{run_ticks, ProgramBuilder, WorldBuilder};
+use proteus::op;
 use proteus::{Direction, Packet};
 
 #[test]
@@ -49,8 +50,8 @@ fn absorb_and_collect_accumulate_with_one_tick_arrival_lag() {
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[0x51, 0x50]))
-        .at(1, 0, ProgramBuilder::new().code(&[0x53, 0x50]))
+        .at(0, 0, ProgramBuilder::new().code(&[op::ABSORB, op::NOP]))
+        .at(1, 0, ProgramBuilder::new().code(&[op::COLLECT, op::NOP]))
         .build_simulation();
 
     run_ticks(&mut simulation, 3);

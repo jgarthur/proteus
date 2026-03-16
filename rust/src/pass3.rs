@@ -1,6 +1,7 @@
 use crate::config::SimConfig;
 use crate::grid::Grid;
 use crate::model::{Cell, Direction, Packet, Program};
+use crate::opcode::op;
 use crate::random::{binomial, cell_rng};
 
 const LISTEN_CAPTURE_SALT: u64 = 0x5d17_2ef3_94ab_c881;
@@ -493,7 +494,7 @@ fn resolve_spontaneous_creation(
         let dir = Direction::ALL[(rng.next_u32() % Direction::ALL.len() as u32) as usize];
         let id = rng.next_u32() as u8;
         let mut program =
-            Program::new_live(vec![0x50], dir, id).expect("spawned program should be valid");
+            Program::new_live(vec![op::NOP], dir, id).expect("spawned program should be valid");
         program.tick.is_newborn = true;
 
         let cell = grid.get_mut(cell_index).expect("cell should exist");
@@ -567,6 +568,7 @@ mod tests {
     use crate::model::{Cell, Direction, Packet, Program};
 
     use super::{pass3_ambient, pass3_packets, Pass3AmbientOutput};
+    use crate::opcode::op;
 
     #[test]
     fn packet_phase_propagates_and_persists_single_packets() {
@@ -615,7 +617,7 @@ mod tests {
     #[test]
     fn listening_captures_packets_and_sets_message_and_arrival_direction() {
         let mut cell = Cell::with_program(
-            Program::new_live(vec![0x52], Direction::Up, 4).expect("program should build"),
+            Program::new_live(vec![op::LISTEN], Direction::Up, 4).expect("program should build"),
         );
         cell.program
             .as_mut()
@@ -645,10 +647,10 @@ mod tests {
     #[test]
     fn absorb_distribution_splits_background_radiation_and_leaves_remainder() {
         let mut left = Cell::with_program(
-            Program::new_live(vec![0x51], Direction::Right, 1).expect("program should build"),
+            Program::new_live(vec![op::ABSORB], Direction::Right, 1).expect("program should build"),
         );
         let mut right = Cell::with_program(
-            Program::new_live(vec![0x51], Direction::Left, 2).expect("program should build"),
+            Program::new_live(vec![op::ABSORB], Direction::Left, 2).expect("program should build"),
         );
         left.program
             .as_mut()

@@ -1,6 +1,6 @@
 #![allow(dead_code, unused_macros)]
 
-use proteus::{Cell, Direction, Grid, Program, SimConfig, Simulation, TickState};
+use proteus::{op, Cell, Direction, Grid, Program, SimConfig, Simulation, TickState};
 
 #[derive(Clone, Debug)]
 pub struct ProgramBuilder {
@@ -27,7 +27,7 @@ pub struct ProgramBuilder {
 impl Default for ProgramBuilder {
     fn default() -> Self {
         Self {
-            code: vec![0x50],
+            code: vec![op::NOP],
             ip: 0,
             dir: Direction::Right,
             src: 0,
