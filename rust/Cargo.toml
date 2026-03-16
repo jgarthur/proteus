@@ -23,7 +23,11 @@ web = [
 
 [dependencies]
 axum = { version = "0.7", features = ["http1", "json", "tokio", "ws"], optional = true }
+fastrand = "2"
 futures-util = { version = "0.3", default-features = false, features = ["sink"], optional = true }
+rand_core = "0.6"
+rand_distr = "0.4"
+rand_xoshiro = "0.6"
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"], optional = true }

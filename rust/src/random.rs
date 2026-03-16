@@ -1,26 +1,29 @@
-#[derive(Clone, Debug, PartialEq, Eq)]
+use rand_core::{RngCore, SeedableRng};
+use rand_distr::{Binomial, Distribution};
+use rand_xoshiro::SplitMix64;
+
+#[derive(Clone, Debug)]
 pub struct WyRand {
-    state: u64,
+    inner: fastrand::Rng,
 }
 
 impl WyRand {
     pub fn with_seed(seed: u64) -> Self {
-        Self { state: seed }
+        Self {
+            inner: fastrand::Rng::with_seed(seed),
+        }
     }
 
     pub fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0xa076_1d64_78bd_642f);
-        let mixed = (self.state as u128).wrapping_mul((self.state ^ 0xe703_7ed1_a0b4_28db) as u128);
-        ((mixed >> 64) ^ mixed) as u64
+        self.inner.u64(..)
     }
 
     pub fn next_u32(&mut self) -> u32 {
-        (self.next_u64() >> 32) as u32
+        self.inner.u32(..)
     }
 
     pub fn f64(&mut self) -> f64 {
-        const SCALE: f64 = 1.0 / ((1_u64 << 53) as f64);
-        ((self.next_u64() >> 11) as f64) * SCALE
+        self.inner.f64()
     }
 
     pub fn bernoulli(&mut self, probability: f64) -> bool {
@@ -32,11 +35,37 @@ impl WyRand {
     }
 }
 
-pub fn splitmix64(mut value: u64) -> u64 {
-    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    value ^ (value >> 31)
+impl RngCore for WyRand {
+    fn next_u32(&mut self) -> u32 {
+        self.inner.u32(..)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.inner.u64(..)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        let mut remaining = dest;
+        while remaining.len() >= 8 {
+            let bytes = self.inner.u64(..).to_le_bytes();
+            remaining[..8].copy_from_slice(&bytes);
+            remaining = &mut remaining[8..];
+        }
+        if !remaining.is_empty() {
+            let bytes = self.inner.u64(..).to_le_bytes();
+            remaining.copy_from_slice(&bytes[..remaining.len()]);
+        }
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+pub fn splitmix64(value: u64) -> u64 {
+    let mut rng = SplitMix64::from_seed(value.to_le_bytes());
+    rng.next_u64()
 }
 
 pub fn cell_rng(master_seed: u64, tick: u64, cell_index: u64) -> WyRand {
@@ -56,7 +85,8 @@ pub fn binomial(rng: &mut WyRand, n: u32, probability: f64) -> u32 {
         return n;
     }
 
-    (0..n).map(|_| u32::from(rng.bernoulli(probability))).sum()
+    let distr = Binomial::new(n.into(), probability).unwrap();
+    distr.sample(rng) as u32
 }
 
 #[cfg(test)]
