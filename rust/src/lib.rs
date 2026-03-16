@@ -1,3 +1,5 @@
+//! Exposes the main Proteus simulation modules and their public entrypoints.
+
 #![forbid(unsafe_code)]
 
 pub mod config;

@@ -1,8 +1,11 @@
+//! Implements the flat toroidal cell grid used by the simulator.
+
 use std::error::Error;
 use std::fmt;
 
 use crate::model::{Cell, Direction};
 
+/// Owns the world cells and translates between coordinates and flat indices.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grid {
     width: u32,
@@ -11,6 +14,7 @@ pub struct Grid {
 }
 
 impl Grid {
+    /// Allocates a new empty grid with the requested dimensions.
     pub fn new(width: u32, height: u32) -> Result<Self, GridError> {
         let len = cell_count(width, height)?;
         let cells = vec![Cell::default(); len];
@@ -21,6 +25,7 @@ impl Grid {
         })
     }
 
+    /// Builds a grid from an existing cell buffer after validating its size.
     pub fn from_cells(width: u32, height: u32, cells: Vec<Cell>) -> Result<Self, GridError> {
         let expected = cell_count(width, height)?;
         if cells.len() != expected {
@@ -37,22 +42,27 @@ impl Grid {
         })
     }
 
+    /// Returns the grid width in cells.
     pub fn width(&self) -> u32 {
         self.width
     }
 
+    /// Returns the grid height in cells.
     pub fn height(&self) -> u32 {
         self.height
     }
 
+    /// Returns the total number of cells in the grid.
     pub fn len(&self) -> usize {
         self.cells.len()
     }
 
+    /// Reports whether the grid contains zero cells.
     pub fn is_empty(&self) -> bool {
         self.cells.is_empty()
     }
 
+    /// Converts in-bounds coordinates into a flat row-major index.
     pub fn index(&self, x: u32, y: u32) -> usize {
         assert!(
             x < self.width,
@@ -71,18 +81,21 @@ impl Grid {
         (y * width) + x
     }
 
+    /// Returns the x coordinate for a flat cell index.
     pub fn x(&self, index: usize) -> u32 {
         let width = usize::try_from(self.width).expect("grid width does not fit usize");
         let x = index % width;
         u32::try_from(x).expect("x coordinate does not fit u32")
     }
 
+    /// Returns the y coordinate for a flat cell index.
     pub fn y(&self, index: usize) -> u32 {
         let width = usize::try_from(self.width).expect("grid width does not fit usize");
         let y = index / width;
         u32::try_from(y).expect("y coordinate does not fit u32")
     }
 
+    /// Returns the neighboring cell index after toroidal wrapping.
     pub fn neighbor(&self, index: usize, dir: Direction) -> usize {
         let x = self.x(index);
         let y = self.y(index);
@@ -95,23 +108,28 @@ impl Grid {
         }
     }
 
+    /// Returns an immutable reference to one cell by flat index.
     pub fn get(&self, index: usize) -> Option<&Cell> {
         self.cells.get(index)
     }
 
+    /// Returns a mutable reference to one cell by flat index.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut Cell> {
         self.cells.get_mut(index)
     }
 
+    /// Returns the full immutable cell slice.
     pub fn cells(&self) -> &[Cell] {
         &self.cells
     }
 
+    /// Returns the full mutable cell slice.
     pub fn cells_mut(&mut self) -> &mut [Cell] {
         &mut self.cells
     }
 }
 
+/// Computes the number of cells for a grid shape, rejecting invalid sizes.
 pub fn cell_count(width: u32, height: u32) -> Result<usize, GridError> {
     if width == 0 {
         return Err(GridError::ZeroWidth);
@@ -128,6 +146,7 @@ pub fn cell_count(width: u32, height: u32) -> Result<usize, GridError> {
         .ok_or(GridError::DimensionsTooLarge)
 }
 
+/// Describes why a grid could not be constructed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GridError {
     ZeroWidth,
@@ -137,6 +156,7 @@ pub enum GridError {
 }
 
 impl fmt::Display for GridError {
+    /// Formats a human-readable grid construction error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ZeroWidth => write!(f, "grid width must be greater than zero"),

@@ -1,3 +1,5 @@
+//! Executes Pass 2, where queued nonlocal actions resolve against targets.
+
 use crate::config::PROGRAM_SIZE_CAP;
 use crate::grid::Grid;
 use crate::model::{Cell, Direction, Program, QueuedAction};
@@ -6,6 +8,7 @@ use crate::random::cell_rng;
 const EXCLUSIVE_TIE_SALT: u64 = 0x8d51_4c2f_d5b3_7a11;
 const APPEND_CREATE_SALT: u64 = 0xa4e2_9c61_7f33_b58d;
 
+/// Collects the Pass 2 outputs needed by later phases.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pass2Output {
     pub incoming_writes: Vec<bool>,
@@ -13,6 +16,7 @@ pub struct Pass2Output {
 }
 
 impl Pass2Output {
+    /// Allocates a fresh Pass 2 output buffer for one grid size.
     pub fn new(cell_count: usize) -> Self {
         Self {
             incoming_writes: vec![false; cell_count],
@@ -21,6 +25,7 @@ impl Pass2Output {
     }
 }
 
+/// Resolves all queued nonlocal actions in the spec's class order.
 pub fn pass2_nonlocal(
     grid: &mut Grid,
     actions: &[QueuedAction],
@@ -37,6 +42,7 @@ pub fn pass2_nonlocal(
     output
 }
 
+/// Stores the prevalidated data needed to compete in one exclusive target group.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ExclusiveCandidate {
     action: QueuedAction,
@@ -46,18 +52,21 @@ struct ExclusiveCandidate {
     size: u16,
 }
 
+/// Records a successful move to apply after winner resolution finishes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MoveCommit {
     source: usize,
     target: usize,
 }
 
+/// Records an append-into-empty-cell creation to apply after conflicts resolve.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AppendCreateCommit {
     target: usize,
     value: u8,
 }
 
+/// Resolves all read-only queued actions against the pre-Pass-2 snapshot.
 fn resolve_reads(grid: &mut Grid, pre_pass2: &Grid, actions: &[QueuedAction]) {
     for action in actions {
         let QueuedAction::ReadAdj {
@@ -87,6 +96,7 @@ fn resolve_reads(grid: &mut Grid, pre_pass2: &Grid, actions: &[QueuedAction]) {
     }
 }
 
+/// Resolves all additive mass and energy transfers in aggregate.
 fn resolve_additive_transfers(grid: &mut Grid, pre_pass2: &Grid, actions: &[QueuedAction]) {
     let mut energy_in = vec![0_u32; grid.len()];
     let mut energy_out = vec![0_u32; grid.len()];
@@ -150,6 +160,7 @@ fn resolve_additive_transfers(grid: &mut Grid, pre_pass2: &Grid, actions: &[Queu
     }
 }
 
+/// Resolves all exclusive actions target by target.
 fn resolve_exclusive(
     grid: &mut Grid,
     pre_pass2: &Grid,
@@ -240,6 +251,7 @@ fn resolve_exclusive(
     *grid = final_grid;
 }
 
+/// Validates one exclusive action against the pre-Pass-2 target state.
 fn validate_exclusive(action: QueuedAction, pre_pass2: &Grid) -> Option<ExclusiveCandidate> {
     let (source, target) = exclusive_endpoints(action)?;
     let source_cell = pre_pass2.get(source).expect("source cell should exist");
@@ -270,6 +282,7 @@ fn validate_exclusive(action: QueuedAction, pre_pass2: &Grid) -> Option<Exclusiv
     })
 }
 
+/// Picks the winning exclusive candidate for one target cell.
 fn choose_winner(
     candidates: &[ExclusiveCandidate],
     group: &[usize],
@@ -312,6 +325,7 @@ fn choose_winner(
     unreachable!("weighted selection should return within the tied set")
 }
 
+/// Applies the effects of one winning exclusive action.
 #[allow(clippy::too_many_arguments)]
 fn apply_winner(
     working: &mut Grid,
@@ -427,6 +441,7 @@ fn apply_winner(
     }
 }
 
+/// Marks an inert target as successfully booted.
 fn apply_boot_success(target_cell: &mut Cell) {
     let target_program = program_mut(target_cell);
     target_program.live = true;
@@ -436,6 +451,7 @@ fn apply_boot_success(target_cell: &mut Cell) {
     target_program.tick.is_open = false;
 }
 
+/// Applies the deferred state transfer for a successful move.
 fn apply_move_commit(grid: &mut Grid, exclusive_base: &Grid, commit: MoveCommit) {
     let source_base = exclusive_base
         .get(commit.source)
@@ -462,6 +478,7 @@ fn apply_move_commit(grid: &mut Grid, exclusive_base: &Grid, commit: MoveCommit)
     source_cell.bg_mass = source_base.bg_mass;
 }
 
+/// Applies the deferred inert-program creation for `appendAdj` into empty space.
 fn apply_append_create_commit(grid: &mut Grid, commit: AppendCreateCommit, tick: u64, seed: u64) {
     let mut rng = cell_rng(seed ^ APPEND_CREATE_SALT, tick, commit.target as u64);
     let dir = Direction::ALL[(rng.next_u32() % Direction::ALL.len() as u32) as usize];
@@ -477,6 +494,7 @@ fn apply_append_create_commit(grid: &mut Grid, commit: AppendCreateCommit, tick:
     cell.program = Some(program);
 }
 
+/// Returns the source and target endpoints for exclusive actions.
 fn exclusive_endpoints(action: QueuedAction) -> Option<(usize, usize)> {
     match action {
         QueuedAction::WriteAdj { source, target, .. }
@@ -488,12 +506,14 @@ fn exclusive_endpoints(action: QueuedAction) -> Option<(usize, usize)> {
     }
 }
 
+/// Reports whether a target cell is currently open to exclusive writes.
 fn target_is_open(cell: &Cell) -> bool {
     cell.program
         .as_ref()
         .is_none_or(|program| program.tick.is_open)
 }
 
+/// Pushes a value onto a source program's stack if space remains.
 fn push_stack(cell: &mut Cell, value: i16) -> bool {
     if program(cell).stack.len() >= usize::from(PROGRAM_SIZE_CAP) {
         set_flag(cell, true);
@@ -504,16 +524,19 @@ fn push_stack(cell: &mut Cell, value: i16) -> bool {
     }
 }
 
+/// Writes a boolean flag back into a source program.
 fn set_flag(cell: &mut Cell, value: bool) {
     program_mut(cell).registers.flag = value;
 }
 
+/// Returns the program stored in a cell, asserting that one exists.
 fn program(cell: &Cell) -> &Program {
     cell.program
         .as_ref()
         .expect("cell should contain a program for pass 2")
 }
 
+/// Returns the mutable program stored in a cell, asserting that one exists.
 fn program_mut(cell: &mut Cell) -> &mut Program {
     cell.program
         .as_mut()

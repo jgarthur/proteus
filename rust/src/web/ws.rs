@@ -1,3 +1,5 @@
+//! Handles the WebSocket control channel for frames and metrics streaming.
+
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 
@@ -9,6 +11,7 @@ use super::controller::{FramePayload, MetricsPayload, SimulationController};
 use super::error::ApiError;
 use super::types::{WsControlMessage, WsHelloMessage, WsMetricsMessage, API_VERSION};
 
+/// Runs one WebSocket session against the shared simulation controller.
 pub async fn handle_socket(mut socket: WebSocket, controller: SimulationController) {
     if send_json(
         &mut socket,
@@ -99,6 +102,7 @@ pub async fn handle_socket(mut socket: WebSocket, controller: SimulationControll
     }
 }
 
+/// Processes one client message and updates the active subscriptions.
 async fn handle_client_message(
     socket: &mut WebSocket,
     message: Message,
@@ -162,6 +166,7 @@ async fn handle_client_message(
     Ok(())
 }
 
+/// Represents the validated subscription action requested by a client.
 enum WsAction {
     SubscribeFrames { max_fps: u32 },
     UnsubscribeFrames,
@@ -169,6 +174,7 @@ enum WsAction {
     UnsubscribeMetrics,
 }
 
+/// Validates one parsed WebSocket control message.
 fn validate_control(control: WsControlMessage) -> Result<WsAction, String> {
     match (control.subscribe.as_deref(), control.unsubscribe.as_deref()) {
         (Some("frames"), None) => {
@@ -193,6 +199,7 @@ fn validate_control(control: WsControlMessage) -> Result<WsAction, String> {
     }
 }
 
+/// Tracks frame-stream throttling state for one client.
 struct FrameSubscription {
     min_interval: Duration,
     last_sent_at: Option<Instant>,
@@ -201,6 +208,7 @@ struct FrameSubscription {
 }
 
 impl FrameSubscription {
+    /// Builds a new frame subscription with a requested FPS cap.
     fn new(max_fps: u32) -> Self {
         Self {
             min_interval: Duration::from_secs_f64(1.0 / f64::from(max_fps)),
@@ -210,19 +218,23 @@ impl FrameSubscription {
         }
     }
 
+    /// Reports whether a delayed frame send is currently scheduled.
     fn has_timer(&self) -> bool {
         self.timer.is_some()
     }
 }
 
+/// Tracks the tick cadence for metrics updates.
 struct MetricsSubscription {
     every_n_ticks: u64,
 }
 
+/// Decides whether a metrics payload matches the current subscription cadence.
 fn should_send_metrics(subscription: &MetricsSubscription, metrics: &MetricsPayload) -> bool {
     metrics.tick.is_multiple_of(subscription.every_n_ticks)
 }
 
+/// Sends a frame immediately or queues it behind the FPS throttle.
 async fn try_send_frame(
     socket: &mut WebSocket,
     subscription: &mut FrameSubscription,
@@ -243,6 +255,7 @@ async fn try_send_frame(
     }
 }
 
+/// Sends one frame payload immediately and updates throttle state.
 async fn send_frame_now(
     socket: &mut WebSocket,
     subscription: &mut FrameSubscription,
@@ -255,6 +268,7 @@ async fn send_frame_now(
         .await
 }
 
+/// Sends one metrics payload as a JSON WebSocket message.
 async fn send_metrics(socket: &mut WebSocket, metrics: &MetricsPayload) -> Result<(), axum::Error> {
     send_json(
         socket,
@@ -266,6 +280,7 @@ async fn send_metrics(socket: &mut WebSocket, metrics: &MetricsPayload) -> Resul
     .await
 }
 
+/// Serializes one JSON value into a text WebSocket frame.
 async fn send_json(
     socket: &mut WebSocket,
     value: &impl serde::Serialize,
@@ -277,6 +292,7 @@ async fn send_json(
         .await
 }
 
+/// Awaits the next scheduled frame-send deadline when throttling is active.
 async fn frame_timer(subscription: Option<&mut FrameSubscription>) {
     if let Some(subscription) = subscription {
         if let Some(timer) = subscription.timer.as_mut() {

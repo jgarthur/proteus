@@ -30,12 +30,16 @@ fn build_deterministic_fixture() -> Simulation {
         .at(
             1,
             0,
-            ProgramBuilder::new().code(&[op::push(2), op::EMIT]).free_energy(6),
+            ProgramBuilder::new()
+                .code(&[op::push(2), op::EMIT])
+                .free_energy(6),
         )
         .at(
             2,
             0,
-            ProgramBuilder::new().code(&[op::LISTEN, op::NOP]).free_energy(1),
+            ProgramBuilder::new()
+                .code(&[op::LISTEN, op::NOP])
+                .free_energy(1),
         )
         .at(
             4,
@@ -49,9 +53,17 @@ fn build_deterministic_fixture() -> Simulation {
         .at(
             0,
             1,
-            ProgramBuilder::new().code(&[op::push(1), op::GIVE_E]).free_energy(4),
+            ProgramBuilder::new()
+                .code(&[op::push(1), op::GIVE_E])
+                .free_energy(4),
         )
-        .at(1, 1, ProgramBuilder::new().code(&[op::push(1), op::GIVE_M]).free_mass(4))
+        .at(
+            1,
+            1,
+            ProgramBuilder::new()
+                .code(&[op::push(1), op::GIVE_M])
+                .free_mass(4),
+        )
         .at(
             3,
             1,

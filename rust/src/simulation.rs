@@ -1,3 +1,5 @@
+//! Orchestrates pass execution and owns long-lived simulation state.
+
 use std::error::Error;
 use std::fmt;
 
@@ -11,6 +13,7 @@ use crate::pass3::{
     Pass3TailContext,
 };
 
+/// Owns reusable buffers that are rebuilt at the start of each tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TickScratch {
     snapshot: Vec<CellSnapshot>,
@@ -19,6 +22,7 @@ pub struct TickScratch {
 }
 
 impl TickScratch {
+    /// Allocates the reusable per-tick scratch buffers for one grid size.
     pub fn new(cell_count: usize) -> Self {
         Self {
             snapshot: vec![CellSnapshot::default(); cell_count],
@@ -27,26 +31,32 @@ impl TickScratch {
         }
     }
 
+    /// Returns the number of cells these scratch buffers are sized for.
     pub fn len(&self) -> usize {
         self.snapshot.len()
     }
 
+    /// Reports whether the scratch buffers are empty.
     pub fn is_empty(&self) -> bool {
         self.snapshot.is_empty()
     }
 
+    /// Returns the frozen Pass-0 cell snapshot for the prepared tick.
     pub fn snapshot(&self) -> &[CellSnapshot] {
         &self.snapshot
     }
 
+    /// Returns the live-at-tick-start mask for the prepared tick.
     pub fn live_set(&self) -> &[bool] {
         &self.live_set
     }
 
+    /// Returns the occupied-at-tick-start mask for the prepared tick.
     pub fn existed_set(&self) -> &[bool] {
         &self.existed_set
     }
 
+    /// Resizes the reusable scratch buffers to match the current grid.
     fn resize(&mut self, cell_count: usize) {
         self.snapshot.resize(cell_count, CellSnapshot::default());
         self.live_set.resize(cell_count, false);
@@ -54,6 +64,7 @@ impl TickScratch {
     }
 }
 
+/// Owns one simulation instance, its packets, and the tick driver state.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Simulation {
     grid: Grid,
@@ -64,6 +75,7 @@ pub struct Simulation {
     seed: u64,
 }
 
+/// Reports the birth, death, and mutation counts produced by one tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TickReport {
     pub births: u32,
@@ -72,6 +84,7 @@ pub struct TickReport {
 }
 
 impl Simulation {
+    /// Creates a simulation from a validated config and a fresh empty grid.
     pub fn new(config: SimConfig) -> Result<Self, SimulationError> {
         config.validate().map_err(SimulationError::InvalidConfig)?;
 
@@ -79,6 +92,7 @@ impl Simulation {
         Self::from_grid(config, grid)
     }
 
+    /// Creates a simulation from a config and an existing grid state.
     pub fn from_grid(config: SimConfig, grid: Grid) -> Result<Self, SimulationError> {
         config.validate().map_err(SimulationError::InvalidConfig)?;
 
@@ -105,22 +119,27 @@ impl Simulation {
         })
     }
 
+    /// Returns the immutable simulation config.
     pub fn config(&self) -> &SimConfig {
         &self.config
     }
 
+    /// Returns the immutable world grid.
     pub fn grid(&self) -> &Grid {
         &self.grid
     }
 
+    /// Returns the mutable world grid.
     pub fn grid_mut(&mut self) -> &mut Grid {
         &mut self.grid
     }
 
+    /// Returns the persistent directed-radiation packets.
     pub fn packets(&self) -> &[Packet] {
         &self.packets
     }
 
+    /// Appends externally supplied packets to the persistent packet list.
     pub fn extend_packets<I>(&mut self, packets: I)
     where
         I: IntoIterator<Item = Packet>,
@@ -128,18 +147,22 @@ impl Simulation {
         self.packets.extend(packets);
     }
 
+    /// Returns the current simulation tick counter.
     pub fn tick(&self) -> u64 {
         self.tick
     }
 
+    /// Returns the master seed used for deterministic random draws.
     pub fn seed(&self) -> u64 {
         self.seed
     }
 
+    /// Returns the reusable scratch buffers for the latest prepared tick.
     pub fn scratch(&self) -> &TickScratch {
         &self.scratch
     }
 
+    /// Freezes the snapshot and start-of-tick masks used by the passes.
     pub fn prepare_tick(&mut self) -> PreparedTick<'_> {
         self.scratch.resize(self.grid.len());
 
@@ -168,6 +191,7 @@ impl Simulation {
         }
     }
 
+    /// Runs Pass 1 against the current grid state.
     pub fn run_pass1(&mut self) -> Pass1Output {
         self.prepare_tick();
         pass1_local(
@@ -180,22 +204,27 @@ impl Simulation {
         )
     }
 
+    /// Runs Pass 2 for a supplied queue of nonlocal actions.
     pub fn run_pass2(&mut self, actions: &[QueuedAction]) -> Pass2Output {
         pass2_nonlocal(&mut self.grid, actions, self.tick, self.seed)
     }
 
+    /// Runs the packet sub-phase of Pass 3 against the persistent packet list.
     pub fn run_pass3_packets(&mut self) {
         pass3_packets(&mut self.grid, &mut self.packets, self.tick, self.seed);
     }
 
+    /// Runs the ambient-resource sub-phase of Pass 3.
     pub fn run_pass3_ambient(&mut self) -> Pass3AmbientOutput {
         pass3_ambient(&mut self.grid, &self.config, self.tick, self.seed)
     }
 
+    /// Advances the simulation by one full tick and discards the report.
     pub fn run_tick(&mut self) {
         let _ = self.run_tick_report();
     }
 
+    /// Advances the simulation by one full tick and returns observer counts.
     pub fn run_tick_report(&mut self) -> TickReport {
         self.prepare_tick();
 
@@ -243,6 +272,7 @@ impl Simulation {
     }
 }
 
+/// Exposes the frozen Pass-0 state for one prepared tick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PreparedTick<'a> {
     pub tick: u64,
@@ -251,6 +281,7 @@ pub struct PreparedTick<'a> {
     pub existed_set: &'a [bool],
 }
 
+/// Clears the newborn marker once a full tick has completed.
 fn clear_newborn_flags(grid: &mut Grid) {
     for cell in grid.cells_mut() {
         if let Some(program) = cell.program.as_mut() {
@@ -259,6 +290,7 @@ fn clear_newborn_flags(grid: &mut Grid) {
     }
 }
 
+/// Describes why a simulation could not be constructed or started.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SimulationError {
     InvalidConfig(ConfigError),
@@ -272,6 +304,7 @@ pub enum SimulationError {
 }
 
 impl fmt::Display for SimulationError {
+    /// Formats a human-readable simulation construction error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidConfig(err) => write!(f, "{err}"),
@@ -317,8 +350,8 @@ mod tests {
         cells[0].bg_radiation = 5;
         cells[0].bg_mass = 2;
 
-        let mut newborn =
-            Program::new_live(vec![op::NOP], Direction::Up, 3).expect("newborn program should build");
+        let mut newborn = Program::new_live(vec![op::NOP], Direction::Up, 3)
+            .expect("newborn program should build");
         newborn.tick.is_newborn = true;
         cells[1].program = Some(newborn);
 

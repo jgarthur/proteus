@@ -1,8 +1,11 @@
+//! Defines the core world, program, and queued-action data structures.
+
 use std::error::Error;
 use std::fmt;
 
 use crate::config::PROGRAM_SIZE_CAP;
 
+/// Represents one of the four cardinal directions used throughout the world.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Direction {
@@ -14,8 +17,10 @@ pub enum Direction {
 }
 
 impl Direction {
+    /// Lists all cardinal directions in spec encoding order.
     pub const ALL: [Self; 4] = [Self::Right, Self::Up, Self::Left, Self::Down];
 
+    /// Converts an arbitrary signed value into a wrapped direction.
     pub fn from_i16(value: i16) -> Self {
         match value.rem_euclid(4) {
             0 => Self::Right,
@@ -25,6 +30,7 @@ impl Direction {
         }
     }
 
+    /// Rotates a direction one step clockwise.
     pub fn clockwise(self) -> Self {
         match self {
             Self::Right => Self::Down,
@@ -34,6 +40,7 @@ impl Direction {
         }
     }
 
+    /// Rotates a direction one step counterclockwise.
     pub fn counterclockwise(self) -> Self {
         match self {
             Self::Right => Self::Up,
@@ -43,6 +50,7 @@ impl Direction {
         }
     }
 
+    /// Returns the opposite cardinal direction.
     pub fn opposite(self) -> Self {
         match self {
             Self::Right => Self::Left,
@@ -53,6 +61,7 @@ impl Direction {
     }
 }
 
+/// Stores the mutable registers carried by one program.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Registers {
     pub ip: u16,
@@ -65,6 +74,7 @@ pub struct Registers {
     pub lc: i16,
 }
 
+/// Stores per-tick transient flags and counters for one program.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TickState {
     pub absorb_count: u8,
@@ -78,10 +88,12 @@ pub struct TickState {
 }
 
 impl TickState {
+    /// Clears all transient tick state back to defaults.
     pub fn reset_for_new_tick(&mut self) {
         *self = Self::default();
     }
 
+    /// Prepares the transient state for the start of Pass 1.
     pub fn reset_for_pass1(&mut self, is_inert: bool) {
         let is_newborn = self.is_newborn;
         *self = Self {
@@ -92,6 +104,7 @@ impl TickState {
     }
 }
 
+/// Represents one program occupying a cell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Program {
     pub code: Vec<u8>,
@@ -104,23 +117,28 @@ pub struct Program {
 }
 
 impl Program {
+    /// Builds a live program with initialized registers and empty transient state.
     pub fn new_live(code: Vec<u8>, dir: Direction, id: u8) -> Result<Self, ProgramError> {
         Self::new(code, dir, id, true)
     }
 
+    /// Builds an inert program with initialized registers and empty transient state.
     pub fn new_inert(code: Vec<u8>, dir: Direction, id: u8) -> Result<Self, ProgramError> {
         Self::new(code, dir, id, false)
     }
 
+    /// Returns the program length as a validated `u16`.
     pub fn size(&self) -> u16 {
         u16::try_from(self.code.len())
             .expect("program size exceeds u16::MAX; constructors enforce the configured cap")
     }
 
+    /// Reports whether the program is currently inert.
     pub fn is_inert(&self) -> bool {
         !self.live
     }
 
+    /// Builds a program after enforcing the shared constructor invariants.
     fn new(code: Vec<u8>, dir: Direction, id: u8, live: bool) -> Result<Self, ProgramError> {
         validate_code_size(code.len())?;
 
@@ -142,6 +160,7 @@ impl Program {
     }
 }
 
+/// Validates that a program length fits the spec constraints.
 fn validate_code_size(len: usize) -> Result<(), ProgramError> {
     if len == 0 {
         return Err(ProgramError::EmptyCode);
@@ -155,6 +174,7 @@ fn validate_code_size(len: usize) -> Result<(), ProgramError> {
     Ok(())
 }
 
+/// Describes why a program could not be constructed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProgramError {
     EmptyCode,
@@ -162,6 +182,7 @@ pub enum ProgramError {
 }
 
 impl fmt::Display for ProgramError {
+    /// Formats a human-readable program construction error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyCode => write!(f, "programs must contain at least one instruction"),
@@ -174,6 +195,7 @@ impl fmt::Display for ProgramError {
 
 impl Error for ProgramError {}
 
+/// Stores the full mutable state for one world cell.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Cell {
     pub program: Option<Program>,
@@ -184,10 +206,12 @@ pub struct Cell {
 }
 
 impl Cell {
+    /// Builds an empty cell with no program or resources.
     pub fn empty() -> Self {
         Self::default()
     }
 
+    /// Builds a cell that starts with a program and default resources.
     pub fn with_program(program: Program) -> Self {
         Self {
             program: Some(program),
@@ -195,11 +219,13 @@ impl Cell {
         }
     }
 
+    /// Reports whether the cell currently contains a program.
     pub fn has_program(&self) -> bool {
         self.program.is_some()
     }
 }
 
+/// Captures the immutable per-cell view used during Pass 1 sensing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CellSnapshot {
     pub free_energy: u32,
@@ -212,6 +238,7 @@ pub struct CellSnapshot {
 }
 
 impl From<&Cell> for CellSnapshot {
+    /// Projects a cell into the snapshot fields read by Pass 1.
     fn from(cell: &Cell) -> Self {
         let (program_size, program_id, has_program) =
             cell.program.as_ref().map_or((0, 0, false), |program| {
@@ -230,6 +257,7 @@ impl From<&Cell> for CellSnapshot {
     }
 }
 
+/// Represents one directed radiation packet moving between cells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Packet {
     pub position: usize,
@@ -237,6 +265,7 @@ pub struct Packet {
     pub message: i16,
 }
 
+/// Represents one nonlocal action queued during Pass 1 for Pass 2 resolution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueuedAction {
     ReadAdj {

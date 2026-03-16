@@ -1,31 +1,39 @@
+//! Provides deterministic RNG helpers used across the simulator.
+
 use rand_core::{RngCore, SeedableRng};
 use rand_distr::{Binomial, Distribution};
 use rand_xoshiro::SplitMix64;
 
+/// Wraps the chosen RNG implementation behind a small simulator-facing API.
 #[derive(Clone, Debug)]
 pub struct WyRand {
     inner: fastrand::Rng,
 }
 
 impl WyRand {
+    /// Seeds a new RNG instance from a single `u64`.
     pub fn with_seed(seed: u64) -> Self {
         Self {
             inner: fastrand::Rng::with_seed(seed),
         }
     }
 
+    /// Draws the next random `u64`.
     pub fn next_u64(&mut self) -> u64 {
         self.inner.u64(..)
     }
 
+    /// Draws the next random `u32`.
     pub fn next_u32(&mut self) -> u32 {
         self.inner.u32(..)
     }
 
+    /// Draws a uniform floating-point value in `[0, 1)`.
     pub fn f64(&mut self) -> f64 {
         self.inner.f64()
     }
 
+    /// Draws a Bernoulli event with a probability clamp at the extremes.
     pub fn bernoulli(&mut self, probability: f64) -> bool {
         match probability {
             p if p <= 0.0 => false,
@@ -36,14 +44,17 @@ impl WyRand {
 }
 
 impl RngCore for WyRand {
+    /// Draws the next random `u32` for `rand_core` consumers.
     fn next_u32(&mut self) -> u32 {
         self.inner.u32(..)
     }
 
+    /// Draws the next random `u64` for `rand_core` consumers.
     fn next_u64(&mut self) -> u64 {
         self.inner.u64(..)
     }
 
+    /// Fills a byte slice using repeated 64-bit draws.
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         let mut remaining = dest;
         while remaining.len() >= 8 {
@@ -57,17 +68,20 @@ impl RngCore for WyRand {
         }
     }
 
+    /// Fills a byte slice and reports success to `rand_core`.
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
         self.fill_bytes(dest);
         Ok(())
     }
 }
 
+/// Mixes a seed value with splitmix64 for stable avalanche behavior.
 pub fn splitmix64(value: u64) -> u64 {
     let mut rng = SplitMix64::from_seed(value.to_le_bytes());
     rng.next_u64()
 }
 
+/// Derives a reproducible per-cell RNG from the master seed, tick, and cell index.
 pub fn cell_rng(master_seed: u64, tick: u64, cell_index: u64) -> WyRand {
     let mixed = splitmix64(
         master_seed
@@ -77,6 +91,7 @@ pub fn cell_rng(master_seed: u64, tick: u64, cell_index: u64) -> WyRand {
     WyRand::with_seed(mixed)
 }
 
+/// Draws a binomial count while handling the probability edge cases cheaply.
 pub fn binomial(rng: &mut WyRand, n: u32, probability: f64) -> u32 {
     if probability <= 0.0 {
         return 0;

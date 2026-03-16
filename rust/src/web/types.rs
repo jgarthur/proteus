@@ -1,3 +1,5 @@
+//! Defines the HTTP and WebSocket payload types for the web API.
+
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
@@ -5,9 +7,12 @@ use serde::{Deserialize, Serialize};
 use crate::config::{SimConfig, PROGRAM_SIZE_CAP};
 use crate::observe::MetricsSnapshot;
 
+/// Declares the current version string for the HTTP/WebSocket API.
 pub const API_VERSION: &str = "0.1.0";
+/// Names the response header that reports the API version.
 pub const API_VERSION_HEADER: &str = "X-Proteus-API-Version";
 
+/// Represents the simulation lifecycle states exposed by the API.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SimulationLifecycle {
@@ -16,6 +21,7 @@ pub enum SimulationLifecycle {
     Paused,
 }
 
+/// Accepts a simulation-creation request from the HTTP API.
 #[derive(Clone, Debug, Deserialize)]
 pub struct CreateSimulationRequest {
     pub width: u32,
@@ -52,6 +58,7 @@ pub struct CreateSimulationRequest {
 }
 
 impl CreateSimulationRequest {
+    /// Fills defaults and validates a request into a resolved API config.
     pub fn resolve(self) -> Result<SimulationConfig, String> {
         let defaults = SimConfig::default();
         let config = SimulationConfig {
@@ -87,6 +94,7 @@ impl CreateSimulationRequest {
     }
 }
 
+/// Mirrors the API-level simulation config, including seed programs.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SimulationConfig {
     pub width: u32,
@@ -110,6 +118,7 @@ pub struct SimulationConfig {
 }
 
 impl SimulationConfig {
+    /// Validates the API config and all requested seed programs.
     pub fn validate(&self) -> Result<(), String> {
         self.to_engine_config()
             .validate()
@@ -146,6 +155,7 @@ impl SimulationConfig {
         Ok(())
     }
 
+    /// Converts the API config into the engine config type.
     pub fn to_engine_config(&self) -> SimConfig {
         SimConfig {
             width: self.width,
@@ -168,6 +178,7 @@ impl SimulationConfig {
     }
 }
 
+/// Describes one seed program to place into the world at creation time.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SeedProgramConfig {
     pub x: u32,
@@ -177,6 +188,7 @@ pub struct SeedProgramConfig {
     pub free_mass: u32,
 }
 
+/// Returns the API payload for a successful create request.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct CreateSimulationResponse {
     pub status: SimulationLifecycle,
@@ -186,6 +198,7 @@ pub struct CreateSimulationResponse {
     pub config: SimulationConfig,
 }
 
+/// Returns the API payload for a simulation status request.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SimulationStatusResponse {
     pub status: SimulationLifecycle,
@@ -198,11 +211,13 @@ pub struct SimulationStatusResponse {
     pub ticks_per_second: f64,
 }
 
+/// Wraps API errors in the shared response envelope.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ErrorEnvelope {
     pub error: ErrorBody,
 }
 
+/// Stores the structured error body returned by the API.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ErrorBody {
     pub code: &'static str,
@@ -210,17 +225,20 @@ pub struct ErrorBody {
     pub status: u16,
 }
 
+/// Parses the optional tick count used by the step endpoint.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct StepQuery {
     pub count: Option<u64>,
 }
 
+/// Parses x/y coordinates for single-cell inspection endpoints.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct CellQuery {
     pub x: u32,
     pub y: u32,
 }
 
+/// Parses the bounded rectangle requested by the region inspection endpoint.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct CellRegionQuery {
     pub x: u32,
@@ -229,6 +247,7 @@ pub struct CellRegionQuery {
     pub h: u32,
 }
 
+/// Sends the initial hello frame on a new WebSocket connection.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct WsHelloMessage {
     #[serde(rename = "type")]
@@ -236,6 +255,7 @@ pub struct WsHelloMessage {
     pub api_version: &'static str,
 }
 
+/// Sends one metrics update over the WebSocket stream.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct WsMetricsMessage {
     #[serde(rename = "type")]
@@ -244,6 +264,7 @@ pub struct WsMetricsMessage {
     pub metrics: MetricsSnapshot,
 }
 
+/// Sends one structured WebSocket error message.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct WsErrorMessage {
     #[serde(rename = "type")]
@@ -252,6 +273,7 @@ pub struct WsErrorMessage {
     pub message: String,
 }
 
+/// Parses client control messages for WebSocket subscriptions.
 #[derive(Clone, Debug, Deserialize)]
 pub struct WsControlMessage {
     #[serde(default)]

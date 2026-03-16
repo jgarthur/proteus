@@ -1,7 +1,10 @@
+//! Starts the feature-gated Proteus web server binary.
+
 use std::error::Error;
 
 use tokio::net::TcpListener;
 
+/// Binds the HTTP server and hands the listener to the web module.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let bind_addr = std::env::args()

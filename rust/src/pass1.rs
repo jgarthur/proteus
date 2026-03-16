@@ -1,21 +1,26 @@
+//! Executes Pass 1, where live programs spend their local action budget.
+
 use crate::config::{SimConfig, PROGRAM_SIZE_CAP};
 use crate::grid::Grid;
 use crate::model::{Cell, CellSnapshot, Direction, Packet, QueuedAction};
 use crate::opcode::{Locality, Opcode};
 use crate::random::{cell_rng, WyRand};
 
+/// Collects the nonlocal actions and emitted packets produced by Pass 1.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Pass1Output {
     pub actions: Vec<QueuedAction>,
     pub emitted_packets: Vec<Packet>,
 }
 
+/// Computes the local action budget for one program size and exponent.
 pub fn local_action_budget(size_at_tick_start: u16, alpha: f64) -> u32 {
     let size = f64::from(size_at_tick_start);
     let budget = size.powf(alpha).floor() as u32;
     budget.max(1)
 }
 
+/// Runs the local VM for every program that was live at tick start.
 pub fn pass1_local(
     grid: &mut Grid,
     snapshot: &[CellSnapshot],
@@ -116,16 +121,19 @@ pub fn pass1_local(
     output
 }
 
+/// Describes how a local opcode changes Pass 1 control flow.
 enum LocalExecResult {
     Continue { packet: Option<Packet> },
     HaltForTick,
 }
 
+/// Describes how a nonlocal opcode queue attempt ends Pass 1 execution.
 enum NonlocalExecResult {
     HaltForTickNoAdvance,
     StopForTickAdvance { action: Option<QueuedAction> },
 }
 
+/// Describes how an opcode should update the program flag.
 #[derive(Clone, Copy)]
 enum FlagEffect {
     Clear,
@@ -133,6 +141,7 @@ enum FlagEffect {
     Neutral,
 }
 
+/// Executes one local opcode against a single cell.
 #[allow(clippy::too_many_arguments)]
 fn execute_local_instruction(
     cell: &mut Cell,
@@ -588,6 +597,7 @@ fn execute_local_instruction(
     LocalExecResult::Continue { packet: None }
 }
 
+/// Attempts to queue one nonlocal action from the current program.
 fn attempt_nonlocal_queue(
     cell: &mut Cell,
     cell_index: usize,
@@ -660,6 +670,7 @@ fn attempt_nonlocal_queue(
     NonlocalExecResult::StopForTickAdvance { action }
 }
 
+/// Pops two operands, applies a binary operator, and pushes the result.
 fn execute_binary_op<F>(cell: &mut Cell, current_ip: usize, op: F)
 where
     F: FnOnce(i16, i16) -> i16,
@@ -677,6 +688,7 @@ where
     advance_ip(cell, next_ip(current_ip, program(cell).code.len()));
 }
 
+/// Pops one operand, applies a unary operator, and pushes the result.
 fn execute_unary_op<F>(cell: &mut Cell, current_ip: usize, op: F)
 where
     F: FnOnce(i16) -> i16,
@@ -691,6 +703,7 @@ where
     advance_ip(cell, next_ip(current_ip, program(cell).code.len()));
 }
 
+/// Pays an opcode's base energy cost, falling back to background radiation.
 fn pay_base_cost(cell: &mut Cell, cost: u32) -> Result<u32, ()> {
     if cost == 0 {
         return Ok(0);
@@ -707,11 +720,13 @@ fn pay_base_cost(cell: &mut Cell, cost: u32) -> Result<u32, ()> {
     Ok(remainder)
 }
 
+/// Applies the spec-defined state updates for a failed base-cost payment.
 fn payment_failure(cell: &mut Cell) {
     apply_flag(cell, FlagEffect::Set);
     program_mut(cell).tick.is_open = true;
 }
 
+/// Pops the single operand required by a nonlocal instruction.
 fn capture_single_operand(cell: &mut Cell) -> Option<i16> {
     if program(cell).stack.is_empty() {
         None
@@ -725,6 +740,7 @@ fn capture_single_operand(cell: &mut Cell) -> Option<i16> {
     }
 }
 
+/// Pops one value from the program stack if present.
 fn pop_stack(cell: &mut Cell) -> Option<i16> {
     let popped = program_mut(cell).stack.pop();
     if popped.is_none() {
@@ -733,6 +749,7 @@ fn pop_stack(cell: &mut Cell) -> Option<i16> {
     popped
 }
 
+/// Pushes one value onto the program stack when capacity allows.
 fn push_stack(cell: &mut Cell, value: i16) -> bool {
     if program(cell).stack.len() >= usize::from(PROGRAM_SIZE_CAP) {
         apply_flag(cell, FlagEffect::Set);
@@ -743,6 +760,7 @@ fn push_stack(cell: &mut Cell, value: i16) -> bool {
     }
 }
 
+/// Applies a flag update after an opcode executes.
 fn apply_flag(cell: &mut Cell, effect: FlagEffect) {
     match effect {
         FlagEffect::Clear => program_mut(cell).registers.flag = false,
@@ -751,19 +769,23 @@ fn apply_flag(cell: &mut Cell, effect: FlagEffect) {
     }
 }
 
+/// Stores the next instruction pointer value back into the program registers.
 fn advance_ip(cell: &mut Cell, next_ip: u16) {
     program_mut(cell).registers.ip = next_ip;
 }
 
+/// Returns the current instruction pointer as a valid code index.
 fn current_ip_index(cell: &Cell) -> usize {
     let program = program(cell);
     usize::from(program.registers.ip % program.size())
 }
 
+/// Returns the next sequential instruction pointer with wraparound.
 fn next_ip(current_ip: usize, size: usize) -> u16 {
     wrap_ip((current_ip + 1) % size, size)
 }
 
+/// Returns the wrapped instruction pointer reached by a relative jump.
 fn jump_ip(current_ip: usize, offset: i16, size: usize) -> u16 {
     let base = current_ip as i32;
     let offset = i32::from(offset);
@@ -772,10 +794,12 @@ fn jump_ip(current_ip: usize, offset: i16, size: usize) -> u16 {
     wrap_ip(target, size as usize)
 }
 
+/// Wraps an arbitrary instruction index into the program code length.
 fn wrap_ip(index: usize, size: usize) -> u16 {
     u16::try_from(index % size).expect("program size is capped to u16")
 }
 
+/// Scans forward for the next matching opcode, wrapping around the program.
 fn find_forward_opcode(cell: &Cell, current_ip: usize, needle: Opcode) -> Option<usize> {
     let code = &program(cell).code;
     for step in 1..code.len() {
@@ -787,6 +811,7 @@ fn find_forward_opcode(cell: &Cell, current_ip: usize, needle: Opcode) -> Option
     None
 }
 
+/// Scans backward for the previous matching opcode, wrapping around the program.
 fn find_backward_opcode(cell: &Cell, current_ip: usize, needle: Opcode) -> Option<usize> {
     let code = &program(cell).code;
     for step in 1..code.len() {
@@ -798,6 +823,7 @@ fn find_backward_opcode(cell: &Cell, current_ip: usize, needle: Opcode) -> Optio
     None
 }
 
+/// Computes a neighbor index from raw grid dimensions and a direction.
 fn neighbor_index(width: u32, height: u32, index: usize, dir: Direction) -> usize {
     let width_usize = usize::try_from(width).expect("width should fit in usize");
     let height_usize = usize::try_from(height).expect("height should fit in usize");
@@ -812,12 +838,14 @@ fn neighbor_index(width: u32, height: u32, index: usize, dir: Direction) -> usiz
     }
 }
 
+/// Returns the program stored in a cell, asserting that one exists.
 fn program(cell: &Cell) -> &crate::model::Program {
     cell.program
         .as_ref()
         .expect("cell should contain a program")
 }
 
+/// Returns the mutable program stored in a cell, asserting that one exists.
 fn program_mut(cell: &mut Cell) -> &mut crate::model::Program {
     cell.program
         .as_mut()

@@ -175,7 +175,10 @@ fn nonpositive_give_amounts_are_flag_neutral_no_ops() {
         .at(
             1,
             0,
-            ProgramBuilder::new().code(&[op::NOP]).flag(true).free_mass(3),
+            ProgramBuilder::new()
+                .code(&[op::NOP])
+                .flag(true)
+                .free_mass(3),
         )
         .at(2, 0, ProgramBuilder::new().code(&[op::DUP]))
         .build_simulation();
@@ -332,7 +335,11 @@ fn write_adj_and_append_adj_conflict_on_the_same_target() {
         code == &[op::NOP, op::NOP, op::NOP][..]
     );
     assert_cell!(simulation.grid(), (1, 0), free_mass == 0);
-    assert_program!(simulation.grid(), (2, 0), code == &[op::DUP, op::JMP_NZ][..]);
+    assert_program!(
+        simulation.grid(),
+        (2, 0),
+        code == &[op::DUP, op::JMP_NZ][..]
+    );
 }
 
 #[test]
@@ -511,7 +518,11 @@ fn del_adj_additional_cost_failure_has_no_fallback_winner() {
     assert_program!(simulation.grid(), (0, 0), flag == true, dst == 0);
     assert_program!(simulation.grid(), (1, 0), flag == true, dst == 0);
     assert_cell!(simulation.grid(), (0, 0), free_energy == 2, free_mass == 0);
-    assert_program!(simulation.grid(), (2, 0), code == &[op::ADD, op::SUB, op::NEG][..]);
+    assert_program!(
+        simulation.grid(),
+        (2, 0),
+        code == &[op::ADD, op::SUB, op::NEG][..]
+    );
 }
 
 #[test]
@@ -626,8 +637,18 @@ fn opposing_moves_do_not_swap() {
         },
     ]);
 
-    assert_program!(simulation.grid(), (0, 0), code == &[op::DUP][..], flag == true);
-    assert_program!(simulation.grid(), (1, 0), code == &[op::ADD][..], flag == true);
+    assert_program!(
+        simulation.grid(),
+        (0, 0),
+        code == &[op::DUP][..],
+        flag == true
+    );
+    assert_program!(
+        simulation.grid(),
+        (1, 0),
+        code == &[op::ADD][..],
+        flag == true
+    );
     assert_cell!(simulation.grid(), (0, 0), free_energy == 2, free_mass == 1);
     assert_cell!(simulation.grid(), (1, 0), free_energy == 3, free_mass == 2);
 }
@@ -639,12 +660,16 @@ fn exclusive_conflict_tiebreak_is_deterministic_under_action_reordering() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
+            ProgramBuilder::new()
+                .code(&[op::NOP, op::NOP])
+                .free_energy(2),
         )
         .at(
             1,
             0,
-            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
+            ProgramBuilder::new()
+                .code(&[op::NOP, op::NOP])
+                .free_energy(2),
         )
         .at(2, 0, ProgramBuilder::new().code(&[op::DUP]).open(true))
         .build_simulation();
@@ -653,12 +678,16 @@ fn exclusive_conflict_tiebreak_is_deterministic_under_action_reordering() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
+            ProgramBuilder::new()
+                .code(&[op::NOP, op::NOP])
+                .free_energy(2),
         )
         .at(
             1,
             0,
-            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
+            ProgramBuilder::new()
+                .code(&[op::NOP, op::NOP])
+                .free_energy(2),
         )
         .at(2, 0, ProgramBuilder::new().code(&[op::DUP]).open(true))
         .build_simulation();
@@ -693,7 +722,8 @@ fn many_exclusive_writes_pick_one_deterministic_winner_independent_of_action_ord
     let mut right_builder = WorldBuilder::new(SOURCE_COUNT + 1, 1).seed(29);
     for x in 0..SOURCE_COUNT {
         left_builder = left_builder.at(x, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1));
-        right_builder = right_builder.at(x, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1));
+        right_builder =
+            right_builder.at(x, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1));
     }
     left_builder = left_builder.at(
         SOURCE_COUNT,
@@ -807,7 +837,9 @@ fn weighted_tie_break_prefers_larger_program_over_many_trials() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[op::NOP, op::NOP]).free_energy(2),
+            ProgramBuilder::new()
+                .code(&[op::NOP, op::NOP])
+                .free_energy(2),
         )
         .at(
             1,

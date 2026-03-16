@@ -70,7 +70,11 @@ fn collect_converts_background_mass_into_free_mass_before_mass_arrival() {
             config.d_mass = 0.0;
             config.r_mass = 1.0;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[op::COLLECT]).did_collect(true))
+        .at(
+            0,
+            0,
+            ProgramBuilder::new().code(&[op::COLLECT]).did_collect(true),
+        )
         .bg_mass_at(0, 0, 4)
         .build_simulation();
 

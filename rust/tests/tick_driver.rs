@@ -53,7 +53,9 @@ fn incoming_write_resets_inert_abandonment_timer_and_skips_maintenance() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[op::push(1), op::WRITE_ADJ]).free_energy(1),
+            ProgramBuilder::new()
+                .code(&[op::push(1), op::WRITE_ADJ])
+                .free_energy(1),
         )
         .at(
             1,

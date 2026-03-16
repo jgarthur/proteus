@@ -1,3 +1,5 @@
+//! Executes Pass 3 packet physics, ambient resource flow, and tick-end effects.
+
 use crate::config::SimConfig;
 use crate::grid::Grid;
 use crate::model::{Cell, Direction, Packet, Program};
@@ -12,12 +14,14 @@ const DECAY_SALT: u64 = 0x42f5_c1a9_203d_b665;
 const SPAWN_SALT: u64 = 0xbfd1_6a70_531c_2e84;
 const MUTATION_SALT: u64 = 0xe3b9_1d8c_7a4f_5012;
 
+/// Collects the ambient-phase outputs needed by the Pass 3 tail.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pass3AmbientOutput {
     pub spawn_candidates: Vec<bool>,
 }
 
 impl Pass3AmbientOutput {
+    /// Allocates the ambient-phase output buffers for one grid size.
     pub fn new(cell_count: usize) -> Self {
         Self {
             spawn_candidates: vec![false; cell_count],
@@ -25,12 +29,14 @@ impl Pass3AmbientOutput {
     }
 }
 
+/// Reports the births and deaths produced by the Pass 3 tail.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Pass3TailOutput {
     pub deaths: u32,
     pub spontaneous_births: u32,
 }
 
+/// Bundles the immutable inputs needed by the Pass 3 tail.
 #[derive(Clone, Copy, Debug)]
 pub struct Pass3TailContext<'a> {
     pub existed_set: &'a [bool],
@@ -42,6 +48,7 @@ pub struct Pass3TailContext<'a> {
     pub seed: u64,
 }
 
+/// Advances packets through propagation, listening, collision, and survival.
 pub fn pass3_packets(grid: &mut Grid, packets: &mut Vec<Packet>, tick: u64, seed: u64) {
     if packets.is_empty() {
         return;
@@ -80,6 +87,7 @@ pub fn pass3_packets(grid: &mut Grid, packets: &mut Vec<Packet>, tick: u64, seed
     *packets = survivors;
 }
 
+/// Runs the ambient-resource sub-steps of Pass 3 in spec order.
 pub fn pass3_ambient(
     grid: &mut Grid,
     config: &SimConfig,
@@ -96,6 +104,7 @@ pub fn pass3_ambient(
     output
 }
 
+/// Runs the lifecycle, maintenance, decay, aging, and spawn tail of Pass 3.
 pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) -> Pass3TailOutput {
     assert_eq!(
         grid.len(),
@@ -142,6 +151,7 @@ pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) -> Pass3TailOu
     }
 }
 
+/// Applies end-of-tick mutation to programs that were live at tick start.
 pub fn mutate_end_of_tick(
     grid: &mut Grid,
     live_set: &[bool],
@@ -191,6 +201,7 @@ pub fn mutate_end_of_tick(
     mutations
 }
 
+/// Resolves packet capture for one listening cell.
 fn apply_listen_capture(
     cell: &mut Cell,
     cell_index: usize,
@@ -215,6 +226,7 @@ fn apply_listen_capture(
     program.registers.flag = true;
 }
 
+/// Splits background radiation across all absorb footprints.
 fn resolve_absorb(grid: &mut Grid) {
     let mut buckets = vec![Vec::<usize>::new(); grid.len()];
     for source in 0..grid.len() {
@@ -274,6 +286,7 @@ fn resolve_absorb(grid: &mut Grid) {
     }
 }
 
+/// Applies decay and arrival for background radiation.
 fn resolve_background_radiation(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
     for cell_index in 0..grid.len() {
         let mut rng = cell_rng(seed ^ BG_RADIATION_SALT, tick, cell_index as u64);
@@ -292,6 +305,7 @@ fn resolve_background_radiation(grid: &mut Grid, config: &SimConfig, tick: u64, 
     }
 }
 
+/// Moves background mass into free mass for cells that collected this tick.
 fn resolve_collect(grid: &mut Grid) {
     for cell in grid.cells_mut() {
         if cell
@@ -305,6 +319,7 @@ fn resolve_collect(grid: &mut Grid) {
     }
 }
 
+/// Applies decay and arrival for background mass and marks spawn candidates.
 fn resolve_background_mass(
     grid: &mut Grid,
     config: &SimConfig,
@@ -330,6 +345,7 @@ fn resolve_background_mass(
     }
 }
 
+/// Updates inert abandonment timers and openness after Pass 2 writes.
 fn resolve_inert_lifecycle(grid: &mut Grid, incoming_writes: &[bool]) {
     for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
         let Some(program) = cell.program.as_mut() else {
@@ -348,6 +364,7 @@ fn resolve_inert_lifecycle(grid: &mut Grid, incoming_writes: &[bool]) {
     }
 }
 
+/// Charges maintenance to programs that still exist after the grace checks.
 fn resolve_maintenance(
     grid: &mut Grid,
     existed_set: &[bool],
@@ -405,6 +422,7 @@ fn resolve_maintenance(
     deaths
 }
 
+/// Burns maintenance quanta out of free energy, then program code, then live state.
 fn apply_maintenance(cell: &mut Cell, mut quanta: u32) -> bool {
     let energy_paid = cell.free_energy.min(quanta);
     cell.free_energy -= energy_paid;
@@ -432,6 +450,7 @@ fn apply_maintenance(cell: &mut Cell, mut quanta: u32) -> bool {
     false
 }
 
+/// Decays free resources above the per-cell threshold.
 fn resolve_free_resource_decay(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
     for cell_index in 0..grid.len() {
         let mut rng = cell_rng(seed ^ DECAY_SALT, tick, cell_index as u64);
@@ -449,6 +468,7 @@ fn resolve_free_resource_decay(grid: &mut Grid, config: &SimConfig, tick: u64, s
     }
 }
 
+/// Increments age for programs that were live at tick start.
 fn resolve_age_update(grid: &mut Grid, live_set: &[bool]) {
     for (cell_index, was_live_at_tick_start) in live_set.iter().copied().enumerate() {
         if !was_live_at_tick_start {
@@ -467,6 +487,7 @@ fn resolve_age_update(grid: &mut Grid, live_set: &[bool]) {
     }
 }
 
+/// Spawns new one-cell programs in empty candidate cells.
 fn resolve_spontaneous_creation(
     grid: &mut Grid,
     spawn_candidates: &[bool],
@@ -509,6 +530,7 @@ fn resolve_spontaneous_creation(
     births
 }
 
+/// Computes the free-resource decay threshold for one cell.
 fn resource_threshold(cell: &Cell, config: &SimConfig) -> f64 {
     let size = cell
         .program
@@ -517,6 +539,7 @@ fn resource_threshold(cell: &Cell, config: &SimConfig) -> f64 {
     config.t_cap * size
 }
 
+/// Computes the mutation probability for one program at tick end.
 fn mutation_probability(program: &Program, config: &SimConfig) -> f64 {
     if program.tick.bg_radiation_consumed > 0 {
         let denominator = 2_f64.powi(config.mutation_background_log2 as i32);
@@ -526,6 +549,7 @@ fn mutation_probability(program: &Program, config: &SimConfig) -> f64 {
     }
 }
 
+/// Returns the set of cells covered by one absorb footprint.
 fn absorb_footprint(
     grid: &Grid,
     source: usize,
@@ -547,16 +571,19 @@ fn absorb_footprint(
     cells
 }
 
+/// Pushes a cell index into a list only if it is not already present.
 fn push_unique(cells: &mut Vec<usize>, value: usize) {
     if !cells.contains(&value) {
         cells.push(value);
     }
 }
 
+/// Returns the program stored in a cell, if any.
 fn program(cell: &Cell) -> Option<&Program> {
     cell.program.as_ref()
 }
 
+/// Returns the mutable program stored in a cell, if any.
 fn program_mut(cell: &mut Cell) -> Option<&mut Program> {
     cell.program.as_mut()
 }

@@ -108,7 +108,11 @@ fn repeated_deladj_pressure_grows_predator_until_the_size_one_guard_stops_it() {
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
-        .at(0, 0, ProgramBuilder::new().code(&[op::DEL_ADJ]).free_energy(3))
+        .at(
+            0,
+            0,
+            ProgramBuilder::new().code(&[op::DEL_ADJ]).free_energy(3),
+        )
         .at(
             1,
             0,

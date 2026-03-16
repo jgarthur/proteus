@@ -49,12 +49,16 @@ fn zero_rate_world_preserves_total_energy_and_mass_under_internal_transfers() {
         .at(
             2,
             0,
-            ProgramBuilder::new().code(&[op::push(1), op::GIVE_E]).free_energy(5),
+            ProgramBuilder::new()
+                .code(&[op::push(1), op::GIVE_E])
+                .free_energy(5),
         )
         .at(
             3,
             0,
-            ProgramBuilder::new().code(&[op::push(2), op::EMIT]).free_energy(5),
+            ProgramBuilder::new()
+                .code(&[op::push(2), op::EMIT])
+                .free_energy(5),
         )
         .at(4, 0, ProgramBuilder::new().code(&[op::LISTEN, op::NOP]))
         .build_simulation();
@@ -134,10 +138,18 @@ fn forced_arrivals_and_decay_have_exact_accounting_through_pass3_ordering() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[op::ABSORB, op::NOP]).free_energy(1),
+            ProgramBuilder::new()
+                .code(&[op::ABSORB, op::NOP])
+                .free_energy(1),
         )
         .bg_radiation_at(0, 0, 4)
-        .at(1, 0, ProgramBuilder::new().code(&[op::COLLECT, op::NOP]).free_mass(1))
+        .at(
+            1,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::COLLECT, op::NOP])
+                .free_mass(1),
+        )
         .bg_mass_at(1, 0, 4)
         .bg_radiation_at(2, 0, 3)
         .bg_mass_at(2, 0, 2)

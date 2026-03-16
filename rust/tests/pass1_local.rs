@@ -31,7 +31,14 @@ fn absorb_expands_footprint_without_opening_the_cell() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[op::ABSORB, op::CW, op::ABSORB, op::ABSORB, op::ABSORB, op::ABSORB])
+                .code(&[
+                    op::ABSORB,
+                    op::CW,
+                    op::ABSORB,
+                    op::ABSORB,
+                    op::ABSORB,
+                    op::ABSORB,
+                ])
                 .dir(Direction::Up),
         )
         .build_simulation();
@@ -52,7 +59,11 @@ fn absorb_expands_footprint_without_opening_the_cell() {
 fn synthesize_additional_cost_failure_halts_without_advancing_ip() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| config.n_synth = 2)
-        .at(0, 0, ProgramBuilder::new().code(&[op::SYNTHESIZE]).free_energy(1))
+        .at(
+            0,
+            0,
+            ProgramBuilder::new().code(&[op::SYNTHESIZE]).free_energy(1),
+        )
         .build_simulation();
 
     let output = simulation.run_pass1();
@@ -74,7 +85,9 @@ fn failed_nonlocal_operand_capture_consumes_base_cost_and_stops_tick() {
         .at(
             0,
             0,
-            ProgramBuilder::new().code(&[op::WRITE_ADJ, op::push(1)]).free_energy(1),
+            ProgramBuilder::new()
+                .code(&[op::WRITE_ADJ, op::push(1)])
+                .free_energy(1),
         )
         .build_simulation();
 
@@ -151,7 +164,13 @@ fn push_literal_at_stack_capacity_sets_flag_and_leaves_stack_unchanged() {
         .map(|value| i16::try_from(value).expect("stack test values should fit in i16"))
         .collect();
     let mut simulation = WorldBuilder::new(1, 1)
-        .at(0, 0, ProgramBuilder::new().code(&[op::push(7)]).stack(&full_stack))
+        .at(
+            0,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::push(7)])
+                .stack(&full_stack),
+        )
         .build_simulation();
 
     simulation.run_pass1();
@@ -189,7 +208,11 @@ fn drop_on_empty_stack_sets_flag_and_leaves_stack_empty() {
 fn for_without_matching_next_sets_flag_and_advances() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| config.local_action_exponent = 0.0)
-        .at(0, 0, ProgramBuilder::new().code(&[op::FOR, op::NOP]).stack(&[0]))
+        .at(
+            0,
+            0,
+            ProgramBuilder::new().code(&[op::FOR, op::NOP]).stack(&[0]),
+        )
         .build_simulation();
 
     simulation.run_pass1();
@@ -235,7 +258,11 @@ fn for_can_find_next_via_wraparound_scan() {
 fn unmatched_next_is_flag_neutral_and_advances() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| config.local_action_exponent = 0.0)
-        .at(0, 0, ProgramBuilder::new().code(&[op::NEXT, op::NOP]).flag(true))
+        .at(
+            0,
+            0,
+            ProgramBuilder::new().code(&[op::NEXT, op::NOP]).flag(true),
+        )
         .build_simulation();
 
     simulation.run_pass1();

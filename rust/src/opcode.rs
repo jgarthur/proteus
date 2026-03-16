@@ -1,5 +1,9 @@
+//! Defines opcode decoding, metadata, and byte constants for program code.
+
+/// Stores the number of spec-defined opcode meanings exposed by the decoder.
 pub const SPEC_OPCODE_COUNT: usize = 71;
 
+/// Represents one decoded instruction from program bytecode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display)]
 #[strum(serialize_all = "camelCase")]
 pub enum Opcode {
@@ -65,6 +69,7 @@ pub enum Opcode {
 }
 
 impl Opcode {
+    /// Decodes one raw byte into the corresponding opcode representation.
     pub fn decode(byte: u8) -> Self {
         match byte {
             0x00..=0x0f => Self::PushLiteral(sign_extend_4bit(byte & 0x0f)),
@@ -127,6 +132,7 @@ impl Opcode {
         }
     }
 
+    /// Classifies whether an opcode resolves locally or in Pass 2.
     pub fn locality(self) -> Locality {
         match self {
             Self::ReadAdj
@@ -141,6 +147,7 @@ impl Opcode {
         }
     }
 
+    /// Returns the base energy cost that must be paid during Pass 1.
     pub fn base_cost(self) -> u32 {
         match self {
             Self::Emit
@@ -156,6 +163,7 @@ impl Opcode {
         }
     }
 
+    /// Returns any extra success-only resource cost tied to the opcode.
     pub fn additional_cost(self) -> AdditionalCost {
         match self {
             Self::Synthesize => AdditionalCost::FixedEnergySymbolic,
@@ -165,17 +173,20 @@ impl Opcode {
         }
     }
 
+    /// Reports whether the decoded opcode is a reserved no-op byte.
     pub fn is_noop(self) -> bool {
         matches!(self, Self::NoOp(_))
     }
 }
 
+/// Splits opcodes into Pass-1-local and Pass-2-nonlocal classes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Locality {
     Local,
     Nonlocal,
 }
 
+/// Describes the success-only extra resource cost for an opcode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdditionalCost {
     None,
@@ -265,6 +276,7 @@ pub mod op {
     pub const BOOT: u8 = 0x64;
 }
 
+/// Sign-extends a 4-bit literal into the VM stack value range.
 fn sign_extend_4bit(value: u8) -> i16 {
     let nibble = value & 0x0f;
     if nibble & 0x08 == 0 {

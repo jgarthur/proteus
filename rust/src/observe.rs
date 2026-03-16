@@ -1,3 +1,5 @@
+//! Builds read-only projections and compact encodings for external observers.
+
 use std::collections::HashSet;
 
 use crate::grid::Grid;
@@ -5,6 +7,7 @@ use crate::model::{Cell, Program};
 use crate::opcode::Opcode;
 use crate::simulation::TickReport;
 
+/// Summarizes the simulation state into observer-facing aggregate metrics.
 #[cfg_attr(feature = "web", derive(serde::Serialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetricsSnapshot {
@@ -22,6 +25,7 @@ pub struct MetricsSnapshot {
     pub mutations: u32,
 }
 
+/// Describes one cell in a human-readable inspection response.
 #[cfg_attr(feature = "web", derive(serde::Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CellInspection {
@@ -35,6 +39,7 @@ pub struct CellInspection {
     pub program: Option<ProgramInspection>,
 }
 
+/// Describes one program in a human-readable inspection response.
 #[cfg_attr(feature = "web", derive(serde::Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramInspection {
@@ -55,6 +60,7 @@ pub struct ProgramInspection {
     pub abandonment_timer: Option<u32>,
 }
 
+/// Computes one metrics snapshot from the current grid and tick report.
 pub fn collect_metrics(grid: &Grid, tick: u64, report: TickReport) -> MetricsSnapshot {
     let mut live_count = 0_u32;
     let mut inert_count = 0_u32;
@@ -108,6 +114,7 @@ pub fn collect_metrics(grid: &Grid, tick: u64, report: TickReport) -> MetricsSna
     }
 }
 
+/// Encodes the current grid into the compact binary frame used by observers.
 pub fn encode_grid_frame(grid: &Grid, tick: u64) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(16 + (grid.len() * 8));
     bytes.extend_from_slice(&tick.to_le_bytes());
@@ -129,6 +136,7 @@ pub fn encode_grid_frame(grid: &Grid, tick: u64) -> Vec<u8> {
     bytes
 }
 
+/// Returns an inspection view for one cell by flat index.
 pub fn inspect_cell(grid: &Grid, index: usize) -> CellInspection {
     let cell = grid.get(index).expect("cell index must be in bounds");
 
@@ -144,6 +152,7 @@ pub fn inspect_cell(grid: &Grid, index: usize) -> CellInspection {
     }
 }
 
+/// Returns inspection views for a rectangular region of cells.
 pub fn inspect_region(grid: &Grid, x: u32, y: u32, w: u32, h: u32) -> Vec<CellInspection> {
     let mut cells = Vec::with_capacity((w * h) as usize);
 
@@ -157,12 +166,14 @@ pub fn inspect_region(grid: &Grid, x: u32, y: u32, w: u32, h: u32) -> Vec<CellIn
     cells
 }
 
+/// Converts raw bytecode into the API-facing mnemonic strings.
 pub fn disassemble(code: &[u8]) -> Vec<String> {
     code.iter()
         .map(|byte| Opcode::decode(*byte).to_string())
         .collect()
 }
 
+/// Extracts the compact frame fields that describe program occupancy.
 fn cell_view_program_fields(cell: &Cell) -> (u8, u8, u8) {
     match cell.program.as_ref() {
         Some(program) => {
@@ -184,10 +195,12 @@ fn cell_view_program_fields(cell: &Cell) -> (u8, u8, u8) {
     }
 }
 
+/// Clamps a resource count into the byte-sized frame encoding.
 fn clamp_to_u8(value: u32) -> u8 {
     value.min(u32::from(u8::MAX)) as u8
 }
 
+/// Converts an internal program into the API inspection shape.
 fn program_inspection(program: &Program) -> ProgramInspection {
     ProgramInspection {
         code: program.code.clone(),
@@ -212,7 +225,6 @@ fn program_inspection(program: &Program) -> ProgramInspection {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{collect_metrics, disassemble, encode_grid_frame, inspect_cell};
@@ -224,8 +236,8 @@ mod tests {
     #[test]
     fn frame_encoding_uses_specified_header_and_cell_layout() {
         let mut cells = vec![Cell::default(), Cell::default()];
-        let mut program =
-            Program::new_live(vec![op::NOP, op::BOOT], Direction::Up, 7).expect("program should build");
+        let mut program = Program::new_live(vec![op::NOP, op::BOOT], Direction::Up, 7)
+            .expect("program should build");
         program.tick.is_open = true;
         cells[0].program = Some(program);
         cells[0].free_energy = 300;
@@ -263,8 +275,10 @@ mod tests {
     #[test]
     fn metrics_use_live_programs_for_size_statistics() {
         let mut cells = vec![Cell::default(), Cell::default()];
-        cells[0].program =
-            Some(Program::new_live(vec![op::NOP, op::ABSORB], Direction::Right, 1).expect("live program"));
+        cells[0].program = Some(
+            Program::new_live(vec![op::NOP, op::ABSORB], Direction::Right, 1)
+                .expect("live program"),
+        );
         cells[1].program =
             Some(Program::new_inert(vec![op::NOP], Direction::Right, 2).expect("inert program"));
         cells[0].free_energy = 3;

@@ -1,3 +1,5 @@
+//! Maps controller failures into HTTP and WebSocket error payloads.
+
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -5,6 +7,7 @@ use axum::Json;
 use super::controller::ControllerError;
 use super::types::{ErrorBody, ErrorEnvelope, WsErrorMessage};
 
+/// Carries one API error through the axum response pipeline.
 #[derive(Debug)]
 pub struct ApiError {
     status: StatusCode,
@@ -13,6 +16,7 @@ pub struct ApiError {
 }
 
 impl ApiError {
+    /// Builds a generic bad-request API error.
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
@@ -21,6 +25,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a structured WebSocket error message payload.
     pub fn ws_error(code: &'static str, message: impl Into<String>) -> WsErrorMessage {
         WsErrorMessage {
             kind: "error",
@@ -31,6 +36,7 @@ impl ApiError {
 }
 
 impl From<ControllerError> for ApiError {
+    /// Converts controller-layer failures into API-facing errors.
     fn from(error: ControllerError) -> Self {
         match error {
             ControllerError::NoSim => Self {
@@ -89,6 +95,7 @@ impl From<ControllerError> for ApiError {
 }
 
 impl IntoResponse for ApiError {
+    /// Serializes the API error into the standard JSON envelope.
     fn into_response(self) -> Response {
         (
             self.status,

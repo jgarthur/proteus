@@ -1,3 +1,5 @@
+//! Runs the single-simulation controller and its background worker thread.
+
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -19,18 +21,21 @@ use super::types::{
 const SEED_PROGRAM_SALT: u64 = 0x0d7e_8ef0_4268_33c1;
 const TPS_WINDOW: Duration = Duration::from_millis(250);
 
+/// Carries one binary grid frame through the watch channel.
 #[derive(Clone, Debug)]
 pub struct FramePayload {
     pub tick: u64,
     pub bytes: Arc<Vec<u8>>,
 }
 
+/// Carries one metrics snapshot through the watch channel.
 #[derive(Clone, Debug)]
 pub struct MetricsPayload {
     pub tick: u64,
     pub snapshot: Arc<MetricsSnapshot>,
 }
 
+/// Exposes async commands for creating, driving, and observing one simulation.
 #[derive(Clone)]
 pub struct SimulationController {
     command_tx: mpsc::Sender<Command>,
@@ -40,12 +45,14 @@ pub struct SimulationController {
 }
 
 impl Default for SimulationController {
+    /// Builds a new controller with its background worker thread.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl SimulationController {
+    /// Builds a new controller with fresh worker channels.
     pub fn new() -> Self {
         let (command_tx, command_rx) = mpsc::channel(64);
         let (frame_tx, frame_rx) = watch::channel(None);
@@ -66,26 +73,32 @@ impl SimulationController {
         }
     }
 
+    /// Subscribes to the latest binary frame stream.
     pub fn frame_receiver(&self) -> watch::Receiver<Option<FramePayload>> {
         self.frame_rx.clone()
     }
 
+    /// Subscribes to the latest metrics stream.
     pub fn metrics_receiver(&self) -> watch::Receiver<Option<MetricsPayload>> {
         self.metrics_rx.clone()
     }
 
+    /// Subscribes to destroy notifications for active clients.
     pub fn destroy_receiver(&self) -> broadcast::Receiver<()> {
         self.destroy_tx.subscribe()
     }
 
+    /// Returns the most recently published frame, if any.
     pub fn current_frame(&self) -> Option<FramePayload> {
         self.frame_rx.borrow().clone()
     }
 
+    /// Returns the most recently published metrics snapshot, if any.
     pub fn current_metrics(&self) -> Option<MetricsPayload> {
         self.metrics_rx.borrow().clone()
     }
 
+    /// Creates a new managed simulation from the supplied API config.
     pub async fn create(
         &self,
         config: SimulationConfig,
@@ -97,43 +110,53 @@ impl SimulationController {
         .await
     }
 
+    /// Returns the current simulation status.
     pub async fn status(&self) -> Result<SimulationStatusResponse, ControllerError> {
         self.request(Command::Status).await
     }
 
+    /// Returns the current simulation config.
     pub async fn config(&self) -> Result<SimulationConfig, ControllerError> {
         self.request(Command::Config).await
     }
 
+    /// Starts a created simulation.
     pub async fn start(&self) -> Result<SimulationStatusResponse, ControllerError> {
         self.request(Command::Start).await
     }
 
+    /// Pauses a running simulation.
     pub async fn pause(&self) -> Result<SimulationStatusResponse, ControllerError> {
         self.request(Command::Pause).await
     }
 
+    /// Resumes a paused simulation.
     pub async fn resume(&self) -> Result<SimulationStatusResponse, ControllerError> {
         self.request(Command::Resume).await
     }
 
+    /// Steps a paused simulation forward by a fixed tick count.
     pub async fn step(&self, count: u64) -> Result<SimulationStatusResponse, ControllerError> {
         self.request(|response_tx| Command::Step { count, response_tx })
             .await
     }
 
+    /// Resets the current simulation back to its original config.
     pub async fn reset(&self) -> Result<SimulationStatusResponse, ControllerError> {
         self.request(Command::Reset).await
     }
 
+    /// Destroys the current simulation and clears observers.
     pub async fn destroy(&self) -> Result<(), ControllerError> {
         self.request(Command::Destroy).await
     }
 
+    /// Returns the latest metrics snapshot from the worker.
     pub async fn metrics(&self) -> Result<MetricsSnapshot, ControllerError> {
         self.request(Command::Metrics).await
     }
 
+    /// Returns one inspected cell by flat index.
     pub async fn inspect_cell_by_index(
         &self,
         index: usize,
@@ -142,6 +165,7 @@ impl SimulationController {
             .await
     }
 
+    /// Returns one inspected cell by grid coordinates.
     pub async fn inspect_cell_by_coordinates(
         &self,
         x: u32,
@@ -151,6 +175,7 @@ impl SimulationController {
             .await
     }
 
+    /// Returns a bounded inspected region of cells.
     pub async fn inspect_region(
         &self,
         x: u32,
@@ -168,6 +193,7 @@ impl SimulationController {
         .await
     }
 
+    /// Sends one command to the worker thread and awaits its response.
     async fn request<T, F>(&self, command: F) -> Result<T, ControllerError>
     where
         T: Send + 'static,
@@ -186,6 +212,7 @@ impl SimulationController {
     }
 }
 
+/// Describes the controller-layer failures exposed to the API.
 #[derive(Debug)]
 pub enum ControllerError {
     NoSim,
@@ -200,6 +227,7 @@ pub enum ControllerError {
     Internal(String),
 }
 
+/// Enumerates the commands the worker thread can execute.
 enum Command {
     Create {
         config: SimulationConfig,
@@ -235,6 +263,7 @@ enum Command {
     },
 }
 
+/// Stores the live simulation plus its latest observer-facing projections.
 struct ManagedSimulation {
     config: SimulationConfig,
     simulation: Simulation,
@@ -247,6 +276,7 @@ struct ManagedSimulation {
 }
 
 impl ManagedSimulation {
+    /// Builds a managed simulation and publishes its initial observation state.
     fn new(config: SimulationConfig) -> Result<Self, ControllerError> {
         config.validate().map_err(ControllerError::InvalidConfig)?;
 
@@ -270,6 +300,7 @@ impl ManagedSimulation {
         })
     }
 
+    /// Builds the response returned by successful create requests.
     fn create_response(&self) -> CreateSimulationResponse {
         CreateSimulationResponse {
             status: self.lifecycle,
@@ -280,6 +311,7 @@ impl ManagedSimulation {
         }
     }
 
+    /// Builds the response returned by status-like requests.
     fn status_response(&self) -> SimulationStatusResponse {
         SimulationStatusResponse {
             status: self.lifecycle,
@@ -293,6 +325,7 @@ impl ManagedSimulation {
         }
     }
 
+    /// Publishes the latest frame and metrics to all watchers.
     fn publish(
         &self,
         frame_tx: &watch::Sender<Option<FramePayload>>,
@@ -308,12 +341,14 @@ impl ManagedSimulation {
         }));
     }
 
+    /// Resets the rolling ticks-per-second measurement window.
     fn reset_tps(&mut self) {
         self.ticks_per_second = 0.0;
         self.tps_window_start = Instant::now();
         self.tps_window_tick = self.simulation.tick();
     }
 
+    /// Recomputes the latest metrics snapshot and frame after a tick.
     fn refresh_observation(&mut self, report: TickReport) {
         self.latest_metrics =
             collect_metrics(self.simulation.grid(), self.simulation.tick(), report);
@@ -323,6 +358,7 @@ impl ManagedSimulation {
         ));
     }
 
+    /// Runs one full tick and republishes the observer streams.
     fn tick_once(
         &mut self,
         frame_tx: &watch::Sender<Option<FramePayload>>,
@@ -334,6 +370,7 @@ impl ManagedSimulation {
         self.publish(frame_tx, metrics_tx);
     }
 
+    /// Updates the smoothed ticks-per-second estimate when the window expires.
     fn update_tps_after_tick(&mut self) {
         let elapsed = self.tps_window_start.elapsed();
         if elapsed < TPS_WINDOW {
@@ -347,6 +384,7 @@ impl ManagedSimulation {
     }
 }
 
+/// Runs the background loop that owns the managed simulation instance.
 fn worker_loop(
     mut command_rx: mpsc::Receiver<Command>,
     frame_tx: watch::Sender<Option<FramePayload>>,
@@ -390,6 +428,7 @@ fn worker_loop(
     }
 }
 
+/// Applies one controller command to the managed simulation state.
 fn handle_command(
     command: Command,
     simulation: &mut Option<ManagedSimulation>,
@@ -556,6 +595,7 @@ fn handle_command(
     }
 }
 
+/// Inspects one cell by flat index with bounds checking.
 fn inspect_cell_by_index(
     simulation: &ManagedSimulation,
     index: usize,
@@ -567,6 +607,7 @@ fn inspect_cell_by_index(
     Ok(inspect_cell(simulation.simulation.grid(), index))
 }
 
+/// Inspects one cell by coordinates with bounds checking.
 fn inspect_cell_by_coordinates(
     simulation: &ManagedSimulation,
     x: u32,
@@ -580,6 +621,7 @@ fn inspect_cell_by_coordinates(
     Ok(inspect_cell(simulation.simulation.grid(), index))
 }
 
+/// Inspects one bounded cell rectangle with validation.
 fn inspect_region_cells(
     simulation: &ManagedSimulation,
     x: u32,
@@ -610,6 +652,7 @@ fn inspect_region_cells(
     Ok(inspect_region(simulation.simulation.grid(), x, y, w, h))
 }
 
+/// Seeds the initial programs requested by the API config into the grid.
 fn apply_seed_programs(
     simulation: &mut Simulation,
     config: &SimulationConfig,
@@ -634,6 +677,7 @@ fn apply_seed_programs(
     Ok(())
 }
 
+/// Converts engine construction failures into controller-layer errors.
 fn simulation_error(error: SimulationError) -> ControllerError {
     match error {
         SimulationError::InvalidConfig(err) => ControllerError::InvalidConfig(err.to_string()),

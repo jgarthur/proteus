@@ -1,9 +1,14 @@
+//! Defines the simulator configuration surface and its validation rules.
+
 use std::error::Error;
 use std::fmt;
 
+/// Tracks the spec version this backend is aligned to.
 pub const SPEC_VERSION: &str = "0.2.0";
+/// Stores the maximum allowed program length from the spec.
 pub const PROGRAM_SIZE_CAP: u16 = 0x7fff;
 
+/// Holds the tunable parameters that shape one simulation run.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SimConfig {
     pub width: u32,
@@ -25,6 +30,7 @@ pub struct SimConfig {
 }
 
 impl Default for SimConfig {
+    /// Builds the spec-aligned default simulation configuration.
     fn default() -> Self {
         Self {
             width: 128,
@@ -48,6 +54,7 @@ impl Default for SimConfig {
 }
 
 impl SimConfig {
+    /// Validates that a config can safely drive a simulation.
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.width == 0 {
             return Err(ConfigError::ZeroWidth);
@@ -75,12 +82,14 @@ impl SimConfig {
             })
     }
 
+    /// Returns the total number of cells implied by the grid dimensions.
     pub fn cell_count(&self) -> Option<usize> {
         let width = usize::try_from(self.width).ok()?;
         let height = usize::try_from(self.height).ok()?;
         width.checked_mul(height)
     }
 
+    /// Checks that a floating-point field is a valid probability.
     fn check_probability(&self, field: &'static str, value: f64) -> Result<(), ConfigError> {
         if !value.is_finite() || !(0.0..=1.0).contains(&value) {
             return Err(ConfigError::ProbabilityOutOfRange { field, value });
@@ -88,6 +97,7 @@ impl SimConfig {
         Ok(())
     }
 
+    /// Checks that a floating-point field is finite and non-negative.
     fn check_non_negative(&self, field: &'static str, value: f64) -> Result<(), ConfigError> {
         if !value.is_finite() || value < 0.0 {
             return Err(ConfigError::NegativeOrNonFinite { field, value });
@@ -96,6 +106,7 @@ impl SimConfig {
     }
 }
 
+/// Describes why a simulation config is invalid.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConfigError {
     ZeroWidth,
@@ -106,6 +117,7 @@ pub enum ConfigError {
 }
 
 impl fmt::Display for ConfigError {
+    /// Formats a human-readable config validation error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ZeroWidth => write!(f, "config width must be greater than zero"),

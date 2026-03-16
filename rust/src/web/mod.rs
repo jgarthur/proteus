@@ -1,3 +1,5 @@
+//! Wires the feature-gated HTTP and WebSocket API around the simulation controller.
+
 mod controller;
 mod error;
 mod types;
@@ -23,11 +25,13 @@ pub use types::{
 
 use self::types::{CellQuery, CellRegionQuery, StepQuery};
 
+/// Stores the shared controller handle for request handlers.
 #[derive(Clone)]
 struct AppState {
     controller: SimulationController,
 }
 
+/// Builds the full API router for one simulation controller.
 pub fn router(controller: SimulationController) -> Router {
     let version_header_name = HeaderName::from_static("x-proteus-api-version");
     let version_header_value = HeaderValue::from_static(API_VERSION);
@@ -55,10 +59,12 @@ pub fn router(controller: SimulationController) -> Router {
         ))
 }
 
+/// Starts the web server with a default controller instance.
 pub async fn serve(listener: TcpListener) -> std::io::Result<()> {
     serve_with_controller(listener, SimulationController::new()).await
 }
 
+/// Starts the web server with an explicitly supplied controller.
 pub async fn serve_with_controller(
     listener: TcpListener,
     controller: SimulationController,
@@ -66,6 +72,7 @@ pub async fn serve_with_controller(
     axum_serve(listener, router(controller)).await
 }
 
+/// Handles simulation creation requests.
 async fn create_sim(
     State(state): State<AppState>,
     payload: Result<Json<CreateSimulationRequest>, JsonRejection>,
@@ -76,39 +83,46 @@ async fn create_sim(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
+/// Returns the current simulation status.
 async fn get_sim(
     State(state): State<AppState>,
 ) -> Result<Json<SimulationStatusResponse>, ApiError> {
     Ok(Json(state.controller.status().await?))
 }
 
+/// Destroys the current simulation instance.
 async fn delete_sim(State(state): State<AppState>) -> Result<StatusCode, ApiError> {
     state.controller.destroy().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Returns the current simulation config.
 async fn get_config(State(state): State<AppState>) -> Result<Json<SimulationConfig>, ApiError> {
     Ok(Json(state.controller.config().await?))
 }
 
+/// Transitions the simulation from created to running.
 async fn start_sim(
     State(state): State<AppState>,
 ) -> Result<Json<SimulationStatusResponse>, ApiError> {
     Ok(Json(state.controller.start().await?))
 }
 
+/// Pauses a running simulation.
 async fn pause_sim(
     State(state): State<AppState>,
 ) -> Result<Json<SimulationStatusResponse>, ApiError> {
     Ok(Json(state.controller.pause().await?))
 }
 
+/// Resumes a paused simulation.
 async fn resume_sim(
     State(state): State<AppState>,
 ) -> Result<Json<SimulationStatusResponse>, ApiError> {
     Ok(Json(state.controller.resume().await?))
 }
 
+/// Advances a paused simulation by a fixed number of ticks.
 async fn step_sim(
     State(state): State<AppState>,
     query: Result<Query<StepQuery>, QueryRejection>,
@@ -117,18 +131,21 @@ async fn step_sim(
     Ok(Json(state.controller.step(count.unwrap_or(1)).await?))
 }
 
+/// Rebuilds the simulation from its original config.
 async fn reset_sim(
     State(state): State<AppState>,
 ) -> Result<Json<SimulationStatusResponse>, ApiError> {
     Ok(Json(state.controller.reset().await?))
 }
 
+/// Returns the latest observer metrics snapshot.
 async fn get_metrics(
     State(state): State<AppState>,
 ) -> Result<Json<crate::observe::MetricsSnapshot>, ApiError> {
     Ok(Json(state.controller.metrics().await?))
 }
 
+/// Returns one cell inspection by flat index.
 async fn get_cell_by_index(
     State(state): State<AppState>,
     Path(index): Path<usize>,
@@ -136,6 +153,7 @@ async fn get_cell_by_index(
     Ok(Json(state.controller.inspect_cell_by_index(index).await?))
 }
 
+/// Returns one cell inspection by grid coordinates.
 async fn get_cell_by_query(
     State(state): State<AppState>,
     query: Result<Query<CellQuery>, QueryRejection>,
@@ -146,6 +164,7 @@ async fn get_cell_by_query(
     ))
 }
 
+/// Returns a bounded rectangular batch of cell inspections.
 async fn get_cells(
     State(state): State<AppState>,
     query: Result<Query<CellRegionQuery>, QueryRejection>,
@@ -154,16 +173,19 @@ async fn get_cells(
     Ok(Json(state.controller.inspect_region(x, y, w, h).await?))
 }
 
+/// Upgrades one connection into the WebSocket control/data stream.
 async fn websocket(State(state): State<AppState>, websocket: WebSocketUpgrade) -> Response {
     websocket.on_upgrade(move |socket| ws::handle_socket(socket, state.controller))
 }
 
+/// Unwraps a JSON request body or converts parser failures into API errors.
 fn json_body<T>(payload: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
     payload
         .map(|Json(value)| value)
         .map_err(|err| ApiError::bad_request(err.body_text()))
 }
 
+/// Unwraps query parameters or converts parser failures into API errors.
 fn parse_query<T>(query: Result<Query<T>, QueryRejection>) -> Result<T, ApiError> {
     query
         .map(|Query(value)| value)
