@@ -13,6 +13,10 @@ Items are referenced by name from `STATUS.md` at the repo root. Use the exact it
 Context: keep seed placement outside `SimConfig`; this is code-organization follow-up, not a semantics change.
 References: `docs/API-SPEC.md`, `rust/src/web/controller.rs`
 
+### SEED-ENVIRONMENT: Support seed-neighborhood resource preload
+
+Problem: the current API config can seed resources only on occupied program cells, so it cannot represent the spec seed's recommended resource-rich neighboring empty cells.
+
 ### CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
 
 Context: `created` / `running` / `paused` remain a web-layer concern; this follow-up is about controller structure, not moving lifecycle into the engine core.

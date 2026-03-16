@@ -161,6 +161,9 @@
           <button id="preset-blank" type="button">Blank World</button>
           <button id="preset-dot" type="button">Single Cell</button>
         </div>
+        <div class="row">
+          <button id="preset-seed" type="button">Spec Seed</button>
+        </div>
       </div>
       <div class="card">
         <h2>Create Config</h2>
@@ -173,12 +176,25 @@
       <div class="card">
         <h2>Run Control</h2>
         <div class="row split">
-          <button id="start" type="button">Start</button>
+          <button id="play" type="button">Play</button>
           <button id="pause" type="button">Pause</button>
         </div>
         <div class="row split">
           <button id="step1" type="button">Step 1</button>
           <button id="step10" type="button">Step 10</button>
+        </div>
+        <div class="row">
+          <label for="play-rate">Play Rate</label>
+          <select id="play-rate">
+            <option value="1">1 tick/sec</option>
+            <option value="2">2 ticks/sec</option>
+            <option value="5" selected>5 ticks/sec</option>
+            <option value="10">10 ticks/sec</option>
+            <option value="20">20 ticks/sec</option>
+            <option value="50">50 ticks/sec</option>
+            <option value="100">100 ticks/sec</option>
+            <option value="unlimited">Unlimited</option>
+          </select>
         </div>
         <div class="row">
           <button id="reset" type="button">Reset</button>
@@ -227,12 +243,97 @@
       seed: 1,
       seed_programs: [{ x: 32, y: 24, code: [80, 80, 80, 80], free_energy: 20, free_mass: 12 }]
     };
+    const specSeedConfig = {
+      width: 64,
+      height: 48,
+      seed: 1,
+      seed_programs: [
+        {
+          x: 32,
+          y: 24,
+          code: [
+            "absorb",
+            "collect",
+            "cw",
+            "push 0",
+            "setSrc",
+            "getSize",
+            "for",
+            "read",
+            "appendAdj",
+            "next",
+            "boot",
+            "nop"
+          ],
+          free_energy: 20,
+          free_mass: 12
+        }
+      ]
+    };
+    const opcodeBytes = {
+      dup: 0x10,
+      drop: 0x11,
+      swap: 0x12,
+      over: 0x13,
+      rand: 0x14,
+      add: 0x20,
+      sub: 0x21,
+      neg: 0x22,
+      eq: 0x23,
+      lt: 0x24,
+      gt: 0x25,
+      not: 0x26,
+      and: 0x27,
+      or: 0x28,
+      for: 0x30,
+      next: 0x31,
+      jmp: 0x32,
+      jmpnz: 0x33,
+      jmpz: 0x34,
+      cw: 0x40,
+      ccw: 0x41,
+      getsize: 0x42,
+      getip: 0x43,
+      getflag: 0x44,
+      getmsg: 0x45,
+      getid: 0x46,
+      getsrc: 0x47,
+      getdst: 0x48,
+      setdir: 0x49,
+      setsrc: 0x4a,
+      setdst: 0x4b,
+      setid: 0x4c,
+      gete: 0x4d,
+      getm: 0x4e,
+      nop: 0x50,
+      absorb: 0x51,
+      listen: 0x52,
+      collect: 0x53,
+      emit: 0x54,
+      read: 0x55,
+      write: 0x56,
+      del: 0x57,
+      synthesize: 0x58,
+      sensesize: 0x59,
+      sensee: 0x5a,
+      sensem: 0x5b,
+      senseid: 0x5c,
+      readadj: 0x5d,
+      writeadj: 0x5e,
+      appendadj: 0x5f,
+      deladj: 0x60,
+      givee: 0x61,
+      givem: 0x62,
+      move: 0x63,
+      boot: 0x64
+    };
     const statusEl = document.getElementById("status");
     const summaryEl = document.getElementById("summary");
     const configEl = document.getElementById("config");
     const cellEl = document.getElementById("cell");
     const colorModeEl = document.getElementById("color-mode");
     const pixelSizeEl = document.getElementById("pixel-size");
+    const playRateEl = document.getElementById("play-rate");
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const metricEls = {
@@ -245,6 +346,9 @@
     let latestFrame = null;
     let selectedCell = null;
     let pixelSize = Number(pixelSizeEl.value);
+    let playTimer = null;
+    let playStepInFlight = false;
+    let playRunId = 0;
     configEl.value = JSON.stringify(defaultBlankConfig, null, 2);
 
     function setStatus(message, warn = false) {
@@ -254,6 +358,44 @@
 
     function setPreset(config) {
       configEl.value = JSON.stringify(config, null, 2);
+    }
+
+    function encodeOpcode(token) {
+      if (typeof token === "number") {
+        if (!Number.isInteger(token) || token < 0 || token > 255) {
+          throw new Error("Opcode bytes must be integers between 0 and 255.");
+        }
+        return token;
+      }
+      if (typeof token !== "string") {
+        throw new Error("Opcodes must be bytes or mnemonic strings.");
+      }
+      const value = token.trim();
+      const pushMatch = value.match(/^push\s+(-?\d+)$/i);
+      if (pushMatch) {
+        const literal = Number(pushMatch[1]);
+        if (!Number.isInteger(literal) || literal < -8 || literal > 7) {
+          throw new Error("Push literals must be integers between -8 and 7.");
+        }
+        return literal & 0x0f;
+      }
+      const byte = opcodeBytes[value.toLowerCase()];
+      if (byte === undefined) {
+        throw new Error("Unknown opcode mnemonic: " + value);
+      }
+      return byte;
+    }
+
+    function normalizeConfig(payload) {
+      const normalized = JSON.parse(JSON.stringify(payload));
+      if (!Array.isArray(normalized.seed_programs)) {
+        return normalized;
+      }
+      normalized.seed_programs = normalized.seed_programs.map((program) => ({
+        ...program,
+        code: (program.code || []).map(encodeOpcode)
+      }));
+      return normalized;
     }
 
     function wsUrl() {
@@ -339,10 +481,71 @@
     async function refreshStatus() {
       try {
         const status = await request("/v1/sim", { method: "GET" });
-        summaryEl.textContent = "State " + status.status + " | tick " + status.tick + " | tps " + status.ticks_per_second.toFixed(2);
+        const mode = playTimer ? "paced" : status.status;
+        summaryEl.textContent = "State " + mode + " | tick " + status.tick + " | tps " + status.ticks_per_second.toFixed(2);
       } catch (_error) {
         summaryEl.textContent = "No simulation.";
       }
+    }
+
+    async function loadFrameSnapshot() {
+      try {
+        const status = await request("/v1/sim", { method: "GET" });
+        const region = await fetchAllCells(status.grid_width, status.grid_height);
+        latestFrame = {
+          tick: status.tick,
+          width: status.grid_width,
+          height: status.grid_height,
+          cells: inspectionsToFrame(region, status.grid_width, status.grid_height)
+        };
+        render();
+      } catch (_error) {
+      }
+    }
+
+    async function fetchAllCells(width, height) {
+      const all = [];
+      const chunkWidth = Math.min(width, 10);
+      const chunkHeight = Math.min(height, 10);
+      for (let y = 0; y < height; y += chunkHeight) {
+        for (let x = 0; x < width; x += chunkWidth) {
+          const w = Math.min(chunkWidth, width - x);
+          const h = Math.min(chunkHeight, height - y);
+          const region = await request(
+            "/v1/sim/cells?x=" + x + "&y=" + y + "&w=" + w + "&h=" + h,
+            { method: "GET" }
+          );
+          all.push(...region);
+        }
+      }
+      return all;
+    }
+
+    function inspectionsToFrame(cells, width, height) {
+      const bytes = new Uint8Array(width * height * 8);
+      cells.forEach((cell) => {
+        const index = cell.y * width + cell.x;
+        const offset = index * 8;
+        const program = cell.program;
+        let flags = 0;
+        if (program) {
+          flags |= 0b001;
+          if (program.live) {
+            flags |= 0b010;
+          }
+        } else {
+          flags |= 0b100;
+        }
+        bytes[offset] = flags;
+        bytes[offset + 1] = program ? program.id : 0;
+        bytes[offset + 2] = program ? Math.min(Math.floor(program.size / 128), 255) : 0;
+        bytes[offset + 3] = Math.min(cell.free_energy, 255);
+        bytes[offset + 4] = Math.min(cell.free_mass, 255);
+        bytes[offset + 5] = Math.min(cell.bg_radiation, 255);
+        bytes[offset + 6] = Math.min(cell.bg_mass, 255);
+        bytes[offset + 7] = 0;
+      });
+      return new DataView(bytes.buffer);
     }
 
     function connectSocket() {
@@ -353,6 +556,7 @@
         setStatus("WebSocket connected.");
         socket.send(JSON.stringify({ subscribe: "frames", max_fps: 15 }));
         socket.send(JSON.stringify({ subscribe: "metrics", every_n_ticks: 1 }));
+        loadFrameSnapshot();
       });
       socket.addEventListener("message", (event) => {
         if (typeof event.data === "string") {
@@ -375,6 +579,58 @@
       });
     }
 
+    function stopPlayLoop() {
+      playRunId += 1;
+      if (playTimer !== null) {
+        window.clearInterval(playTimer);
+        playTimer = null;
+      }
+      playStepInFlight = false;
+    }
+
+    async function stepWhilePlaying(runId) {
+      if (runId !== playRunId || playStepInFlight) {
+        return true;
+      }
+      playStepInFlight = true;
+      try {
+        await request("/v1/sim/step?count=1", { method: "POST" });
+        return true;
+      } catch (error) {
+        if (runId === playRunId) {
+          stopPlayLoop();
+          setStatus("Play failed: " + error.message, true);
+        }
+        return false;
+      } finally {
+        playStepInFlight = false;
+      }
+    }
+
+    async function startUnlimitedPlayLoop(runId) {
+      while (runId === playRunId) {
+        const ok = await stepWhilePlaying(runId);
+        if (!ok) {
+          return;
+        }
+      }
+    }
+
+    function startPlayLoop() {
+      stopPlayLoop();
+      playRunId += 1;
+      const runId = playRunId;
+      if (playRateEl.value === "unlimited") {
+        void startUnlimitedPlayLoop(runId);
+        return;
+      }
+
+      const rate = Number(playRateEl.value);
+      playTimer = window.setInterval(() => {
+        void stepWhilePlaying(runId);
+      }, Math.max(1, Math.floor(1000 / rate)));
+    }
+
     async function inspectCell(x, y) {
       try {
         const cell = await request("/v1/sim/cell?x=" + x + "&y=" + y, { method: "GET" });
@@ -389,6 +645,7 @@
         const result = await action();
         setStatus(label + " ok.");
         await refreshStatus();
+        await loadFrameSnapshot();
         render();
         return result;
       } catch (error) {
@@ -399,8 +656,10 @@
 
     document.getElementById("preset-blank").addEventListener("click", () => setPreset(defaultBlankConfig));
     document.getElementById("preset-dot").addEventListener("click", () => setPreset(defaultSingleCellConfig));
+    document.getElementById("preset-seed").addEventListener("click", () => setPreset(specSeedConfig));
     document.getElementById("create").addEventListener("click", async () => {
-      const payload = JSON.parse(configEl.value);
+      stopPlayLoop();
+      const payload = normalizeConfig(JSON.parse(configEl.value));
       await runAction("Create", () => request("/v1/sim", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -409,17 +668,29 @@
       connectSocket();
     });
     document.getElementById("destroy").addEventListener("click", async () => {
+      stopPlayLoop();
       await runAction("Destroy", () => request("/v1/sim", { method: "DELETE" }));
       latestFrame = null;
       selectedCell = null;
       cellEl.textContent = "No cell selected.";
       render();
     });
-    document.getElementById("start").addEventListener("click", () => runAction("Start", () => request("/v1/sim/start", { method: "POST" })));
-    document.getElementById("pause").addEventListener("click", () => runAction("Pause", () => request("/v1/sim/pause", { method: "POST" })));
+    document.getElementById("play").addEventListener("click", async () => {
+      await refreshStatus();
+      startPlayLoop();
+      setStatus(playRateEl.value === "unlimited" ? "Play ok. Rate: unlimited." : "Play ok.");
+    });
+    document.getElementById("pause").addEventListener("click", async () => {
+      stopPlayLoop();
+      await refreshStatus();
+      setStatus("Pause ok.");
+    });
     document.getElementById("step1").addEventListener("click", () => runAction("Step", () => request("/v1/sim/step?count=1", { method: "POST" })));
     document.getElementById("step10").addEventListener("click", () => runAction("Step", () => request("/v1/sim/step?count=10", { method: "POST" })));
-    document.getElementById("reset").addEventListener("click", () => runAction("Reset", () => request("/v1/sim/reset", { method: "POST" })));
+    document.getElementById("reset").addEventListener("click", () => {
+      stopPlayLoop();
+      return runAction("Reset", () => request("/v1/sim/reset", { method: "POST" }));
+    });
     colorModeEl.addEventListener("change", render);
     pixelSizeEl.addEventListener("input", () => {
       pixelSize = Number(pixelSizeEl.value);

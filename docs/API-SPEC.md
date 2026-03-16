@@ -277,7 +277,7 @@ Resume from paused state. Returns `200 OK`. Fails with `409` if not paused.
 POST /v1/sim/step?count=1
 ```
 
-Advance exactly `count` ticks (default 1) while paused. Returns `200 OK` with status after stepping. The response is sent after all requested ticks have completed. Fails with `409` if the simulation is running (not paused).
+Advance exactly `count` ticks (default 1) while not running. This works from both `created` and `paused`. If called from `created`, the simulation transitions to `paused` after the requested ticks complete. Returns `200 OK` with status after stepping. The response is sent after all requested ticks have completed. Fails with `409` if the simulation is running.
 
 ### Reset
 

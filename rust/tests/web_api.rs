@@ -79,14 +79,15 @@ async fn rest_lifecycle_flow_and_inspection_work() {
     let cell_json = response_json(cell_response).await;
     assert_eq!(cell_json["program"]["disassembly"], json!(["nop", "boot"]));
 
-    let start_response = app
+    let step_from_created_response = app
         .clone()
-        .oneshot(empty_request(Method::POST, "/v1/sim/start"))
+        .oneshot(empty_request(Method::POST, "/v1/sim/step?count=1"))
         .await
-        .expect("start request should succeed");
-    assert_eq!(start_response.status(), StatusCode::OK);
-    let start_json = response_json(start_response).await;
-    assert_eq!(start_json["status"], "running");
+        .expect("step from created request should succeed");
+    assert_eq!(step_from_created_response.status(), StatusCode::OK);
+    let step_from_created_json = response_json(step_from_created_response).await;
+    assert_eq!(step_from_created_json["status"], "paused");
+    assert_eq!(step_from_created_json["tick"], 1);
 
     let pause_response = app
         .clone()
@@ -222,6 +223,22 @@ async fn rest_errors_use_expected_status_codes_and_payloads() {
     assert_eq!(region_too_large.status(), StatusCode::BAD_REQUEST);
     let region_json = response_json(region_too_large).await;
     assert_eq!(region_json["error"]["code"], "REGION_TOO_LARGE");
+
+    let step_wrong_state = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/start"))
+        .await
+        .expect("request should return an error response");
+    assert_eq!(step_wrong_state.status(), StatusCode::OK);
+
+    let step_while_running = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/step?count=1"))
+        .await
+        .expect("request should return an error response");
+    assert_eq!(step_while_running.status(), StatusCode::CONFLICT);
+    let step_running_json = response_json(step_while_running).await;
+    assert_eq!(step_running_json["error"]["code"], "SIM_NOT_PAUSED");
 
     let step_wrong_state = app
         .clone()

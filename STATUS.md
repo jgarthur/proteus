@@ -17,6 +17,7 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 ## Next
 
 - [ ] Design 1–2 minimal self-replicating seed programs
+- [ ] SEED-ENVIRONMENT: Support seed-neighborhood resource preload
 - [ ] SEED-BOOTSTRAP: Extract seed-program bootstrap module
 - [ ] CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
 - [ ] Build the frontend (implement `FRONTEND-SPEC.md`)

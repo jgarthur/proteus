@@ -519,11 +519,15 @@ fn handle_command(
                 Some(_) if count == 0 => Err(ControllerError::BadRequest(
                     "step count must be greater than zero".to_owned(),
                 )),
-                Some(sim) if sim.lifecycle == SimulationLifecycle::Paused => {
+                Some(sim)
+                    if sim.lifecycle == SimulationLifecycle::Paused
+                        || sim.lifecycle == SimulationLifecycle::Created =>
+                {
                     sim.reset_tps();
                     for _ in 0..count {
                         sim.tick_once(frame_tx, metrics_tx);
                     }
+                    sim.lifecycle = SimulationLifecycle::Paused;
                     Ok(sim.status_response())
                 }
                 Some(_) => Err(ControllerError::SimNotPaused),
