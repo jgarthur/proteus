@@ -1,5 +1,6 @@
 //! Orchestrates pass execution and owns long-lived simulation state.
 
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 
@@ -75,7 +76,8 @@ pub struct Simulation {
     seed: u64,
 }
 
-/// Reports the birth, death, and mutation counts produced by one tick.
+/// Reports per-tick population and mutation statistics, including total births,
+/// boot vs. spawn birth breakdown, deaths, mutations, and the packet count.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TickReport {
     pub births: u32,
@@ -273,7 +275,7 @@ impl Simulation {
             spawn_births: tail.spontaneous_births,
             deaths: tail.deaths,
             mutations,
-            packet_count: self.packets.len() as u32,
+            packet_count: u32::try_from(self.packets.len()).unwrap_or(u32::MAX),
         }
     }
 }

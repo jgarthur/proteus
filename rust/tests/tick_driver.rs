@@ -304,7 +304,7 @@ fn tick_report_tracks_packet_count() {
             0,
             0,
             ProgramBuilder::new()
-                .code(&[op::push(42), op::EMIT])
+                .code(&[op::push(1), op::EMIT])
                 .free_energy(1),
         )
         .build_simulation();
