@@ -16,11 +16,14 @@ pub struct MetricsSnapshot {
     pub live_count: u32,
     pub inert_count: u32,
     pub total_energy: u64,
+    pub packet_energy: u64,
     pub total_mass: u64,
     pub mean_program_size: f64,
     pub max_program_size: u32,
     pub unique_genomes: u32,
     pub births: u32,
+    pub boot_births: u32,
+    pub spawn_births: u32,
     pub deaths: u32,
     pub mutations: u32,
 }
@@ -104,11 +107,15 @@ pub fn collect_metrics(grid: &Grid, tick: u64, report: TickReport) -> MetricsSna
         inert_count,
         // API-SPEC §10 currently defines totals over cell-local pools only.
         total_energy,
+        // Each in-flight packet carries exactly 1 energy (SPEC §Physics).
+        packet_energy: u64::from(report.packet_count),
         total_mass,
         mean_program_size,
         max_program_size,
         unique_genomes: genomes.len() as u32,
         births: report.births,
+        boot_births: report.boot_births,
+        spawn_births: report.spawn_births,
         deaths: report.deaths,
         mutations: report.mutations,
     }
@@ -289,9 +296,12 @@ mod tests {
             &grid,
             5,
             TickReport {
-                births: 1,
+                births: 3,
+                boot_births: 2,
+                spawn_births: 1,
                 deaths: 2,
                 mutations: 3,
+                packet_count: 5,
             },
         );
 
@@ -299,11 +309,14 @@ mod tests {
         assert_eq!(metrics.live_count, 1);
         assert_eq!(metrics.inert_count, 1);
         assert_eq!(metrics.total_energy, 7);
+        assert_eq!(metrics.packet_energy, 5);
         assert_eq!(metrics.total_mass, 3);
         assert_eq!(metrics.mean_program_size, 2.0);
         assert_eq!(metrics.max_program_size, 2);
         assert_eq!(metrics.unique_genomes, 1);
-        assert_eq!(metrics.births, 1);
+        assert_eq!(metrics.births, 3);
+        assert_eq!(metrics.boot_births, 2);
+        assert_eq!(metrics.spawn_births, 1);
         assert_eq!(metrics.deaths, 2);
         assert_eq!(metrics.mutations, 3);
     }
