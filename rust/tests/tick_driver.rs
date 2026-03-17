@@ -127,6 +127,8 @@ fn tick_report_counts_spontaneous_spawn_as_birth() {
     let report = simulation.run_tick_report();
 
     assert_eq!(report.births, 1);
+    assert_eq!(report.spawn_births, 1);
+    assert_eq!(report.boot_births, 0);
     assert_eq!(report.deaths, 0);
     assert_eq!(report.mutations, 0);
 }
@@ -250,4 +252,64 @@ fn maintenance_destroyed_instructions_do_not_become_free_mass() {
         has_program == false,
         free_mass == 0
     );
+}
+
+#[test]
+fn tick_report_counts_boot_birth_separately() {
+    let mut simulation = WorldBuilder::new(2, 1)
+        .configure(|config| {
+            config.maintenance_rate = 0.0;
+            config.d_energy = 0.0;
+            config.d_mass = 0.0;
+            config.r_energy = 0.0;
+            config.r_mass = 0.0;
+            config.p_spawn = 0.0;
+            config.mutation_base_log2 = 32;
+            config.mutation_background_log2 = 32;
+        })
+        .at(0, 0, ProgramBuilder::new().code(&[op::BOOT]))
+        .at(
+            1,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::NOP])
+                .live(false)
+                .open(true),
+        )
+        .build_simulation();
+
+    let report = simulation.run_tick_report();
+
+    assert_eq!(report.births, 1);
+    assert_eq!(report.boot_births, 1);
+    assert_eq!(report.spawn_births, 0);
+}
+
+#[test]
+fn tick_report_tracks_packet_count() {
+    // emit sends a directed radiation packet; after one tick the packet
+    // should be in-flight and counted in the report.
+    let mut simulation = WorldBuilder::new(3, 1)
+        .configure(|config| {
+            config.maintenance_rate = 0.0;
+            config.d_energy = 0.0;
+            config.d_mass = 0.0;
+            config.r_energy = 0.0;
+            config.r_mass = 0.0;
+            config.p_spawn = 0.0;
+            config.mutation_base_log2 = 32;
+            config.mutation_background_log2 = 32;
+        })
+        .at(
+            0,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::push(42), op::EMIT])
+                .free_energy(1),
+        )
+        .build_simulation();
+
+    let report = simulation.run_tick_report();
+
+    assert_eq!(report.packet_count, 1);
 }

@@ -326,11 +326,14 @@ Server pushes JSON:
   "live_count": 1623,
   "inert_count": 224,
   "total_energy": 294011,
+  "packet_energy": 237,
   "total_mass": 183722,
   "mean_program_size": 14.3,
   "max_program_size": 87,
   "unique_genomes": 412,
   "births": 12,
+  "boot_births": 9,
+  "spawn_births": 3,
   "deaths": 8,
   "mutations": 3
 }
@@ -343,11 +346,14 @@ Server pushes JSON:
 | `live_count` | u32 | Live programs | stable |
 | `inert_count` | u32 | Inert programs | stable |
 | `total_energy` | u64 | Sum of all free energy + bg radiation across grid | stable |
+| `packet_energy` | u64 | Energy held in in-flight directed radiation packets (1 energy per packet) | stable |
 | `total_mass` | u64 | Sum of all free mass + bg mass + program instructions across grid | stable |
 | `mean_program_size` | f64 | Mean instruction count of live programs | stable |
 | `max_program_size` | u32 | Largest live program | stable |
 | `unique_genomes` | u32 | Distinct program bytecodes (live only) | stable |
 | `births` | u32 | Programs that became live this tick via `boot` or spontaneous spawn | stable |
+| `boot_births` | u32 | Programs that became live this tick via `boot` | stable |
+| `spawn_births` | u32 | Programs that became live this tick via spontaneous spawn | stable |
 | `deaths` | u32 | Programs destroyed (maintenance/decay) this tick | stable |
 | `mutations` | u32 | Mutation events this tick | stable |
 
@@ -658,7 +664,7 @@ These are acknowledged but not yet specified:
 
 2. **Snapshot storage.** When snapshot routes are implemented, the spec does not prescribe where snapshots are stored. File-based storage (one file per snapshot in a configured directory) is the likely implementation, but the API intentionally hides this. Should snapshots support export/import (download/upload raw snapshot data) for portability between server instances?
 
-3. **Future packet-energy visibility.** `total_energy` intentionally means free energy + background radiation across the grid; it does **not** include in-flight directed-radiation packets. If packet visibility is needed later, it should be added as a separate metric rather than by redefining `total_energy`.
+3. ~~**Future packet-energy visibility.**~~ Resolved: `packet_energy` is now a separate metric in §10. `total_energy` remains cell-local free energy + background radiation only.
 
 4. **WebSocket reconnection semantics.** If a client's WebSocket connection drops and reconnects, should subscriptions be stateless (client must re-subscribe) or should the server remember subscription state by some client identifier? Stateless is simpler and recommended.
 

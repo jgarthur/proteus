@@ -22,8 +22,8 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
 - [x] Build the frontend (implement `FRONTEND-SPEC.md`)
 - [ ] SNAPSHOT-BOUNDARY: Engine snapshot boundary and web-layer snapshot store
-- [ ] METRIC-PACKET-ENERGY: Add packet-energy metric
-- [ ] METRIC-BIRTH-TYPES: Add boot_births and spawn_births metrics
+- [x] METRIC-PACKET-ENERGY: Add packet-energy metric
+- [x] METRIC-BIRTH-TYPES: Add boot_births and spawn_births metrics
 - [ ] SPEED-CONTROL: Replace the frontend-side target-TPS stepping shim with real backend speed control and re-align the frontend with the spec
 - [ ] FRONTEND-DEFAULTS: Reconcile local testing defaults and seed-program bootstrap hacks with the spec-backed frontend defaults
 - [ ] CONFIG-RATES: Rework backend ambient/decay config fields from probabilities to true rates

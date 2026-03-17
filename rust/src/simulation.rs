@@ -79,8 +79,11 @@ pub struct Simulation {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TickReport {
     pub births: u32,
+    pub boot_births: u32,
+    pub spawn_births: u32,
     pub deaths: u32,
     pub mutations: u32,
+    pub packet_count: u32,
 }
 
 impl Simulation {
@@ -266,8 +269,11 @@ impl Simulation {
             // API-SPEC §10 treats any transition to live within the tick as a birth,
             // whether it came from boot or spontaneous spawn.
             births: pass2.booted_programs + tail.spontaneous_births,
+            boot_births: pass2.booted_programs,
+            spawn_births: tail.spontaneous_births,
             deaths: tail.deaths,
             mutations,
+            packet_count: self.packets.len() as u32,
         }
     }
 }
