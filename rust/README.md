@@ -30,6 +30,10 @@ From `rust/`:
 cargo run --features web --bin proteus-server
 ```
 
+The crate's default `dev` profile is intentionally tuned for runtime speed
+(`opt-level = 3`, thin LTO, `codegen-units = 1`), so plain `cargo run` is the
+fast path for local simulator work.
+
 Then open `http://127.0.0.1:3000/debug/smoke`.
 
 To bind a different address/port:

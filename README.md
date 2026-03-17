@@ -25,6 +25,9 @@ cd rust
 cargo run --bin proteus-server --features web
 ```
 
+The Rust crate tunes the default `dev` profile for runtime speed, so plain
+`cargo run` already builds an optimized simulator binary with thin LTO.
+
 Frontend:
 
 ```bash
