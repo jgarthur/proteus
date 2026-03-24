@@ -451,7 +451,7 @@ Sorted by `created_at` descending (newest first).
 
 The config editor appears in the **Controls** tab when creating a new simulation. It is a form that produces the JSON body for `POST /v1/sim` (API-SPEC §8).
 
-`r_energy` and `r_mass` are Poisson arrival means per cell per tick, so they are valid for any finite non-negative number. `d_energy` and `d_mass` remain per-quantum decay probabilities in `[0, 1]`.
+`r_energy` and `r_mass` are Poisson arrival means per cell per tick, so they are valid for any finite non-negative number. `d_energy` and `d_mass` are per-quantum decay probabilities in `[0, 1]`.
 
 ### Field groups
 

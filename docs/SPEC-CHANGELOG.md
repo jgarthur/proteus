@@ -7,7 +7,7 @@
 - Reinterpreted `R_energy` and `R_mass` as Poisson arrival means per cell per tick rather than Bernoulli probabilities capped at one arriving unit. `D_energy` and `D_mass` remain per-quantum decay probabilities with binomial thinning semantics.
   - Why: this lets ambient resource rates exceed 1 without inventing ad hoc clamping or multi-draw hacks, while preserving the simple discrete-time decay model.
 - Defined fresh simulation initialization for ambient background pools using the stationary law of the arrival/decay process: each cell starts from `Poisson(R / D)` when `D > 0`, and from 0 when `D = 0` because no finite steady state exists.
-  - Why: fresh simulations now begin near ambient equilibrium instead of an artificially empty world, without breaking the mathematically correct no-steady-state case.
+  - Why: previously, the initial seed programs were starving. Fresh simulations now begin at ambient equilibrium instead of an artificially empty world, without breaking the mathematically correct no-steady-state case. 
 
 ### 2026-03-15
 

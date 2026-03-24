@@ -233,8 +233,6 @@ Optional initial-state fields:
 The program is placed as live with `IP = 0`, an empty stack, and default registers. As in the
 master simulation spec, default `Dir` and `ID` initialization is randomized at program creation.
 
-Background radiation and background mass are not set directly by this schema. Fresh simulations seed those pools from the stationary ambient distribution implied by `r_*` and `d_*`: `Poisson(r / d)` per cell when `d > 0`, else 0 for that pool when `d = 0`.
-
 ### Read config
 
 ```

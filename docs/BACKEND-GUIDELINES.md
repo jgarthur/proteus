@@ -281,7 +281,7 @@ fn binomial(rng: &mut fastrand::Rng, n: u32, p: f64) -> u32 {
 
 For large n (energy/mass pools in the hundreds), this gets slow. Add a BTPE or normal-approximation fast path if profiling shows binomial sampling as a bottleneck.
 
-Ambient arrivals now use Poisson draws with mean `R_energy` / `R_mass`, and fresh worlds seed background pools from the stationary `Poisson(R / D)` law when `D > 0`. Keep those helpers in the same `random` module so the stochastic surface stays centralized and testable.
+Ambient arrivals use Poisson draws with mean `R_energy` / `R_mass`, and fresh worlds seed background pools from the stationary `Poisson(R / D)` law when `D > 0`. Keep those helpers in the same `random` module so the stochastic surface stays centralized and testable.
 
 ## Queued actions
 
