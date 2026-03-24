@@ -8,6 +8,11 @@ Items are referenced by name from `STATUS.md` at the repo root. Use the exact it
 
 ## Items
 
+### RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
+
+Context: the current backend keeps a feature-gated non-Rayon path alongside the Rayon path for the newly parallelized per-cell loops. Revisit whether that duplication is worth keeping, or whether the crate should standardize on the Rayon iterator path and rely on a 1-thread pool when effectively running serially.
+References: `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/simulation.rs`, `.github/workflows/rust.yml`
+
 ### SEED-BOOTSTRAP: Extract seed-program bootstrap module
 
 Context: keep seed placement outside `SimConfig`; this is code-organization follow-up, not a semantics change.

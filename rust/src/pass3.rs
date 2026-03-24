@@ -5,6 +5,8 @@ use crate::grid::Grid;
 use crate::model::{Cell, Direction, Packet, Program};
 use crate::opcode::op;
 use crate::random::{binomial, cell_rng, poisson};
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
 
 const LISTEN_CAPTURE_SALT: u64 = 0x5d17_2ef3_94ab_c881;
 const BG_RADIATION_SALT: u64 = 0x1f03_86da_b9c7_e251;
@@ -165,40 +167,27 @@ pub fn mutate_end_of_tick(
         "live-set length must match grid size"
     );
 
-    let mut mutations = 0;
-    for (cell_index, is_live_at_tick_start) in live_set.iter().copied().enumerate() {
-        if !is_live_at_tick_start {
-            continue;
-        }
-
-        let Some(program) = grid
-            .get(cell_index)
-            .expect("cell should exist")
-            .program
-            .as_ref()
-        else {
-            continue;
-        };
-
-        let probability = mutation_probability(program, config);
-        let mut rng = cell_rng(seed ^ MUTATION_SALT, tick, cell_index as u64);
-        if !rng.bernoulli(probability) {
-            continue;
-        }
-
-        let program = grid
-            .get_mut(cell_index)
-            .expect("cell should exist")
-            .program
-            .as_mut()
-            .expect("program should still exist");
-        let instruction_index = (rng.next_u64() % program.code.len() as u64) as usize;
-        let bit_index = (rng.next_u64() % 8) as u8;
-        program.code[instruction_index] ^= 1_u8 << bit_index;
-        mutations += 1;
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut()
+            .par_iter_mut()
+            .enumerate()
+            .map(|(cell_index, cell)| {
+                mutate_end_of_tick_cell(cell, live_set[cell_index], config, tick, seed, cell_index)
+            })
+            .sum()
     }
 
-    mutations
+    #[cfg(not(feature = "rayon"))]
+    {
+        grid.cells_mut()
+            .iter_mut()
+            .enumerate()
+            .map(|(cell_index, cell)| {
+                mutate_end_of_tick_cell(cell, live_set[cell_index], config, tick, seed, cell_index)
+            })
+            .sum()
+    }
 }
 
 /// Resolves packet capture for one listening cell.
@@ -288,31 +277,37 @@ fn resolve_absorb(grid: &mut Grid) {
 
 /// Applies decay and Poisson arrival for background radiation.
 fn resolve_background_radiation(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
-    for cell_index in 0..grid.len() {
-        let mut rng = cell_rng(seed ^ BG_RADIATION_SALT, tick, cell_index as u64);
-        let current = grid
-            .get(cell_index)
-            .expect("cell should exist")
-            .bg_radiation;
-        let decayed = binomial(&mut rng, current, config.d_energy);
-        let remaining = current - decayed;
-        let arrivals = poisson(&mut rng, config.r_energy);
-        grid.get_mut(cell_index)
-            .expect("cell should exist")
-            .bg_radiation = remaining.saturating_add(arrivals);
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut()
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(cell_index, cell)| {
+                resolve_background_radiation_cell(cell, config, tick, seed, cell_index);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
+    {
+        for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
+            resolve_background_radiation_cell(cell, config, tick, seed, cell_index);
+        }
     }
 }
 
 /// Moves background mass into free mass for cells that collected this tick.
 fn resolve_collect(grid: &mut Grid) {
-    for cell in grid.cells_mut() {
-        if cell
-            .program
-            .as_ref()
-            .is_some_and(|program| program.tick.did_collect)
-        {
-            cell.free_mass += cell.bg_mass;
-            cell.bg_mass = 0;
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut()
+            .par_iter_mut()
+            .for_each(resolve_collect_cell);
+    }
+
+    #[cfg(not(feature = "rayon"))]
+    {
+        for cell in grid.cells_mut() {
+            resolve_collect_cell(cell);
         }
     }
 }
@@ -325,37 +320,49 @@ fn resolve_background_mass(
     seed: u64,
     output: &mut Pass3AmbientOutput,
 ) {
-    for cell_index in 0..grid.len() {
-        let mut rng = cell_rng(seed ^ BG_MASS_SALT, tick, cell_index as u64);
-        let current = grid.get(cell_index).expect("cell should exist").bg_mass;
-        let decayed = binomial(&mut rng, current, config.d_mass);
-        let remaining = current - decayed;
-        let arrivals = poisson(&mut rng, config.r_mass);
+    #[cfg(feature = "rayon")]
+    {
+        let spawn_candidates = &mut output.spawn_candidates;
+        grid.cells_mut()
+            .par_iter_mut()
+            .zip(spawn_candidates.par_iter_mut())
+            .enumerate()
+            .for_each(|(cell_index, (cell, spawn_candidate))| {
+                *spawn_candidate =
+                    resolve_background_mass_cell(cell, config, tick, seed, cell_index);
+            });
+    }
 
-        let cell = grid.get_mut(cell_index).expect("cell should exist");
-        cell.bg_mass = remaining.saturating_add(arrivals);
-        if arrivals > 0 && !cell.has_program() {
-            output.spawn_candidates[cell_index] = true;
+    #[cfg(not(feature = "rayon"))]
+    {
+        for (cell_index, (cell, spawn_candidate)) in grid
+            .cells_mut()
+            .iter_mut()
+            .zip(output.spawn_candidates.iter_mut())
+            .enumerate()
+        {
+            *spawn_candidate = resolve_background_mass_cell(cell, config, tick, seed, cell_index);
         }
     }
 }
 
 /// Updates inert abandonment timers and openness after Pass 2 writes.
 fn resolve_inert_lifecycle(grid: &mut Grid, incoming_writes: &[bool]) {
-    for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
-        let Some(program) = cell.program.as_mut() else {
-            continue;
-        };
-        if !program.is_inert() {
-            continue;
-        }
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut()
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(cell_index, cell)| {
+                resolve_inert_lifecycle_cell(cell, incoming_writes[cell_index]);
+            });
+    }
 
-        if incoming_writes[cell_index] {
-            program.abandonment_timer = 0;
-        } else {
-            program.abandonment_timer = program.abandonment_timer.wrapping_add(1);
+    #[cfg(not(feature = "rayon"))]
+    {
+        for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
+            resolve_inert_lifecycle_cell(cell, incoming_writes[cell_index]);
         }
-        program.tick.is_open = true;
     }
 }
 
@@ -367,54 +374,41 @@ fn resolve_maintenance(
     tick: u64,
     seed: u64,
 ) -> u32 {
-    let mut deaths = 0;
-
-    for (cell_index, existed_at_tick_start) in existed_set.iter().copied().enumerate() {
-        if !existed_at_tick_start {
-            continue;
-        }
-
-        let Some(program) = grid
-            .get(cell_index)
-            .expect("cell should exist")
-            .program
-            .as_ref()
-        else {
-            continue;
-        };
-        if program.tick.is_newborn {
-            continue;
-        }
-
-        let rate = if program.live {
-            config.maintenance_rate
-        } else if program.abandonment_timer < config.inert_grace_ticks {
-            0.0
-        } else {
-            config.maintenance_rate
-        };
-        if rate <= 0.0 {
-            continue;
-        }
-
-        let q = f64::from(program.size()).powf(config.maintenance_exponent);
-        let whole = q.floor() as u32;
-        let fractional = (q - f64::from(whole)) * rate;
-        let mut rng = cell_rng(seed ^ MAINTENANCE_SALT, tick, cell_index as u64);
-        let mut quanta = binomial(&mut rng, whole, rate);
-        quanta += u32::from(rng.bernoulli(fractional));
-
-        if quanta == 0 {
-            continue;
-        }
-
-        deaths += u32::from(apply_maintenance(
-            grid.get_mut(cell_index).expect("cell should exist"),
-            quanta,
-        ));
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut()
+            .par_iter_mut()
+            .enumerate()
+            .map(|(cell_index, cell)| {
+                resolve_maintenance_cell(
+                    cell,
+                    existed_set[cell_index],
+                    config,
+                    tick,
+                    seed,
+                    cell_index,
+                )
+            })
+            .sum()
     }
 
-    deaths
+    #[cfg(not(feature = "rayon"))]
+    {
+        grid.cells_mut()
+            .iter_mut()
+            .enumerate()
+            .map(|(cell_index, cell)| {
+                resolve_maintenance_cell(
+                    cell,
+                    existed_set[cell_index],
+                    config,
+                    tick,
+                    seed,
+                    cell_index,
+                )
+            })
+            .sum()
+    }
 }
 
 /// Burns maintenance quanta out of free energy, then program code, then live state.
@@ -447,38 +441,41 @@ fn apply_maintenance(cell: &mut Cell, mut quanta: u32) -> bool {
 
 /// Decays free resources above the per-cell threshold.
 fn resolve_free_resource_decay(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
-    for cell_index in 0..grid.len() {
-        let mut rng = cell_rng(seed ^ DECAY_SALT, tick, cell_index as u64);
-        let threshold =
-            resource_threshold(grid.get(cell_index).expect("cell should exist"), config);
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut()
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(cell_index, cell)| {
+                resolve_free_resource_decay_cell(cell, config, tick, seed, cell_index);
+            });
+    }
 
-        let cell = grid.get_mut(cell_index).expect("cell should exist");
-        let energy_excess = (f64::from(cell.free_energy) - threshold).max(0.0).floor() as u32;
-        let energy_decay = binomial(&mut rng, energy_excess, config.d_energy);
-        cell.free_energy -= energy_decay;
-
-        let mass_excess = (f64::from(cell.free_mass) - threshold).max(0.0).floor() as u32;
-        let mass_decay = binomial(&mut rng, mass_excess, config.d_mass);
-        cell.free_mass -= mass_decay;
+    #[cfg(not(feature = "rayon"))]
+    {
+        for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
+            resolve_free_resource_decay_cell(cell, config, tick, seed, cell_index);
+        }
     }
 }
 
 /// Increments age for programs that were live at tick start.
 fn resolve_age_update(grid: &mut Grid, live_set: &[bool]) {
-    for (cell_index, was_live_at_tick_start) in live_set.iter().copied().enumerate() {
-        if !was_live_at_tick_start {
-            continue;
-        }
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut()
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(cell_index, cell)| {
+                resolve_age_update_cell(cell, live_set[cell_index]);
+            });
+    }
 
-        let Some(program) = grid
-            .get_mut(cell_index)
-            .expect("cell should exist")
-            .program
-            .as_mut()
-        else {
-            continue;
-        };
-        program.age = program.age.wrapping_add(1);
+    #[cfg(not(feature = "rayon"))]
+    {
+        for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
+            resolve_age_update_cell(cell, live_set[cell_index]);
+        }
     }
 }
 
@@ -490,39 +487,234 @@ fn resolve_spontaneous_creation(
     tick: u64,
     seed: u64,
 ) -> u32 {
-    let mut births = 0;
-
-    for (cell_index, is_spawn_candidate) in spawn_candidates.iter().copied().enumerate() {
-        if !is_spawn_candidate {
-            continue;
-        }
-
-        let cell = grid.get(cell_index).expect("cell should exist");
-        if cell.has_program() {
-            continue;
-        }
-
-        let mut rng = cell_rng(seed ^ SPAWN_SALT, tick, cell_index as u64);
-        if !rng.bernoulli(config.p_spawn) {
-            continue;
-        }
-
-        let dir = Direction::ALL[(rng.next_u32() % Direction::ALL.len() as u32) as usize];
-        let id = rng.next_u32() as u8;
-        let mut program =
-            Program::new_live(vec![op::NOP], dir, id).expect("spawned program should be valid");
-        program.tick.is_newborn = true;
-
-        let cell = grid.get_mut(cell_index).expect("cell should exist");
-        cell.program = Some(program);
-        cell.free_energy += cell.bg_radiation;
-        cell.free_mass += cell.bg_mass;
-        cell.bg_radiation = 0;
-        cell.bg_mass = 0;
-        births += 1;
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut()
+            .par_iter_mut()
+            .enumerate()
+            .map(|(cell_index, cell)| {
+                resolve_spontaneous_creation_cell(
+                    cell,
+                    spawn_candidates[cell_index],
+                    config,
+                    tick,
+                    seed,
+                    cell_index,
+                )
+            })
+            .sum()
     }
 
-    births
+    #[cfg(not(feature = "rayon"))]
+    {
+        grid.cells_mut()
+            .iter_mut()
+            .enumerate()
+            .map(|(cell_index, cell)| {
+                resolve_spontaneous_creation_cell(
+                    cell,
+                    spawn_candidates[cell_index],
+                    config,
+                    tick,
+                    seed,
+                    cell_index,
+                )
+            })
+            .sum()
+    }
+}
+
+fn mutate_end_of_tick_cell(
+    cell: &mut Cell,
+    is_live_at_tick_start: bool,
+    config: &SimConfig,
+    tick: u64,
+    seed: u64,
+    cell_index: usize,
+) -> u32 {
+    if !is_live_at_tick_start {
+        return 0;
+    }
+
+    let Some(program) = cell.program.as_ref() else {
+        return 0;
+    };
+
+    let probability = mutation_probability(program, config);
+    let mut rng = cell_rng(seed ^ MUTATION_SALT, tick, cell_index as u64);
+    if !rng.bernoulli(probability) {
+        return 0;
+    }
+
+    let program = cell
+        .program
+        .as_mut()
+        .expect("program should still exist when mutating");
+    let instruction_index = (rng.next_u64() % program.code.len() as u64) as usize;
+    let bit_index = (rng.next_u64() % 8) as u8;
+    program.code[instruction_index] ^= 1_u8 << bit_index;
+    1
+}
+
+fn resolve_background_radiation_cell(
+    cell: &mut Cell,
+    config: &SimConfig,
+    tick: u64,
+    seed: u64,
+    cell_index: usize,
+) {
+    let mut rng = cell_rng(seed ^ BG_RADIATION_SALT, tick, cell_index as u64);
+    let decayed = binomial(&mut rng, cell.bg_radiation, config.d_energy);
+    let remaining = cell.bg_radiation - decayed;
+    let arrivals = poisson(&mut rng, config.r_energy);
+    cell.bg_radiation = remaining.saturating_add(arrivals);
+}
+
+fn resolve_collect_cell(cell: &mut Cell) {
+    if cell
+        .program
+        .as_ref()
+        .is_some_and(|program| program.tick.did_collect)
+    {
+        cell.free_mass += cell.bg_mass;
+        cell.bg_mass = 0;
+    }
+}
+
+fn resolve_background_mass_cell(
+    cell: &mut Cell,
+    config: &SimConfig,
+    tick: u64,
+    seed: u64,
+    cell_index: usize,
+) -> bool {
+    let mut rng = cell_rng(seed ^ BG_MASS_SALT, tick, cell_index as u64);
+    let decayed = binomial(&mut rng, cell.bg_mass, config.d_mass);
+    let remaining = cell.bg_mass - decayed;
+    let arrivals = poisson(&mut rng, config.r_mass);
+
+    cell.bg_mass = remaining.saturating_add(arrivals);
+    arrivals > 0 && !cell.has_program()
+}
+
+fn resolve_inert_lifecycle_cell(cell: &mut Cell, incoming_write: bool) {
+    let Some(program) = cell.program.as_mut() else {
+        return;
+    };
+    if !program.is_inert() {
+        return;
+    }
+
+    if incoming_write {
+        program.abandonment_timer = 0;
+    } else {
+        program.abandonment_timer = program.abandonment_timer.wrapping_add(1);
+    }
+    program.tick.is_open = true;
+}
+
+fn resolve_maintenance_cell(
+    cell: &mut Cell,
+    existed_at_tick_start: bool,
+    config: &SimConfig,
+    tick: u64,
+    seed: u64,
+    cell_index: usize,
+) -> u32 {
+    if !existed_at_tick_start {
+        return 0;
+    }
+
+    let Some(program) = cell.program.as_ref() else {
+        return 0;
+    };
+    if program.tick.is_newborn {
+        return 0;
+    }
+
+    let rate = if program.live {
+        config.maintenance_rate
+    } else if program.abandonment_timer < config.inert_grace_ticks {
+        0.0
+    } else {
+        config.maintenance_rate
+    };
+    if rate <= 0.0 {
+        return 0;
+    }
+
+    let q = f64::from(program.size()).powf(config.maintenance_exponent);
+    let whole = q.floor() as u32;
+    let fractional = (q - f64::from(whole)) * rate;
+    let mut rng = cell_rng(seed ^ MAINTENANCE_SALT, tick, cell_index as u64);
+    let mut quanta = binomial(&mut rng, whole, rate);
+    quanta += u32::from(rng.bernoulli(fractional));
+    if quanta == 0 {
+        return 0;
+    }
+
+    u32::from(apply_maintenance(cell, quanta))
+}
+
+fn resolve_free_resource_decay_cell(
+    cell: &mut Cell,
+    config: &SimConfig,
+    tick: u64,
+    seed: u64,
+    cell_index: usize,
+) {
+    let mut rng = cell_rng(seed ^ DECAY_SALT, tick, cell_index as u64);
+    let threshold = resource_threshold(cell, config);
+
+    let energy_excess = (f64::from(cell.free_energy) - threshold).max(0.0).floor() as u32;
+    let energy_decay = binomial(&mut rng, energy_excess, config.d_energy);
+    cell.free_energy -= energy_decay;
+
+    let mass_excess = (f64::from(cell.free_mass) - threshold).max(0.0).floor() as u32;
+    let mass_decay = binomial(&mut rng, mass_excess, config.d_mass);
+    cell.free_mass -= mass_decay;
+}
+
+fn resolve_age_update_cell(cell: &mut Cell, was_live_at_tick_start: bool) {
+    if !was_live_at_tick_start {
+        return;
+    }
+
+    let Some(program) = cell.program.as_mut() else {
+        return;
+    };
+    program.age = program.age.wrapping_add(1);
+}
+
+fn resolve_spontaneous_creation_cell(
+    cell: &mut Cell,
+    is_spawn_candidate: bool,
+    config: &SimConfig,
+    tick: u64,
+    seed: u64,
+    cell_index: usize,
+) -> u32 {
+    if !is_spawn_candidate || cell.has_program() {
+        return 0;
+    }
+
+    let mut rng = cell_rng(seed ^ SPAWN_SALT, tick, cell_index as u64);
+    if !rng.bernoulli(config.p_spawn) {
+        return 0;
+    }
+
+    let dir = Direction::ALL[(rng.next_u32() % Direction::ALL.len() as u32) as usize];
+    let id = rng.next_u32() as u8;
+    let mut program =
+        Program::new_live(vec![op::NOP], dir, id).expect("spawned program should be valid");
+    program.tick.is_newborn = true;
+
+    cell.program = Some(program);
+    cell.free_energy += cell.bg_radiation;
+    cell.free_mass += cell.bg_mass;
+    cell.bg_radiation = 0;
+    cell.bg_mass = 0;
+    1
 }
 
 /// Computes the free-resource decay threshold for one cell.
