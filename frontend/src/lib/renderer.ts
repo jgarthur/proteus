@@ -2,6 +2,9 @@ import { getCellColor } from './colorMaps';
 import { cellOffset } from './frame';
 import type { ColorMapMode, GridFrame, GridRenderer, ViewportTransform } from '../types';
 
+const FIT_VERTICAL_PADDING_MAX = 16;
+const FIT_VERTICAL_PADDING_RATIO = 0.025;
+
 export class Canvas2DRenderer implements GridRenderer {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
@@ -44,9 +47,16 @@ export class Canvas2DRenderer implements GridRenderer {
   }
 
   fit(gridWidth: number, gridHeight: number): ViewportTransform {
+    const verticalPadding = Math.min(FIT_VERTICAL_PADDING_MAX, this.canvasHeight * FIT_VERTICAL_PADDING_RATIO);
     const scale = Math.max(
       0.5,
-      Math.min(64, Math.min(this.canvasWidth / Math.max(1, gridWidth), this.canvasHeight / Math.max(1, gridHeight))),
+      Math.min(
+        64,
+        Math.min(
+          this.canvasWidth / Math.max(1, gridWidth),
+          Math.max(1, this.canvasHeight - verticalPadding * 2) / Math.max(1, gridHeight),
+        ),
+      ),
     );
     return {
       scale,

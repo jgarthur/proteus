@@ -51,3 +51,53 @@ References: `docs/FRONTEND-SPEC.md`, `docs/API-SPEC.md` §12, `frontend/src/comp
 
 Context: the frontend currently probes `GET /v1/sim` on load and treats `404` as the expected "no sim exists" case. This is functionally fine, but it produces a noisy red network entry in browser devtools. Low priority cleanup: add a cleaner backend/API path for empty-state status or otherwise remove the expected-404 startup probe.
 References: `docs/API-SPEC.md` §7, `rust/src/web/mod.rs`, `frontend/src/context/SimContext.tsx`, `frontend/src/lib/api.ts`
+
+### DOCS-RESOLVED-QUESTIONS: Establish a convention for resolved open questions in spec docs
+
+Context: API-SPEC.md §16 "Open Questions" now contains a resolved entry (16.3). This pattern will recur as more open questions get resolved across spec documents. Need a consistent convention: either remove resolved items, move them to a "Resolved" subsection, or reference the resolving PR/commit. Applies to all docs with open-question sections (API-SPEC.md, SPEC.md, SPEC-COMPANION.md, FRONTEND-SPEC.md, etc.).
+References: `docs/API-SPEC.md` §16, `docs/SPEC.md`, `docs/SPEC-COMPANION.md`, `docs/FRONTEND-SPEC.md`
+
+### FRONTEND-STATIC-CHECKS: Add lightweight frontend static checks for stale vars and similar mistakes
+
+Context: add a fast frontend-only static-analysis pass so mistakes like stale variable names, unused locals after refactors, and similar TypeScript-level issues are caught without relying on a full production build. Start with the lightest-weight option that fits the current stack.
+References: `frontend/package.json`, `frontend/tsconfig.app.json`, `frontend/tsconfig.node.json`
+
+### FRONTEND-ARCH-CLEANUP
+
+Do a focused cleanup pass on frontend lifecycle and ownership boundaries. Do not rewrite the app.
+
+Requirements:
+- Use Effects only to synchronize with external systems (WebSocket, ResizeObserver, canvas/chart adapters).
+- Do not use Effects to derive state from other state/props.
+- Isolate imperative integrations behind small adapter hooks/components with explicit setup/update/cleanup.
+- Keep layout ownership explicit: one component measures, children consume.
+- Split context by responsibility and update cadence; avoid broad rerenders from high-frequency simulation/metrics updates.
+- Keep refs for mutable non-render values only.
+
+Targets:
+- `frontend/src/context/SimContext.tsx`
+- `frontend/src/context/WebSocketContext.tsx`
+- `frontend/src/components/GridCanvas.tsx`
+- `frontend/src/components/MetricsDrawer.tsx`
+- `frontend/src/App.tsx`
+
+Validation:
+- `npm run check:frontend` passes
+- no new lint suppressions without explanation
+- chart/canvas mount-cleanup works under remount
+- resizing and drawer open/close do not produce stale measurements
+
+### INSPECTOR-TRACK-PROGRAM: Let the inspector follow a selected program as it moves
+
+Context: the current inspector is cell-centric. Add a mode that keeps the inspector locked onto the same program identity as it moves between cells, rather than dropping focus when the originally selected cell changes. This likely needs backend support for stable per-program identity and/or a direct "find current location for program id" path.
+References: `docs/API-SPEC.md`, `docs/FRONTEND-SPEC.md`, `frontend/src/components/inspector/InspectorTab.tsx`, `frontend/src/context/SimContext.tsx`, `rust/src/observe.rs`, `rust/src/web/mod.rs`
+
+### SEED-PROGRAM-QOL: Add seed-program library/import-export/disassembly tooling
+
+Context: improve seed-program authoring without changing simulator semantics. Candidate scope includes a small reusable library of saved seed programs, JSON save/load for seed-program sets, and opcode/disassembly helpers so raw byte arrays are easier to inspect and edit.
+References: `docs/API-SPEC.md` §8, `docs/FRONTEND-SPEC.md` §9, `frontend/src/components/controls/ConfigEditor.tsx`, `frontend/src/lib/config.ts`
+
+### TRANSPORT-CONTROLS: Promote play-pause-speed controls and add hotkeys
+
+Context: move the main transport actions (play, pause, step, speed selection) into a top-level location that stays accessible while the inspector is open, and add game-style keyboard shortcuts. Initial shortcut ideas: `Space` for play/pause and number keys for speed presets. Define clear focus/typing guards so shortcuts do not interfere with text input fields.
+References: `docs/FRONTEND-SPEC.md`, `frontend/src/App.tsx`, `frontend/src/components/StatusBar.tsx`, `frontend/src/components/controls/ControlsTab.tsx`, `frontend/src/context/SimContext.tsx`

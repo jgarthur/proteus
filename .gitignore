@@ -72,5 +72,6 @@ __marimo__/
 
 # Misc local tooling
 .abstra/
+.claude/
 .cursorignore
 .cursorrules

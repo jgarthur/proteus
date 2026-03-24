@@ -2,6 +2,8 @@ import { directionLabel, formatInteger } from '../../lib/format';
 import { useSimContext } from '../../context/SimContext';
 import styles from './InspectorTab.module.css';
 
+const MAX_RENDERED_STACK_ENTRIES = 64;
+
 export function InspectorTab(): JSX.Element {
   const {
     selectedCellData,
@@ -24,6 +26,10 @@ export function InspectorTab(): JSX.Element {
     state.simStatus === 'running' &&
     selectedCellFetchedAt !== null &&
     Date.now() - selectedCellFetchedAt > 1_000;
+  const stack = selectedCellData?.program?.stack ?? [];
+  const stackIsTruncated = stack.length > MAX_RENDERED_STACK_ENTRIES;
+  const visibleStack = stackIsTruncated ? stack.slice(-MAX_RENDERED_STACK_ENTRIES) : stack;
+  const stackPreview = stackIsTruncated ? `..., ${visibleStack.join(', ')}` : visibleStack.join(', ');
 
   return (
     <div className={styles.panel}>
@@ -35,7 +41,7 @@ export function InspectorTab(): JSX.Element {
             ({state.selectedCell.x}, {state.selectedCell.y})
           </span>
         </div>
-        {selectedCellLoading ? <p className={styles.muted}>Loading cell data…</p> : null}
+        {selectedCellLoading && !selectedCellData ? <p className={styles.muted}>Loading cell data…</p> : null}
         {selectedCellError ? <p className={styles.error}>{selectedCellError}</p> : null}
         {selectedCellData ? (
           <>
@@ -87,8 +93,13 @@ export function InspectorTab(): JSX.Element {
             <KeyValue label="lc" value={selectedCellData.program.lc} />
             <div className={styles.kv}>
               <span>Stack</span>
-              <span className={styles.mono}>[{selectedCellData.program.stack.join(', ')}]</span>
+              <span className={styles.mono}>[{stackPreview}]</span>
             </div>
+            {stackIsTruncated ? (
+              <p className={styles.muted}>
+                Showing the last {MAX_RENDERED_STACK_ENTRIES} of {formatInteger(stack.length)} stack entries.
+              </p>
+            ) : null}
             {!selectedCellData.program.live ? (
               <KeyValue label="Abandonment timer" value={selectedCellData.program.abandonment_timer ?? '—'} />
             ) : null}

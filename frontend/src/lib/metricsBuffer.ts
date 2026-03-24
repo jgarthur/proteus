@@ -22,9 +22,11 @@ export class MetricsBuffer {
   };
 
   push(message: MetricsMessage): void {
-    const index = this.count < this.capacity ? this.count : this.capacity - 1;
+    let index = this.count < this.capacity ? this.count : this.capacity - 1;
 
-    if (this.count >= this.capacity) {
+    if (this.count > 0 && this.data.tick[this.count - 1] === message.tick) {
+      index = this.count - 1;
+    } else if (this.count >= this.capacity) {
       Object.values(this.data).forEach((series) => series.copyWithin(0, 1));
     } else {
       this.count += 1;

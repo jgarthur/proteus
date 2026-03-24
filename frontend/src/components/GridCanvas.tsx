@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Canvas2DRenderer } from '../lib/renderer';
 import { useSimContext } from '../context/SimContext';
 import type { ViewportTransform } from '../types';
@@ -8,6 +8,10 @@ const MIN_SCALE = 0.5;
 const MAX_SCALE = 64;
 const ZOOM_SENSITIVITY = 1 / 320;
 
+function viewportsEqual(left: ViewportTransform, right: ViewportTransform): boolean {
+  return left.scale === right.scale && left.offsetX === right.offsetX && left.offsetY === right.offsetY;
+}
+
 export function GridCanvas(): JSX.Element {
   const { latestFrameRef, selectCell, state } = useSimContext();
   const rendererRef = useRef<Canvas2DRenderer | null>(null);
@@ -16,6 +20,8 @@ export function GridCanvas(): JSX.Element {
   const activePointerIdRef = useRef<number | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const draggedRef = useRef(false);
+  const followFitRef = useRef(true);
+  const previousGridRef = useRef({ width: 0, height: 0 });
   const [canvasElement, setCanvasElement] = useState<HTMLCanvasElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const [viewport, setViewport] = useState<ViewportTransform>({ offsetX: 0, offsetY: 0, scale: 1 });
@@ -29,7 +35,11 @@ export function GridCanvas(): JSX.Element {
       return;
     }
 
-    setViewport(renderer.fit(state.gridWidth, state.gridHeight));
+    followFitRef.current = true;
+    setViewport((current) => {
+      const next = renderer.fit(state.gridWidth, state.gridHeight);
+      return viewportsEqual(current, next) ? current : next;
+    });
     frameTickRef.current = null;
   }, [state.gridHeight, state.gridWidth]);
 
@@ -77,9 +87,23 @@ export function GridCanvas(): JSX.Element {
     return () => observer.disconnect();
   }, [canvasElement]);
 
-  useEffect(() => {
-    rendererRef.current?.resize(size.width, size.height);
-  }, [size]);
+  useLayoutEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) {
+      return;
+    }
+
+    renderer.resize(size.width, size.height);
+
+    const frame = latestFrameRef.current;
+    if (!frame) {
+      frameTickRef.current = null;
+      return;
+    }
+
+    renderer.render(frame, viewport, state.colorMap, state.selectedCell);
+    frameTickRef.current = frame.tick;
+  }, [latestFrameRef, size.height, size.width, state.colorMap, state.selectedCell, viewport]);
 
   useEffect(() => {
     if (!canvasElement) {
@@ -89,6 +113,7 @@ export function GridCanvas(): JSX.Element {
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       const rect = canvasElement.getBoundingClientRect();
+      followFitRef.current = false;
       setViewport((current) => {
         const zoomFactor = Math.exp(-event.deltaY * ZOOM_SENSITIVITY);
         const nextScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, current.scale * zoomFactor));
@@ -104,16 +129,34 @@ export function GridCanvas(): JSX.Element {
   }, [canvasElement]);
 
   useEffect(() => {
-    if (!rendererRef.current || state.gridWidth === 0 || state.gridHeight === 0) {
+    const renderer = rendererRef.current;
+    if (!renderer || state.gridWidth === 0 || state.gridHeight === 0) {
       return;
     }
 
-    setViewport(rendererRef.current.fit(state.gridWidth, state.gridHeight));
-  }, [state.gridHeight, state.gridWidth]);
+    if (state.simStatus !== 'none' && state.tick === 0) {
+      followFitRef.current = true;
+    }
+
+    const previousGrid = previousGridRef.current;
+    if (previousGrid.width !== state.gridWidth || previousGrid.height !== state.gridHeight) {
+      previousGridRef.current = { width: state.gridWidth, height: state.gridHeight };
+      followFitRef.current = true;
+    }
+
+    if (!followFitRef.current) {
+      return;
+    }
+
+    setViewport((current) => {
+      const next = renderer.fit(state.gridWidth, state.gridHeight);
+      return viewportsEqual(current, next) ? current : next;
+    });
+  }, [size.height, size.width, state.gridHeight, state.gridWidth, state.simStatus, state.tick]);
 
   useEffect(() => {
     frameTickRef.current = null;
-  }, [size.height, size.width, state.colorMap, state.selectedCell, viewport]);
+  }, [state.colorMap, state.selectedCell, viewport]);
 
   useEffect(() => {
     const render = () => {
@@ -190,6 +233,7 @@ export function GridCanvas(): JSX.Element {
           }
 
           dragStartRef.current = { x: event.clientX, y: event.clientY };
+          followFitRef.current = false;
           setViewport((current) => ({
             ...current,
             offsetX: current.offsetX + dx,

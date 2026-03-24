@@ -105,7 +105,7 @@ export function ControlsTab(): JSX.Element {
                   value={targetTpsIndex}
                   onChange={(event) => void setTargetTps(TARGET_TPS_OPTIONS[Number(event.target.value)]!)}
                 />
-                <span>{targetTpsLabel}</span>
+                <span className={styles.rangeValue}>{targetTpsLabel}</span>
               </div>
               <div className={styles.scaleLabels}>
                 {TARGET_TPS_OPTIONS.map((option) => (
@@ -130,7 +130,7 @@ export function ControlsTab(): JSX.Element {
                 value={state.maxFps}
                 onChange={(event) => setMaxFps(Number(event.target.value))}
               />
-              <span>{state.maxFps} fps</span>
+              <span className={styles.rangeValue}>{state.maxFps} fps</span>
             </div>
           </label>
 

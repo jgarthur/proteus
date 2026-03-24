@@ -22,6 +22,7 @@ import {
   createSimulation,
   destroySimulation,
   fetchCell,
+  fetchMetrics,
   getSimStatus,
   postSimulationAction,
   stepSimulation,
@@ -188,6 +189,8 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
   const latestFrameRef = useRef<GridFrame | null>(null);
   const metricsBufferRef = useRef(new MetricsBuffer());
   const stateRef = useRef(state);
+  const selectedCellDataRef = useRef<CellResponse | null>(null);
+  const selectedCellRequestRef = useRef(0);
   const frontendTickerRef = useRef<FrontendTickerState>({
     active: false,
     timeoutId: null,
@@ -199,6 +202,10 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    selectedCellDataRef.current = selectedCellData;
+  }, [selectedCellData]);
 
   const configErrors = useMemo(() => validateConfig(config), [config]);
   const configErrorSummary = useMemo(
@@ -223,6 +230,18 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
         type: 'SET_API_ERROR',
         value: error instanceof Error ? error.message : 'Failed to load simulation status',
       });
+    }
+  }, []);
+
+  const seedMetricsSnapshot = useCallback(async () => {
+    try {
+      const snapshot = await fetchMetrics();
+      setLatestMetrics(snapshot);
+      metricsBufferRef.current.push(snapshot);
+      setMetricsVersion((value) => value + 1);
+      dispatch({ type: 'SET_TICK', value: snapshot.tick });
+    } catch {
+      // Fall back to the streaming channel if the REST snapshot is unavailable.
     }
   }, []);
 
@@ -386,8 +405,11 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     if (state.simStatus !== 'none') {
       subscribeFrames();
       subscribeMetrics();
+      if (metricsBufferRef.current.snapshot().count === 0) {
+        void seedMetricsSnapshot();
+      }
     }
-  }, [state.simStatus, status, subscribeFrames, subscribeMetrics]);
+  }, [seedMetricsSnapshot, state.simStatus, status, subscribeFrames, subscribeMetrics]);
 
   useEffect(() => {
     if (state.simStatus === 'none' && state.frontendTickerActive) {
@@ -438,14 +460,20 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
   }, [state.simStatus]);
 
   const selectCell = useCallback((cell: { x: number; y: number } | null) => {
+    selectedCellRequestRef.current += 1;
     dispatch({ type: 'SET_SELECTED_CELL', value: cell });
     if (cell) {
+      setSelectedCellData(null);
+      setSelectedCellFetchedAt(null);
+      setSelectedCellError(null);
+      setSelectedCellLoading(false);
       dispatch({ type: 'SET_SIDEBAR_OPEN', value: true });
       dispatch({ type: 'SET_SIDEBAR_TAB', value: 'inspector' });
     } else {
       setSelectedCellData(null);
       setSelectedCellFetchedAt(null);
       setSelectedCellError(null);
+      setSelectedCellLoading(false);
     }
   }, []);
 
@@ -454,16 +482,34 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
       return;
     }
 
-    setSelectedCellLoading(true);
+    const selectedCell = state.selectedCell;
+    const requestId = ++selectedCellRequestRef.current;
+    const existingData = selectedCellDataRef.current;
+    const isRefreshingCurrentCell =
+      existingData !== null && existingData.x === selectedCell.x && existingData.y === selectedCell.y;
+    if (!isRefreshingCurrentCell) {
+      setSelectedCellLoading(true);
+    }
+
     try {
-      const response = await fetchCell(state.selectedCell.x, state.selectedCell.y);
+      const response = await fetchCell(selectedCell.x, selectedCell.y);
+      if (requestId !== selectedCellRequestRef.current) {
+        return;
+      }
+
       setSelectedCellData(response);
       setSelectedCellFetchedAt(Date.now());
       setSelectedCellError(null);
     } catch (error) {
+      if (requestId !== selectedCellRequestRef.current) {
+        return;
+      }
+
       setSelectedCellError(error instanceof Error ? error.message : 'Failed to load cell');
     } finally {
-      setSelectedCellLoading(false);
+      if (requestId === selectedCellRequestRef.current) {
+        setSelectedCellLoading(false);
+      }
     }
   }, [state.selectedCell, state.simStatus]);
 
@@ -523,7 +569,8 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     setLatestMetrics(null);
     setMetricsVersion(0);
     await runAction(async () => createSimulation(config));
-  }, [config, configErrorSummary, configIsValid, runAction]);
+    await seedMetricsSnapshot();
+  }, [config, configErrorSummary, configIsValid, runAction, seedMetricsSnapshot]);
 
   const start = useCallback(async () => {
     if (stateRef.current.targetTps === 'max') {
@@ -567,7 +614,8 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     setLatestMetrics(null);
     setMetricsVersion(0);
     await runAction(async () => postSimulationAction('reset'));
-  }, [runAction, stopFrontendTicker]);
+    await seedMetricsSnapshot();
+  }, [runAction, seedMetricsSnapshot, stopFrontendTicker]);
 
   const destroy = useCallback(async () => {
     stopFrontendTicker();
@@ -577,8 +625,11 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     metricsBufferRef.current.clear();
     setLatestMetrics(null);
     setMetricsVersion(0);
+    selectedCellRequestRef.current += 1;
     setSelectedCellData(null);
     setSelectedCellFetchedAt(null);
+    setSelectedCellError(null);
+    setSelectedCellLoading(false);
     await runAction(async () => destroySimulation(), 'none');
   }, [runAction, stopFrontendTicker, unsubscribeFrames, unsubscribeMetrics]);
 
