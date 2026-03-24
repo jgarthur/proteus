@@ -461,10 +461,18 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
 
   const selectCell = useCallback((cell: { x: number; y: number } | null) => {
     selectedCellRequestRef.current += 1;
+    const currentSelectedCell = stateRef.current.selectedCell;
+    const isSameCellSelection =
+      cell !== null &&
+      currentSelectedCell !== null &&
+      currentSelectedCell.x === cell.x &&
+      currentSelectedCell.y === cell.y;
     dispatch({ type: 'SET_SELECTED_CELL', value: cell });
     if (cell) {
-      setSelectedCellData(null);
-      setSelectedCellFetchedAt(null);
+      if (!isSameCellSelection) {
+        setSelectedCellData(null);
+        setSelectedCellFetchedAt(null);
+      }
       setSelectedCellError(null);
       setSelectedCellLoading(false);
       dispatch({ type: 'SET_SIDEBAR_OPEN', value: true });

@@ -169,7 +169,7 @@ function BufferedCodeTextarea({
     }
 
     const parsed = parseCodeDraft(draft);
-    if (parsed) {
+    if (parsed !== null) {
       onCommit(parsed);
     }
 
