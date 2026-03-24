@@ -51,7 +51,8 @@ pub async fn handle_socket(mut socket: WebSocket, controller: SimulationControll
                 if handle_client_message(
                     &mut socket,
                     message,
-                    &controller,
+                    &mut frame_rx,
+                    &mut metrics_rx,
                     &mut frame_subscription,
                     &mut metrics_subscription,
                 ).await.is_err() {
@@ -64,7 +65,7 @@ pub async fn handle_socket(mut socket: WebSocket, controller: SimulationControll
                 }
 
                 if let Some(subscription) = frame_subscription.as_mut() {
-                    let frame = { frame_rx.borrow().clone() };
+                    let frame = frame_rx.borrow().clone();
                     if let Some(frame) = frame {
                         if try_send_frame(&mut socket, subscription, frame).await.is_err() {
                             break;
@@ -78,7 +79,7 @@ pub async fn handle_socket(mut socket: WebSocket, controller: SimulationControll
                 }
 
                 if let Some(subscription) = metrics_subscription.as_ref() {
-                    let metrics = { metrics_rx.borrow().clone() };
+                    let metrics = metrics_rx.borrow().clone();
                     if let Some(metrics) = metrics {
                         if should_send_metrics(subscription, &metrics)
                             && send_metrics(&mut socket, &metrics).await.is_err()
@@ -106,7 +107,8 @@ pub async fn handle_socket(mut socket: WebSocket, controller: SimulationControll
 async fn handle_client_message(
     socket: &mut WebSocket,
     message: Message,
-    controller: &SimulationController,
+    frame_rx: &mut tokio::sync::watch::Receiver<Option<FramePayload>>,
+    metrics_rx: &mut tokio::sync::watch::Receiver<Option<MetricsPayload>>,
     frame_subscription: &mut Option<FrameSubscription>,
     metrics_subscription: &mut Option<MetricsSubscription>,
 ) -> Result<(), ()> {
@@ -117,7 +119,13 @@ async fn handle_client_message(
             match validate_control(control) {
                 Ok(WsAction::SubscribeFrames { max_fps }) => {
                     *frame_subscription = Some(FrameSubscription::new(max_fps));
-                    if let Some(frame) = controller.current_frame() {
+                    // Mark the current frame seen when we send it immediately so
+                    // `changed()` does not replay the same payload on the next loop.
+                    let frame = {
+                        let current = frame_rx.borrow_and_update();
+                        current.clone()
+                    };
+                    if let Some(frame) = frame {
                         let subscription = frame_subscription
                             .as_mut()
                             .expect("frame subscription should exist");
@@ -131,7 +139,11 @@ async fn handle_client_message(
                 }
                 Ok(WsAction::SubscribeMetrics { every_n_ticks }) => {
                     *metrics_subscription = Some(MetricsSubscription { every_n_ticks });
-                    if let Some(metrics) = controller.current_metrics() {
+                    let metrics = {
+                        let current = metrics_rx.borrow_and_update();
+                        current.clone()
+                    };
+                    if let Some(metrics) = metrics {
                         send_metrics(socket, &metrics).await.map_err(|_| ())?;
                     }
                 }
