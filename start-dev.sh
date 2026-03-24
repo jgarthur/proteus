@@ -7,13 +7,14 @@ FRONTEND_PID=""
 FRONTEND_DIR="${ROOT_DIR}/frontend"
 FRONTEND_VITE_BIN="${FRONTEND_DIR}/node_modules/.bin/vite"
 RAYON_THREADS="${RAYON_NUM_THREADS:-}"
+BACKEND_FEATURES="web"
 
 usage() {
   cat <<EOF
 Usage: ./start-dev.sh [--threads N]
 
 Options:
-  --threads N  Set RAYON_NUM_THREADS for the backend process.
+  --threads N  Set RAYON_NUM_THREADS for the backend process and enable the Rayon backend feature.
   -h, --help   Show this help text.
 
 Environment:
@@ -90,6 +91,10 @@ if [[ -n "${RAYON_THREADS}" && ! "${RAYON_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+if [[ -n "${RAYON_THREADS}" ]]; then
+  BACKEND_FEATURES="web,rayon"
+fi
+
 if [[ ! -x "${FRONTEND_VITE_BIN}" ]]; then
   cat <<EOF
 Frontend dependencies are missing.
@@ -105,16 +110,16 @@ EOF
 fi
 
 if [[ -n "${RAYON_THREADS}" ]]; then
-  echo "Starting backend from ${ROOT_DIR}/rust with RAYON_NUM_THREADS=${RAYON_THREADS}"
+  echo "Starting backend from ${ROOT_DIR}/rust with features=${BACKEND_FEATURES} and RAYON_NUM_THREADS=${RAYON_THREADS}"
 else
-  echo "Starting backend from ${ROOT_DIR}/rust"
+  echo "Starting backend from ${ROOT_DIR}/rust with features=${BACKEND_FEATURES}"
 fi
 (
   cd "${ROOT_DIR}/rust"
   if [[ -n "${RAYON_THREADS}" ]]; then
     export RAYON_NUM_THREADS="${RAYON_THREADS}"
   fi
-  exec cargo run --features web --bin proteus-server
+  exec cargo run --features "${BACKEND_FEATURES}" --bin proteus-server
 ) &
 BACKEND_PID=$!
 
