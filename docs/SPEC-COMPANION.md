@@ -1,6 +1,6 @@
-# Proteus v0.3.1 Spec Companion
+# Proteus v0.2.1 Spec Companion
 
-Companion to **Proteus v0.3.1 Specification**. This document is not a redesign. It is an implementation-facing clarification layer: condensed phase ordering, operational invariants, truth tables, and testable edge-case rules.
+Companion to **Proteus v0.2.1 Specification**. This document is not a redesign. It is an implementation-facing clarification layer: condensed phase ordering, operational invariants, truth tables, and testable edge-case rules.
 
 When prose in the main spec feels broad, this document gives the intended machine semantics.
 

@@ -4,7 +4,7 @@
 
 **Spec version**: 0.2.1
 
-**Targets**: Proteus v0.3.1, API-SPEC v0.2.1
+**Targets**: Proteus v0.2.1, API-SPEC v0.2.1
 
 ---
 

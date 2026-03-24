@@ -2,7 +2,7 @@
 
 Proteus is an artificial life simulator specified as a discrete 2D world where self-replicating programs compete for mass, energy, space, and time. The core idea is that programs are not layered on top of the physics; program instructions and computational work are part of the substrate itself.
 
-This README is a high-level orientation only. It was updated for spec `v0.3.1`.
+This README is a high-level orientation only. It was updated for spec `v0.2.1`.
 
 *Proteus was designed by Joey Arthur with inspiration from Tom Ray's [Tierra](https://tomray.me/pubs/doc/index.html) and Max Robinson's [The Life Engine](https://thelifeengine.net/). There is been much AI assistance, especially for surfacing edge cases and contradictions in the [main spec](docs/SPEC.md), which started as a hand-written document but has taken on a life of its own (ha!). The code itself has been mostly written by agents, at breakneck speed.*
 
@@ -55,7 +55,7 @@ npm run build
 
 ## Current Spec Shape
 
-At a high level, the `v0.3.1` spec defines:
+At a high level, the `v0.2.1` spec defines:
 
 - a 2D cellular world with only local adjacency
 - conserved internal transfers of mass and energy, driven by Poisson ambient inputs and per-quantum binomial decay

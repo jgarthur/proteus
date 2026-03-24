@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 
 /// Tracks the spec version this backend is aligned to.
-pub const SPEC_VERSION: &str = "0.3.1";
+pub const SPEC_VERSION: &str = "0.2.1";
 /// Stores the maximum allowed program length from the spec.
 pub const PROGRAM_SIZE_CAP: u16 = 0x7fff;
 

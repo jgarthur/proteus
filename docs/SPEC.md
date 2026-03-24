@@ -1,4 +1,4 @@
-# Proteus v0.3.1 Specification
+# Proteus v0.2.1 Specification
 
 An artificial life simulator where self-replicating programs emerge, compete, and evolve on a 2D grid with conserved mass and energy.
 

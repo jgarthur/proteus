@@ -4,7 +4,7 @@
 
 **Spec version**: 0.2.1
 
-**Simulator version**: Targets Proteus v0.3.1
+**Simulator version**: Targets Proteus v0.2.1
 
 ---
 

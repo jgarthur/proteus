@@ -2,7 +2,7 @@
 
 ## Recent Changes
 
-### 2026-03-23 (v0.3.1)
+### 2026-03-23 (v0.2.1)
 
 - Reinterpreted `R_energy` and `R_mass` as Poisson arrival means per cell per tick rather than Bernoulli probabilities capped at one arriving unit. `D_energy` and `D_mass` remain per-quantum decay probabilities with binomial thinning semantics.
   - Why: this lets ambient resource rates exceed 1 without inventing ad hoc clamping or multi-draw hacks, while preserving the simple discrete-time decay model.
