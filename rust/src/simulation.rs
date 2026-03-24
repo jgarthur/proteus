@@ -13,6 +13,10 @@ use crate::pass3::{
     mutate_end_of_tick, pass3_ambient, pass3_packets, pass3_tail, Pass3AmbientOutput,
     Pass3TailContext,
 };
+use crate::random::{cell_rng, poisson};
+
+const INITIAL_BG_RADIATION_SALT: u64 = 0x7400_f3bb_9241_b8d7;
+const INITIAL_BG_MASS_SALT: u64 = 0x2f61_5dce_0840_13a9;
 
 /// Owns reusable buffers that are rebuilt at the start of each tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,7 +98,11 @@ impl Simulation {
         config.validate().map_err(SimulationError::InvalidConfig)?;
 
         let grid = Grid::new(config.width, config.height).map_err(SimulationError::Grid)?;
-        Self::from_grid(config, grid)
+        let mut simulation = Self::from_grid(config, grid)?;
+        let seed = simulation.seed;
+        let config = simulation.config.clone();
+        initialize_background_steady_state(&mut simulation.grid, &config, seed);
+        Ok(simulation)
     }
 
     /// Creates a simulation from a config and an existing grid state.
@@ -331,6 +339,134 @@ impl fmt::Display for SimulationError {
 }
 
 impl Error for SimulationError {}
+
+fn initialize_background_steady_state(grid: &mut Grid, config: &SimConfig, seed: u64) {
+    for cell_index in 0..grid.len() {
+        let cell = grid.get_mut(cell_index).expect("cell should exist");
+        cell.bg_radiation = stationary_background_sample(
+            seed ^ INITIAL_BG_RADIATION_SALT,
+            cell_index as u64,
+            config.r_energy,
+            config.d_energy,
+        );
+        cell.bg_mass = stationary_background_sample(
+            seed ^ INITIAL_BG_MASS_SALT,
+            cell_index as u64,
+            config.r_mass,
+            config.d_mass,
+        );
+    }
+}
+
+fn stationary_background_sample(seed: u64, cell_index: u64, rate: f64, decay: f64) -> u32 {
+    if rate <= 0.0 || decay <= 0.0 {
+        return 0;
+    }
+
+    let mean = (rate / decay).min(f64::from(u32::MAX));
+    let mut rng = cell_rng(seed, 0, cell_index);
+    poisson(&mut rng, mean)
+}
+
+#[cfg(test)]
+mod initialization_tests {
+    use crate::config::SimConfig;
+    use crate::grid::Grid;
+
+    use super::{
+        stationary_background_sample, Simulation, INITIAL_BG_MASS_SALT, INITIAL_BG_RADIATION_SALT,
+    };
+
+    #[test]
+    fn new_simulation_seeds_background_from_stationary_distribution() {
+        let config = SimConfig {
+            width: 2,
+            height: 1,
+            seed: 7,
+            r_energy: 4.0,
+            r_mass: 3.0,
+            d_energy: 0.5,
+            d_mass: 0.25,
+            ..SimConfig::default()
+        };
+
+        let simulation = Simulation::new(config.clone()).expect("simulation should build");
+
+        for cell_index in 0..simulation.grid().len() {
+            let cell = simulation
+                .grid()
+                .get(cell_index)
+                .expect("cell should exist");
+            assert_eq!(
+                cell.bg_radiation,
+                stationary_background_sample(
+                    config.seed ^ INITIAL_BG_RADIATION_SALT,
+                    cell_index as u64,
+                    config.r_energy,
+                    config.d_energy,
+                )
+            );
+            assert_eq!(
+                cell.bg_mass,
+                stationary_background_sample(
+                    config.seed ^ INITIAL_BG_MASS_SALT,
+                    cell_index as u64,
+                    config.r_mass,
+                    config.d_mass,
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn new_simulation_starts_without_background_when_decay_has_no_finite_steady_state() {
+        let config = SimConfig {
+            width: 2,
+            height: 1,
+            seed: 7,
+            r_energy: 4.0,
+            r_mass: 3.0,
+            d_energy: 0.0,
+            d_mass: 0.0,
+            ..SimConfig::default()
+        };
+
+        let simulation = Simulation::new(config).expect("simulation should build");
+
+        for cell in simulation.grid().cells() {
+            assert_eq!(cell.bg_radiation, 0);
+            assert_eq!(cell.bg_mass, 0);
+        }
+    }
+
+    #[test]
+    fn from_grid_preserves_explicit_background_state() {
+        let config = SimConfig {
+            width: 1,
+            height: 1,
+            r_energy: 4.0,
+            r_mass: 3.0,
+            d_energy: 0.5,
+            d_mass: 0.25,
+            ..SimConfig::default()
+        };
+        let grid = Grid::from_cells(
+            1,
+            1,
+            vec![crate::Cell {
+                bg_radiation: 9,
+                bg_mass: 11,
+                ..crate::Cell::default()
+            }],
+        )
+        .expect("grid should build");
+
+        let simulation = Simulation::from_grid(config, grid).expect("simulation should build");
+        let cell = simulation.grid().get(0).expect("cell should exist");
+        assert_eq!(cell.bg_radiation, 9);
+        assert_eq!(cell.bg_mass, 11);
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -35,9 +35,17 @@ export function validateConfig(config: SimConfig): ConfigErrors {
   if (config.width < 1 || config.width > 1024) errors.width = 'Width must be 1-1024';
   if (config.height < 1 || config.height > 1024) errors.height = 'Height must be 1-1024';
 
-  const probabilityFields: Array<keyof SimConfig> = [
+  const nonNegativeRateFields: Array<keyof SimConfig> = [
     'r_energy',
     'r_mass',
+  ];
+
+  nonNegativeRateFields.forEach((field) => {
+    const value = config[field] as number;
+    if (value < 0) errors[String(field)] = 'Must be non-negative';
+  });
+
+  const probabilityFields: Array<keyof SimConfig> = [
     'd_energy',
     'd_mass',
     'maintenance_rate',

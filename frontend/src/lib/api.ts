@@ -78,6 +78,19 @@ export async function createSimulation(config: SimConfig): Promise<SimStatusResp
   }
 }
 
+export async function fetchSimulationConfig(): Promise<SimConfig | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/v1/sim/config`);
+    if (response.status === 404) {
+      return null;
+    }
+
+    return parseJson<SimConfig>(response);
+  } catch (error) {
+    throw normalizeFetchError(error);
+  }
+}
+
 export async function postSimulationAction(
   action: 'start' | 'pause' | 'resume' | 'reset',
 ): Promise<SimStatusResponse> {

@@ -28,5 +28,5 @@ pub use pass3::{
     mutate_end_of_tick, pass3_ambient, pass3_packets, pass3_tail, Pass3AmbientOutput,
     Pass3TailContext, Pass3TailOutput,
 };
-pub use random::{binomial, cell_rng, splitmix64, WyRand};
+pub use random::{binomial, cell_rng, poisson, splitmix64, WyRand};
 pub use simulation::{PreparedTick, Simulation, SimulationError, TickReport, TickScratch};

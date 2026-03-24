@@ -1,14 +1,75 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   type ConfigErrors,
   loadConfigFromStorage,
-  parseCode,
   saveConfigToStorage,
   validateConfig,
 } from '../../lib/config';
+import { fetchSimulationConfig } from '../../lib/api';
 import { useSimContext } from '../../context/SimContext';
 import type { SeedProgram, SimConfig } from '../../types';
 import styles from './ConfigEditor.module.css';
+
+const INTEGER_FIELDS = new Set<keyof SimConfig>([
+  'width',
+  'height',
+  'seed',
+  'n_synth',
+  'inert_grace_ticks',
+  'mutation_base_log2',
+  'mutation_background_log2',
+]);
+
+function parseBufferedNumber(value: string, integer: boolean): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const pattern = integer ? /^[+-]?\d+$/ : /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
+  if (!pattern.test(trimmed)) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return integer && !Number.isInteger(parsed) ? null : parsed;
+}
+
+function parseCodeDraft(value: string): number[] | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const parts = value.split(',');
+  const parsed: number[] = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const token = parts[index]!.trim();
+    if (!token) {
+      if (index === parts.length - 1) {
+        continue;
+      }
+      return null;
+    }
+
+    if (!/^\d+$/.test(token)) {
+      return null;
+    }
+
+    const byte = Number(token);
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+      return null;
+    }
+
+    parsed.push(byte);
+  }
+
+  return parsed;
+}
 
 function updateSeedProgram(
   seedPrograms: SeedProgram[],
@@ -20,9 +81,121 @@ function updateSeedProgram(
   );
 }
 
+interface BufferedNumberInputProps {
+  className: string;
+  disabled: boolean;
+  integer?: boolean;
+  onCommit(value: number): void;
+  value: number;
+}
+
+function BufferedNumberInput({
+  className,
+  disabled,
+  integer = false,
+  onCommit,
+  value,
+}: BufferedNumberInputProps): JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (disabled) {
+      setDraft(null);
+    }
+  }, [disabled]);
+
+  const commit = () => {
+    if (draft === null) {
+      return;
+    }
+
+    const parsed = parseBufferedNumber(draft, integer);
+    if (parsed !== null) {
+      onCommit(parsed);
+    }
+
+    setDraft(null);
+  };
+
+  return (
+    <input
+      className={className}
+      type="text"
+      inputMode={integer ? 'numeric' : 'decimal'}
+      disabled={disabled}
+      value={draft ?? String(value)}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commit();
+          event.currentTarget.blur();
+        }
+
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          setDraft(null);
+        }
+      }}
+    />
+  );
+}
+
+interface BufferedCodeTextareaProps {
+  className: string;
+  disabled: boolean;
+  onCommit(value: number[]): void;
+  value: number[];
+}
+
+function BufferedCodeTextarea({
+  className,
+  disabled,
+  onCommit,
+  value,
+}: BufferedCodeTextareaProps): JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (disabled) {
+      setDraft(null);
+    }
+  }, [disabled]);
+
+  const commit = () => {
+    if (draft === null) {
+      return;
+    }
+
+    const parsed = parseCodeDraft(draft);
+    if (parsed !== null) {
+      onCommit(parsed);
+    }
+
+    setDraft(null);
+  };
+
+  return (
+    <textarea
+      className={className}
+      disabled={disabled}
+      value={draft ?? value.join(', ')}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          setDraft(null);
+        }
+      }}
+    />
+  );
+}
+
 export function ConfigEditor(): JSX.Element {
   const { config, configErrorSummary, configIsValid, randomizeSeed, setConfig, state } = useSimContext();
-  const [storageMessage, setStorageMessage] = useState<string | null>(null);
+  const [toolMessage, setToolMessage] = useState<string | null>(null);
 
   const errors = validateConfig(config);
   const isEditable = state.simStatus === 'none';
@@ -35,6 +208,41 @@ export function ConfigEditor(): JSX.Element {
       ...current,
       [field]: value,
     }));
+  };
+
+  const copyConfigAsJson = async () => {
+    if (!window.navigator.clipboard?.writeText) {
+      setToolMessage('Clipboard API unavailable in this browser.');
+      return;
+    }
+
+    let sourceConfig = config;
+    let copiedLiveConfig = false;
+
+    if (state.simStatus !== 'none') {
+      try {
+        const liveConfig = await fetchSimulationConfig();
+        if (liveConfig) {
+          sourceConfig = liveConfig;
+          copiedLiveConfig = true;
+        }
+      } catch {
+        // Fall back to the local editor config if the live config request fails.
+      }
+    }
+
+    try {
+      await window.navigator.clipboard.writeText(JSON.stringify(sourceConfig, null, 2));
+      setToolMessage(
+        copiedLiveConfig
+          ? 'Copied current simulation config JSON to clipboard.'
+          : state.simStatus !== 'none'
+            ? 'Copied local editor config JSON to clipboard.'
+            : 'Copied config JSON to clipboard.',
+      );
+    } catch (error) {
+      setToolMessage(error instanceof Error ? error.message : 'Failed to copy config JSON.');
+    }
   };
 
   return (
@@ -55,40 +263,51 @@ export function ConfigEditor(): JSX.Element {
         <div className={styles.grid}>
           <label className={styles.field}>
             <span>Width</span>
-            <input
+            <BufferedNumberInput
               className={styles.input}
-              type="number"
+              integer
               value={config.width}
               disabled={!isEditable}
-              onChange={(event) => setField('width', Number(event.target.value))}
+              onCommit={(value) => setField('width', value)}
             />
             {errors.width ? <span className={styles.error}>{errors.width}</span> : null}
           </label>
           <label className={styles.field}>
             <span>Height</span>
-            <input
+            <BufferedNumberInput
               className={styles.input}
-              type="number"
+              integer
               value={config.height}
               disabled={!isEditable}
-              onChange={(event) => setField('height', Number(event.target.value))}
+              onCommit={(value) => setField('height', value)}
             />
             {errors.height ? <span className={styles.error}>{errors.height}</span> : null}
           </label>
         </div>
         <label className={styles.field}>
           <span>Seed</span>
-          <input
+          <BufferedNumberInput
             className={styles.input}
-            type="number"
+            integer
             value={config.seed}
             disabled={!isEditable}
-            onChange={(event) => setField('seed', Number(event.target.value))}
+            onCommit={(value) => setField('seed', value)}
           />
         </label>
         <div className={styles.buttonRow}>
-          <button className={styles.buttonSecondary} type="button" disabled={!isEditable} onClick={() => randomizeSeed()}>
+          <button
+            className={styles.buttonSecondary}
+            type="button"
+            disabled={!isEditable}
+            onClick={() => {
+              randomizeSeed();
+              setToolMessage(null);
+            }}
+          >
             Randomize Seed
+          </button>
+          <button className={styles.buttonSecondary} type="button" onClick={() => void copyConfigAsJson()}>
+            Copy JSON
           </button>
           <button
             className={styles.buttonSecondary}
@@ -96,7 +315,7 @@ export function ConfigEditor(): JSX.Element {
             disabled={!isEditable}
             onClick={() => {
               saveConfigToStorage(config);
-              setStorageMessage('Saved current config to this browser.');
+              setToolMessage('Saved current config to this browser.');
             }}
           >
             Save Config
@@ -109,20 +328,21 @@ export function ConfigEditor(): JSX.Element {
               try {
                 const savedConfig = loadConfigFromStorage();
                 if (!savedConfig) {
-                  setStorageMessage('No saved config found in this browser yet.');
+                  setToolMessage('No saved config found in this browser yet.');
                   return;
                 }
                 setConfig(savedConfig);
-                setStorageMessage('Loaded saved config from this browser.');
+                setToolMessage('Loaded saved config from this browser.');
               } catch (error) {
-                setStorageMessage(error instanceof Error ? error.message : 'Failed to load saved config.');
+                setToolMessage(error instanceof Error ? error.message : 'Failed to load saved config.');
               }
             }}
           >
             Load Config
           </button>
         </div>
-        {storageMessage ? <p className={styles.muted}>{storageMessage}</p> : null}
+        <p className={styles.muted}>Config edits apply on blur or Enter. Press Escape to revert the active field.</p>
+        {toolMessage ? <p className={styles.muted}>{toolMessage}</p> : null}
       </div>
 
       <ConfigGroup
@@ -172,21 +392,20 @@ export function ConfigEditor(): JSX.Element {
         <h3 className={styles.groupTitle}>Seed Programs</h3>
         {config.seed_programs.length === 0 ? <p className={styles.muted}>No seed programs configured.</p> : null}
         {config.seed_programs.map((seedProgram, index) => {
-          const codeValue = seedProgram.code.join(', ');
           return (
             <div key={`${index}-${seedProgram.x}-${seedProgram.y}`} className={styles.seedCard}>
               <div className={styles.grid}>
                 <label className={styles.field}>
                   <span>X</span>
-                  <input
+                  <BufferedNumberInput
                     className={styles.input}
-                    type="number"
+                    integer
                     value={seedProgram.x}
                     disabled={!isEditable}
-                    onChange={(event) =>
+                    onCommit={(value) =>
                       setField(
                         'seed_programs',
-                        updateSeedProgram(config.seed_programs, index, { x: Number(event.target.value) }),
+                        updateSeedProgram(config.seed_programs, index, { x: value }),
                       )
                     }
                   />
@@ -196,15 +415,15 @@ export function ConfigEditor(): JSX.Element {
                 </label>
                 <label className={styles.field}>
                   <span>Y</span>
-                  <input
+                  <BufferedNumberInput
                     className={styles.input}
-                    type="number"
+                    integer
                     value={seedProgram.y}
                     disabled={!isEditable}
-                    onChange={(event) =>
+                    onCommit={(value) =>
                       setField(
                         'seed_programs',
-                        updateSeedProgram(config.seed_programs, index, { y: Number(event.target.value) }),
+                        updateSeedProgram(config.seed_programs, index, { y: value }),
                       )
                     }
                   />
@@ -214,16 +433,16 @@ export function ConfigEditor(): JSX.Element {
                 </label>
                 <label className={styles.field}>
                   <span>Free Energy</span>
-                  <input
+                  <BufferedNumberInput
                     className={styles.input}
-                    type="number"
+                    integer
                     value={seedProgram.free_energy}
                     disabled={!isEditable}
-                    onChange={(event) =>
+                    onCommit={(value) =>
                       setField(
                         'seed_programs',
                         updateSeedProgram(config.seed_programs, index, {
-                          free_energy: Number(event.target.value),
+                          free_energy: value,
                         }),
                       )
                     }
@@ -231,16 +450,16 @@ export function ConfigEditor(): JSX.Element {
                 </label>
                 <label className={styles.field}>
                   <span>Free Mass</span>
-                  <input
+                  <BufferedNumberInput
                     className={styles.input}
-                    type="number"
+                    integer
                     value={seedProgram.free_mass}
                     disabled={!isEditable}
-                    onChange={(event) =>
+                    onCommit={(value) =>
                       setField(
                         'seed_programs',
                         updateSeedProgram(config.seed_programs, index, {
-                          free_mass: Number(event.target.value),
+                          free_mass: value,
                         }),
                       )
                     }
@@ -249,15 +468,15 @@ export function ConfigEditor(): JSX.Element {
               </div>
               <label className={styles.field}>
                 <span>Code (comma-separated decimals)</span>
-                <textarea
+                <BufferedCodeTextarea
                   className={styles.textarea}
-                  value={codeValue}
+                  value={seedProgram.code}
                   disabled={!isEditable}
-                  onChange={(event) =>
+                  onCommit={(value) =>
                     setField(
                       'seed_programs',
                       updateSeedProgram(config.seed_programs, index, {
-                        code: parseCode(event.target.value),
+                        code: value,
                       }),
                     )
                   }
@@ -321,13 +540,12 @@ function ConfigGroup({ config, errors, fields, isEditable, setField, title }: Co
         {fields.map(([field, label]) => (
           <label key={String(field)} className={styles.field}>
             <span>{label}</span>
-            <input
+            <BufferedNumberInput
               className={styles.input}
-              type="number"
-              step="any"
+              integer={INTEGER_FIELDS.has(field)}
               disabled={!isEditable}
               value={config[field] as number}
-              onChange={(event) => setField(field, Number(event.target.value) as SimConfig[typeof field])}
+              onCommit={(value) => setField(field, value as SimConfig[typeof field])}
             />
             {errors[String(field)] ? <span className={styles.error}>{errors[String(field)]}</span> : null}
           </label>

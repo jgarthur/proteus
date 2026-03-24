@@ -1,4 +1,4 @@
-# Proteus v0.2.0 Specification
+# Proteus v0.2.1 Specification
 
 An artificial life simulator where self-replicating programs emerge, compete, and evolve on a 2D grid with conserved mass and energy.
 
@@ -8,11 +8,11 @@ Proteus prioritizes a minimal substrate that enables emergent complexity. The in
 
 The physics layer provides real resource constraints (spatial locality, maintenance costs, conserved transactions with external energy and mass sources) that drive ecological dynamics without prescribing what those dynamics should look like. The substrate includes controlled stochastic elements — background radiation and mass arrival, mutation, `rand`, and probabilistic maintenance and decay — but is otherwise deterministic. All physics is fully discrete and translation-invariant under 90° rotations and reflections.
 
-### Changes from v0.1
+### Changes from v0.2.0
 
-v0.2 makes one coherent structural change: **larger organisms get more local work per tick**. The old immediate-vs-1-tick distinction is removed. Each live program receives a per-tick local action budget of `max(1, floor(size^alpha))` local actions, plus at most one nonlocal instruction. Maintenance scales as `size^beta`.
+v0.2.1 keeps the v0.2.0 execution model, instruction set, and lifecycle rules, but reinterprets the ambient arrival parameters `R_energy` and `R_mass` as **Poisson arrival means per cell per tick** instead of Bernoulli probabilities capped at one unit. Ambient decay remains per-quantum binomial thinning at `D_energy` / `D_mass`.
 
-Alongside this, the resource model is made symmetric: background mass is introduced as a new pool parallel to background radiation, requiring active harvesting via a new `collect` instruction. `absorb` is split into `absorb` (energy metabolism) and `listen` (communication). `takeM` and `takeE` are removed; predation is exclusively destructive (`delAdj`). Directed radiation energy semantics are fixed so each packet carries exactly 1 energy.
+Fresh simulations now initialize background radiation and background mass from the stationary ambient law implied by those rules: `Poisson(R / D)` for each cell when `D > 0`. If `D = 0`, there is no finite steady state for that pool, so fresh simulations start with 0 background in that pool.
 
 ## Physics
 
@@ -29,13 +29,13 @@ Mass and energy are fundamental, quantized quantities located within a single ce
 
 **Mass** exists in three forms:
 
-- **Background mass**: an external mass input. Each cell receives 1 unit of background mass with probability `R_mass` per tick. Background mass accumulates in the cell across ticks, and each unit independently decays (is permanently removed) with probability `D_mass` per tick. Background mass is a separate pool from free mass — it cannot be used to pay for instructions or maintenance. Only `collect` converts background mass into free mass. At steady state, an untouched cell holds approximately `R_mass / D_mass` background mass. When background mass arrives in a cell with no program, that arrival can mark the cell as a spawn candidate for end-of-tick spontaneous nucleation (see Spontaneous Program Creation).
+- **Background mass**: an external mass input. Each cell receives `Poisson(R_mass)` units of background mass per tick. Background mass accumulates in the cell across ticks, and each unit independently decays (is permanently removed) with probability `D_mass` per tick. Background mass is a separate pool from free mass — it cannot be used to pay for instructions or maintenance. Only `collect` converts background mass into free mass. For `D_mass > 0`, an untouched cell has stationary distribution `Poisson(R_mass / D_mass)`, so its expected background mass is `R_mass / D_mass`. Fresh simulations initialize `bg_mass` in each cell by sampling that stationary distribution. If `D_mass = 0`, there is no finite steady state, so fresh simulations start with `bg_mass = 0`. When background mass arrives in a cell with no program, that arrival can mark the cell as a spawn candidate for end-of-tick spontaneous nucleation (see Spontaneous Program Creation).
 - **Free mass**: loose raw material in a cell. Used by programs to create new instructions and as maintenance fallback. Attached to the program if one is present.
 - **Instructions**: each instruction in a program has mass 1. Instructions are created from free mass. Explicit code-editing deletions such as `del` and `delAdj` recycle an instruction into 1 free mass; maintenance destruction instead consumes the instruction permanently.
 
 **Energy** exists in three forms:
 
-- **Background radiation**: an external energy input. Each cell receives 1 unit of background radiation with probability `R_energy` per tick. Background radiation accumulates in the cell across ticks until captured by `absorb`, but each unit independently decays (is permanently removed) with probability `D_energy` per tick. At steady state, an untouched cell holds approximately `R_energy / D_energy` background radiation. Background radiation is a separate pool from free energy — it cannot be used to pay additional instruction costs and may only be used as emergency payment for base instruction costs (with elevated mutation risk; see Mutation). It is not subject to storage thresholds. Only `absorb` converts background radiation into free energy.
+- **Background radiation**: an external energy input. Each cell receives `Poisson(R_energy)` units of background radiation per tick. Background radiation accumulates in the cell across ticks until captured by `absorb`, but each unit independently decays (is permanently removed) with probability `D_energy` per tick. For `D_energy > 0`, an untouched cell has stationary distribution `Poisson(R_energy / D_energy)`, so its expected background radiation is `R_energy / D_energy`. Fresh simulations initialize `bg_radiation` in each cell by sampling that stationary distribution. If `D_energy = 0`, there is no finite steady state, so fresh simulations start with `bg_radiation = 0`. Background radiation is a separate pool from free energy — it cannot be used to pay additional instruction costs and may only be used as emergency payment for base instruction costs (with elevated mutation risk; see Mutation). It is not subject to storage thresholds. Only `absorb` converts background radiation into free energy.
 - **Free energy**: stationary, attached to the program in a cell (if present). Used to pay for instruction execution and maintenance.
 - **Directed radiation**: a packet of energy propagating at 1 cell/tick in a cardinal direction. Each packet carries exactly 1 energy and a 16-bit signed integer message value, serving as both energy transfer and long-range communication.
 
@@ -43,9 +43,9 @@ Mass and energy are fundamental, quantized quantities located within a single ce
 
 | Pool | Arrives | Decays | Threshold | Conversion | Can Pay Costs |
 |------|---------|--------|-----------|------------|---------------|
-| Background radiation | `R_energy` per tick | all units at `D_energy` | none | `absorb` → free energy | emergency only (elevated mutation) |
+| Background radiation | `Poisson(R_energy)` per tick | all units at `D_energy` | none | `absorb` → free energy | emergency only (elevated mutation) |
 | Free energy | from absorb, listen, transfers, crystallization | above threshold at `D_energy` | `T_cap × S` | working currency | yes |
-| Background mass | `R_mass` per tick | all units at `D_mass` | none | `collect` → free mass | no |
+| Background mass | `Poisson(R_mass)` per tick | all units at `D_mass` | none | `collect` → free mass | no |
 | Free mass | from collect, synthesize, del, delAdj, transfers, crystallization | above threshold at `D_mass` | `T_cap × S` | working currency (maintenance fallback) | yes (maintenance fallback) |
 
 ### Decay
@@ -317,9 +317,9 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
    - N ≥ 3: own cell + front + cells perpendicular to D (two sides)
    - N ≥ 4: own cell + front + sides + cell opposite D (rear) — all 5 cells  
    Distribute background radiation in each cell equally (floor division) among all programs whose footprint includes that cell. Remainder stays. Captured background radiation becomes free energy in each absorbing program's cell.
-5. **Background radiation decay then arrival**: in each cell, each existing unit of background radiation independently decays with probability `D_energy`. After decay, the cell receives 1 unit of background radiation with probability `R_energy`.
+5. **Background radiation decay then arrival**: in each cell, each existing unit of background radiation independently decays with probability `D_energy`. After decay, the cell receives `Poisson(R_energy)` new units of background radiation.
 6. **Collect resolution**: for each program that executed `collect` this tick, convert all background mass currently in the program's own cell to free mass.
-7. **Background mass decay then arrival**: in each cell, each existing unit of background mass independently decays with probability `D_mass`. After decay, the cell receives 1 unit of background mass with probability `R_mass`. If a mass arrival occurs into a cell that is empty at the moment of arrival, mark that cell as a **spawn candidate** for end-of-tick spontaneous creation.
+7. **Background mass decay then arrival**: in each cell, each existing unit of background mass independently decays with probability `D_mass`. After decay, the cell receives `Poisson(R_mass)` new units of background mass. If any mass arrives into a cell that is empty at the moment of arrival, mark that cell as a **spawn candidate** for end-of-tick spontaneous creation.
 8. **Inert lifecycle update**: for each inert program, if it received an incoming `appendAdj` or `writeAdj` this tick, reset its abandonment timer to 0. Otherwise increment the timer by 1.
 9. **Maintenance**: for each program that existed at tick start and is **not newborn this tick**, compute `q = size_current ^ beta`. Draw from `Binomial(floor(q), M)` plus `Bernoulli((q - floor(q)) × M)` where `M` is `maintenance_rate` for live programs, `0` for inert programs still inside the grace window, and `maintenance_rate` for abandoned inert programs. Deduct from free energy, then free mass, then instructions from the end of the program. Each destroyed instruction pays one remaining maintenance quantum and is permanently removed.
 10. **Decay**: for each cell, compute excess free energy and free mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). For each resource, draw from `Binomial(excess, D)` to determine units removed permanently. (Background pools decay in steps 5 and 7 above.)
@@ -491,8 +491,8 @@ Mutations do not affect the current tick's execution.
 
 | Parameter | Symbol | Description | Suggested Start |
 |-----------|--------|-------------|-----------------|
-| Energy arrival rate | `R_energy` | P(cell receives 1 background radiation per tick) | 0.25 |
-| Mass arrival rate | `R_mass` | P(cell receives 1 background mass per tick) | 0.05 |
+| Energy arrival rate | `R_energy` | Mean background-radiation arrivals per cell per tick (`Poisson(R_energy)`) | 0.25 |
+| Mass arrival rate | `R_mass` | Mean background-mass arrivals per cell per tick (`Poisson(R_mass)`) | 0.05 |
 | Nop-spawn probability | `P_spawn` | P(end-of-tick nucleation in a spawn-candidate empty cell) | 0 |
 | Energy decay rate | `D_energy` | P(each unit of background radiation or excess free energy removed per tick) | 0.01 |
 | Mass decay rate | `D_mass` | P(each unit of background mass or excess free mass removed per tick) | 0.01 |
@@ -576,7 +576,7 @@ Let `S` = program size, `T` = ticks per replication cycle, `K` = mass produced v
 
 ### Energy Income
 
-After an `absorb` drains a cell's background radiation to 0, it refills over `T` ticks accounting for ongoing decay:
+After an `absorb` drains a cell's background radiation to 0, its **expected** refill over `T` ticks accounting for ongoing decay is:
 
 ```
 refill(T) = R_energy × (1 − (1 − D_energy)^T) / D_energy
@@ -612,7 +612,7 @@ E_in  >  E_maintain + E_instruct + E_synth
 
 ### Mass Income
 
-For the organism's own cell, background mass refills similarly:
+For the organism's own cell, expected background-mass refill is similar:
 
 ```
 mass_refill(T) = R_mass × (1 − (1 − D_mass)^T) / D_mass
@@ -678,12 +678,12 @@ Pass 2 uses a snapshot-and-apply pattern. In practice, most cells are not target
 
 ### Stochastic Implementation
 
-Several mechanics use per-quantum independent probabilities, requiring efficient binomial sampling:
+Several mechanics use simple stochastic laws that benefit from dedicated helpers:
 
 - **Background radiation/mass decay**: `Binomial(pool_size, D)` per cell per tick.
 - **Free energy/mass decay**: `Binomial(excess, D)` per cell per tick.
 - **Maintenance**: `Binomial(floor(q), M)` plus `Bernoulli(frac(q) × M)` per program per tick.
-- **Background input**: `Bernoulli(R_energy)` and `Bernoulli(R_mass)` per cell per tick.
+- **Background input**: `Poisson(R_energy)` and `Poisson(R_mass)` per cell per tick.
 - **Mutation**: `Bernoulli(mutation_rate)` per live program per tick.
 
 ### Parallelization

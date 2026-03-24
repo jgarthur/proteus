@@ -34,6 +34,10 @@ async fn rest_lifecycle_flow_and_inspection_work() {
                 "width": 2,
                 "height": 1,
                 "seed": 7,
+                // Keep ambient pools at zero so these payload assertions stay focused on
+                // the seeded program state rather than steady-state background initialization.
+                "r_energy": 0.0,
+                "r_mass": 0.0,
                 "seed_programs": [{
                     "x": 0,
                     "y": 0,
@@ -276,8 +280,10 @@ async fn websocket_subscriptions_stream_current_state_and_report_errors() {
         width: 2,
         height: 1,
         seed: 11,
-        r_energy: None,
-        r_mass: None,
+        // Keep the initial frame/metrics deterministic for transport assertions by disabling
+        // steady-state ambient background seeding in this test.
+        r_energy: Some(0.0),
+        r_mass: Some(0.0),
         d_energy: None,
         d_mass: None,
         t_cap: None,

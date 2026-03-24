@@ -268,9 +268,9 @@ If you need `rand_distr::Binomial` or other distributions from the `rand` ecosys
 
 Keep RNG adapters and distribution helpers in a dedicated `random` module with unit tests. This code is easy to get subtly wrong and should stay isolated from pass logic.
 
-### Binomial sampling
+### Distribution sampling
 
-Binomial draws come up constantly: decay, maintenance, background input — per cell per tick. For small n (most cases), a direct Bernoulli trial loop is fine:
+Binomial draws come up constantly: decay and maintenance. For small `n` (most cases), a direct Bernoulli trial loop is fine:
 
 ```rust
 fn binomial(rng: &mut fastrand::Rng, n: u32, p: f64) -> u32 {
@@ -280,6 +280,8 @@ fn binomial(rng: &mut fastrand::Rng, n: u32, p: f64) -> u32 {
 ```
 
 For large n (energy/mass pools in the hundreds), this gets slow. Add a BTPE or normal-approximation fast path if profiling shows binomial sampling as a bottleneck.
+
+Ambient arrivals use Poisson draws with mean `R_energy` / `R_mass`, and fresh worlds seed background pools from the stationary `Poisson(R / D)` law when `D > 0`. Keep those helpers in the same `random` module so the stochastic surface stays centralized and testable.
 
 ## Queued actions
 

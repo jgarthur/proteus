@@ -1,7 +1,7 @@
 //! Provides deterministic RNG helpers used across the simulator.
 
 use rand_core::{RngCore, SeedableRng};
-use rand_distr::{Binomial, Distribution};
+use rand_distr::{Binomial, Distribution, Poisson};
 use rand_xoshiro::SplitMix64;
 
 /// Wraps the chosen RNG implementation behind a small simulator-facing API.
@@ -104,9 +104,21 @@ pub fn binomial(rng: &mut WyRand, n: u32, probability: f64) -> u32 {
     distr.sample(rng) as u32
 }
 
+/// Draws a Poisson count while handling the zero-rate case cheaply.
+pub fn poisson(rng: &mut WyRand, rate: f64) -> u32 {
+    if rate <= 0.0 {
+        return 0;
+    }
+
+    let capped_rate = rate.min(f64::from(u32::MAX));
+    let distr = Poisson::new(capped_rate).unwrap();
+    let draw = distr.sample(rng);
+    draw.min(f64::from(u32::MAX)).floor() as u32
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{binomial, cell_rng, splitmix64};
+    use super::{binomial, cell_rng, poisson, splitmix64};
 
     #[test]
     fn splitmix64_is_stable_for_known_input() {
@@ -135,5 +147,17 @@ mod tests {
         let mut rng = cell_rng(1, 2, 3);
         assert_eq!(binomial(&mut rng, 5, 0.0), 0);
         assert_eq!(binomial(&mut rng, 5, 1.0), 5);
+    }
+
+    #[test]
+    fn poisson_respects_zero_rate() {
+        let mut rng = cell_rng(1, 2, 3);
+        assert_eq!(poisson(&mut rng, 0.0), 0);
+    }
+
+    #[test]
+    fn poisson_can_draw_more_than_one_arrival() {
+        let mut rng = cell_rng(7, 11, 13);
+        assert!(poisson(&mut rng, 100.0) > 1);
     }
 }

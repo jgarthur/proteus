@@ -68,7 +68,7 @@ fn collect_converts_background_mass_into_free_mass_before_mass_arrival() {
             config.d_energy = 0.0;
             config.r_energy = 0.0;
             config.d_mass = 0.0;
-            config.r_mass = 1.0;
+            config.r_mass = 100.0;
         })
         .at(
             0,
@@ -86,7 +86,12 @@ fn collect_converts_background_mass_into_free_mass_before_mass_arrival() {
             spawn_candidates: vec![false]
         }
     );
-    assert_cell!(simulation.grid(), (0, 0), free_mass == 4, bg_mass == 1);
+    let cell = simulation
+        .grid()
+        .get(simulation.grid().index(0, 0))
+        .expect("cell should exist");
+    assert_eq!(cell.free_mass, 4);
+    assert!(cell.bg_mass > 1);
     assert_program!(simulation.grid(), (0, 0), did_collect == true);
 }
 
@@ -97,7 +102,7 @@ fn empty_cell_mass_arrival_marks_spawn_candidate() {
             config.d_energy = 0.0;
             config.r_energy = 0.0;
             config.d_mass = 0.0;
-            config.r_mass = 1.0;
+            config.r_mass = 100.0;
         })
         .at(1, 0, ProgramBuilder::new().code(&[op::NOP]))
         .build_simulation();
@@ -105,13 +110,19 @@ fn empty_cell_mass_arrival_marks_spawn_candidate() {
     let output = simulation.run_pass3_ambient();
 
     assert_eq!(output.spawn_candidates, vec![true, false]);
-    assert_cell!(
-        simulation.grid(),
-        (0, 0),
-        bg_mass == 1,
-        has_program == false
-    );
-    assert_cell!(simulation.grid(), (1, 0), bg_mass == 1, has_program == true);
+    let empty_cell = simulation
+        .grid()
+        .get(simulation.grid().index(0, 0))
+        .expect("cell should exist");
+    assert!(!empty_cell.has_program());
+    assert!(empty_cell.bg_mass > 1);
+
+    let occupied_cell = simulation
+        .grid()
+        .get(simulation.grid().index(1, 0))
+        .expect("cell should exist");
+    assert!(occupied_cell.has_program());
+    assert!(occupied_cell.bg_mass > 1);
 }
 
 #[test]
@@ -119,7 +130,7 @@ fn background_radiation_decay_then_arrival_uses_post_absorb_remainder() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| {
             config.d_energy = 1.0;
-            config.r_energy = 1.0;
+            config.r_energy = 100.0;
             config.d_mass = 0.0;
             config.r_mass = 0.0;
         })
@@ -134,10 +145,10 @@ fn background_radiation_decay_then_arrival_uses_post_absorb_remainder() {
             spawn_candidates: vec![false]
         }
     );
-    assert_cell!(
-        simulation.grid(),
-        (0, 0),
-        bg_radiation == 1,
-        free_energy == 0
-    );
+    let cell = simulation
+        .grid()
+        .get(simulation.grid().index(0, 0))
+        .expect("cell should exist");
+    assert_eq!(cell.free_energy, 0);
+    assert!(cell.bg_radiation > 1);
 }
