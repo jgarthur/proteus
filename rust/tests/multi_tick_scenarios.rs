@@ -8,7 +8,7 @@ use proteus::op;
 fn absorb_loop_accumulates_energy_after_the_initial_arrival_lag() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| {
-            config.r_energy = 1.0;
+            config.r_energy = 100.0;
             config.d_energy = 0.0;
             config.r_mass = 0.0;
             config.d_mass = 0.0;
@@ -21,21 +21,33 @@ fn absorb_loop_accumulates_energy_after_the_initial_arrival_lag() {
         .build_simulation();
 
     simulation.run_tick();
-    assert_cell!(
-        simulation.grid(),
-        (0, 0),
-        free_energy == 0,
-        bg_radiation == 1
+    let first_arrival = simulation
+        .grid()
+        .get(simulation.grid().index(0, 0))
+        .expect("cell should exist")
+        .bg_radiation;
+    assert_eq!(
+        simulation
+            .grid()
+            .get(simulation.grid().index(0, 0))
+            .expect("cell should exist")
+            .free_energy,
+        0
     );
+    assert!(first_arrival > 1);
 
-    for expected_energy in 1..=6 {
+    let mut expected_energy = 0;
+    let mut previous_arrival = first_arrival;
+    for _ in 0..6 {
         simulation.run_tick();
-        assert_cell!(
-            simulation.grid(),
-            (0, 0),
-            free_energy == expected_energy,
-            bg_radiation == 1
-        );
+        let cell = simulation
+            .grid()
+            .get(simulation.grid().index(0, 0))
+            .expect("cell should exist");
+        assert_eq!(cell.free_energy, expected_energy + previous_arrival);
+        assert!(cell.bg_radiation > 1);
+        expected_energy += previous_arrival;
+        previous_arrival = cell.bg_radiation;
     }
 }
 
@@ -162,7 +174,7 @@ fn extinct_cell_can_respawn_on_a_later_tick_when_mass_arrives() {
             config.maintenance_exponent = 1.0;
             config.r_energy = 0.0;
             config.d_energy = 0.0;
-            config.r_mass = 1.0;
+            config.r_mass = 100.0;
             config.d_mass = 0.0;
             config.p_spawn = 1.0;
             config.mutation_base_log2 = 32;
@@ -172,13 +184,14 @@ fn extinct_cell_can_respawn_on_a_later_tick_when_mass_arrives() {
         .build_simulation();
 
     simulation.run_tick();
-    assert_cell!(
-        simulation.grid(),
-        (0, 0),
-        has_program == false,
-        free_mass == 0,
-        bg_mass == 1
-    );
+    let first_tick_cell = simulation
+        .grid()
+        .get(simulation.grid().index(0, 0))
+        .expect("cell should exist");
+    assert!(!first_tick_cell.has_program());
+    assert_eq!(first_tick_cell.free_mass, 0);
+    assert!(first_tick_cell.bg_mass > 1);
+    let first_tick_bg_mass = first_tick_cell.bg_mass;
 
     simulation.run_tick();
     assert_program!(
@@ -188,5 +201,10 @@ fn extinct_cell_can_respawn_on_a_later_tick_when_mass_arrives() {
         age == 0,
         did_nop == false
     );
-    assert_cell!(simulation.grid(), (0, 0), free_mass == 2, bg_mass == 0);
+    let second_tick_cell = simulation
+        .grid()
+        .get(simulation.grid().index(0, 0))
+        .expect("cell should exist");
+    assert!(second_tick_cell.free_mass > first_tick_bg_mass);
+    assert_eq!(second_tick_cell.bg_mass, 0);
 }

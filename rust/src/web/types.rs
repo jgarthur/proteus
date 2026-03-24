@@ -8,7 +8,7 @@ use crate::config::{SimConfig, PROGRAM_SIZE_CAP};
 use crate::observe::MetricsSnapshot;
 
 /// Declares the current version string for the HTTP/WebSocket API.
-pub const API_VERSION: &str = "0.1.0";
+pub const API_VERSION: &str = "0.2.1";
 /// Names the response header that reports the API version.
 pub const API_VERSION_HEADER: &str = "X-Proteus-API-Version";
 

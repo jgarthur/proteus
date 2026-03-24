@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 
 /// Tracks the spec version this backend is aligned to.
-pub const SPEC_VERSION: &str = "0.2.0";
+pub const SPEC_VERSION: &str = "0.3.1";
 /// Stores the maximum allowed program length from the spec.
 pub const PROGRAM_SIZE_CAP: u16 = 0x7fff;
 
@@ -63,8 +63,8 @@ impl SimConfig {
             return Err(ConfigError::ZeroHeight);
         }
 
-        self.check_probability("r_energy", self.r_energy)?;
-        self.check_probability("r_mass", self.r_mass)?;
+        self.check_non_negative("r_energy", self.r_energy)?;
+        self.check_non_negative("r_mass", self.r_mass)?;
         self.check_probability("d_energy", self.d_energy)?;
         self.check_probability("d_mass", self.d_mass)?;
         self.check_probability("maintenance_rate", self.maintenance_rate)?;
@@ -89,7 +89,7 @@ impl SimConfig {
         width.checked_mul(height)
     }
 
-    /// Checks that a floating-point field is a valid probability.
+    /// Checks that a floating-point field is a valid unit probability.
     fn check_probability(&self, field: &'static str, value: f64) -> Result<(), ConfigError> {
         if !value.is_finite() || !(0.0..=1.0).contains(&value) {
             return Err(ConfigError::ProbabilityOutOfRange { field, value });
@@ -155,17 +155,27 @@ mod tests {
     }
 
     #[test]
-    fn invalid_probability_is_rejected() {
+    fn arrival_rate_above_one_is_valid() {
         let config = SimConfig {
-            r_energy: 1.5,
+            r_energy: 3.5,
+            ..SimConfig::default()
+        };
+
+        assert_eq!(config.validate(), Ok(()));
+    }
+
+    #[test]
+    fn negative_arrival_rate_is_rejected() {
+        let config = SimConfig {
+            r_energy: -0.5,
             ..SimConfig::default()
         };
 
         assert_eq!(
             config.validate(),
-            Err(ConfigError::ProbabilityOutOfRange {
+            Err(ConfigError::NegativeOrNonFinite {
                 field: "r_energy",
-                value: 1.5
+                value: -0.5
             })
         );
     }

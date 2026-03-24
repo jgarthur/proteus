@@ -82,7 +82,7 @@ fn incoming_write_resets_inert_abandonment_timer_and_skips_maintenance() {
 fn spontaneous_spawn_waits_until_next_tick_to_act_and_age() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| {
-            config.r_mass = 1.0;
+            config.r_mass = 100.0;
             config.d_mass = 0.0;
             config.p_spawn = 1.0;
             config.r_energy = 0.0;
@@ -102,7 +102,12 @@ fn spontaneous_spawn_waits_until_next_tick_to_act_and_age() {
         age == 0,
         did_nop == false
     );
-    assert_cell!(simulation.grid(), (0, 0), free_mass == 1, bg_mass == 0);
+    let cell = simulation
+        .grid()
+        .get(simulation.grid().index(0, 0))
+        .expect("cell should exist");
+    assert!(cell.free_mass > 1);
+    assert_eq!(cell.bg_mass, 0);
 
     run_ticks(&mut simulation, 1);
 
@@ -113,7 +118,7 @@ fn spontaneous_spawn_waits_until_next_tick_to_act_and_age() {
 fn tick_report_counts_spontaneous_spawn_as_birth() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| {
-            config.r_mass = 1.0;
+            config.r_mass = 100.0;
             config.d_mass = 0.0;
             config.p_spawn = 1.0;
             config.r_energy = 0.0;

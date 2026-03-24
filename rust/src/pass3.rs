@@ -4,7 +4,7 @@ use crate::config::SimConfig;
 use crate::grid::Grid;
 use crate::model::{Cell, Direction, Packet, Program};
 use crate::opcode::op;
-use crate::random::{binomial, cell_rng};
+use crate::random::{binomial, cell_rng, poisson};
 
 const LISTEN_CAPTURE_SALT: u64 = 0x5d17_2ef3_94ab_c881;
 const BG_RADIATION_SALT: u64 = 0x1f03_86da_b9c7_e251;
@@ -286,7 +286,7 @@ fn resolve_absorb(grid: &mut Grid) {
     }
 }
 
-/// Applies decay and arrival for background radiation.
+/// Applies decay and Poisson arrival for background radiation.
 fn resolve_background_radiation(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
     for cell_index in 0..grid.len() {
         let mut rng = cell_rng(seed ^ BG_RADIATION_SALT, tick, cell_index as u64);
@@ -295,13 +295,11 @@ fn resolve_background_radiation(grid: &mut Grid, config: &SimConfig, tick: u64, 
             .expect("cell should exist")
             .bg_radiation;
         let decayed = binomial(&mut rng, current, config.d_energy);
-        let mut remaining = current - decayed;
-        if rng.bernoulli(config.r_energy) {
-            remaining += 1;
-        }
+        let remaining = current - decayed;
+        let arrivals = poisson(&mut rng, config.r_energy);
         grid.get_mut(cell_index)
             .expect("cell should exist")
-            .bg_radiation = remaining;
+            .bg_radiation = remaining.saturating_add(arrivals);
     }
 }
 
@@ -319,7 +317,7 @@ fn resolve_collect(grid: &mut Grid) {
     }
 }
 
-/// Applies decay and arrival for background mass and marks spawn candidates.
+/// Applies decay and Poisson arrival for background mass and marks spawn candidates.
 fn resolve_background_mass(
     grid: &mut Grid,
     config: &SimConfig,
@@ -331,15 +329,12 @@ fn resolve_background_mass(
         let mut rng = cell_rng(seed ^ BG_MASS_SALT, tick, cell_index as u64);
         let current = grid.get(cell_index).expect("cell should exist").bg_mass;
         let decayed = binomial(&mut rng, current, config.d_mass);
-        let mut remaining = current - decayed;
-        let arrival = rng.bernoulli(config.r_mass);
-        if arrival {
-            remaining += 1;
-        }
+        let remaining = current - decayed;
+        let arrivals = poisson(&mut rng, config.r_mass);
 
         let cell = grid.get_mut(cell_index).expect("cell should exist");
-        cell.bg_mass = remaining;
-        if arrival && !cell.has_program() {
+        cell.bg_mass = remaining.saturating_add(arrivals);
+        if arrivals > 0 && !cell.has_program() {
             output.spawn_candidates[cell_index] = true;
         }
     }

@@ -2,9 +2,9 @@
 
 **Status**: Provisional — subject to change as the engine implementation matures.
 
-**Spec version**: 0.1.0
+**Spec version**: 0.2.1
 
-**Simulator version**: Targets Proteus v0.2.0
+**Simulator version**: Targets Proteus v0.3.1
 
 ---
 
@@ -58,7 +58,7 @@ The API is independent of any specific frontend implementation.
 
 All REST endpoints are prefixed with `/v1`.
 
-All responses include the header `X-Proteus-API-Version: 0.1.0`.
+All responses include the header `X-Proteus-API-Version: 0.2.1`.
 
 Breaking changes increment the major URL version (`/v2`). Additive changes (new optional fields, new endpoints) do not.
 
@@ -190,8 +190,8 @@ Provided as the request body to `POST /v1/sim`. All fields are required unless m
 | `width` | u32 | Grid width in cells | *required* |
 | `height` | u32 | Grid height in cells | *required* |
 | `seed` | u64 | Master RNG seed | *required* |
-| `r_energy` | f64 | P(cell receives 1 bg radiation per tick) | 0.25 |
-| `r_mass` | f64 | P(cell receives 1 bg mass per tick) | 0.05 |
+| `r_energy` | f64 | Mean bg-radiation arrivals per cell per tick (`Poisson(r_energy)`) | 0.25 |
+| `r_mass` | f64 | Mean bg-mass arrivals per cell per tick (`Poisson(r_mass)`) | 0.05 |
 | `d_energy` | f64 | P(each bg radiation / excess free energy unit decays per tick) | 0.01 |
 | `d_mass` | f64 | P(each bg mass / excess free mass unit decays per tick) | 0.01 |
 | `t_cap` | f64 | Free resource decay threshold multiplier on program size | 4.0 |
@@ -232,6 +232,8 @@ Optional initial-state fields:
 
 The program is placed as live with `IP = 0`, an empty stack, and default registers. As in the
 master simulation spec, default `Dir` and `ID` initialization is randomized at program creation.
+
+Background radiation and background mass are not set directly by this schema. Fresh simulations seed those pools from the stationary ambient distribution implied by `r_*` and `d_*`: `Poisson(r / d)` per cell when `d > 0`, else 0 for that pool when `d = 0`.
 
 ### Read config
 
@@ -577,7 +579,7 @@ All error responses use a consistent JSON body:
 | 400 | Out-of-bounds inspection coordinates/index, malformed request, or other invalid request input |
 | 404 | No simulation exists |
 | 409 | Conflict (sim already exists, wrong state for operation) |
-| 422 | Config validation failure (e.g. width = 0, negative probability) |
+| 422 | Config validation failure (e.g. width = 0, negative arrival rate, decay probability > 1) |
 | 500 | Internal server error |
 
 ### Error codes

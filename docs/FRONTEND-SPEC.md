@@ -2,9 +2,9 @@
 
 **Status**: Provisional — subject to change as the backend API matures.
 
-**Spec version**: 0.1.0
+**Spec version**: 0.2.1
 
-**Targets**: Proteus v0.2.0, API-SPEC v0.1.0
+**Targets**: Proteus v0.3.1, API-SPEC v0.2.1
 
 ---
 
@@ -451,6 +451,8 @@ Sorted by `created_at` descending (newest first).
 
 The config editor appears in the **Controls** tab when creating a new simulation. It is a form that produces the JSON body for `POST /v1/sim` (API-SPEC §8).
 
+`r_energy` and `r_mass` are Poisson arrival means per cell per tick, so they are valid for any finite non-negative number. `d_energy` and `d_mass` remain per-quantum decay probabilities in `[0, 1]`.
+
 ### Field groups
 
 **Grid**:
@@ -465,8 +467,8 @@ The config editor appears in the **Controls** tab when creating a new simulation
 
 | Field | Type | Default | Validation |
 |-------|------|---------|------------|
-| `r_energy` | number | 0.25 | 0.0–1.0 |
-| `r_mass` | number | 0.05 | 0.0–1.0 |
+| `r_energy` | number | 0.25 | ≥ 0.0 |
+| `r_mass` | number | 0.05 | ≥ 0.0 |
 | `d_energy` | number | 0.01 | 0.0–1.0 |
 | `d_mass` | number | 0.01 | 0.0–1.0 |
 | `t_cap` | number | 4.0 | > 0 |

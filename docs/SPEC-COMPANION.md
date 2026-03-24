@@ -1,6 +1,6 @@
-# Proteus v0.2.0 Spec Companion
+# Proteus v0.3.1 Spec Companion
 
-Companion to **Proteus v0.2.0 Specification**. This document is not a redesign. It is an implementation-facing clarification layer: condensed phase ordering, operational invariants, truth tables, and testable edge-case rules.
+Companion to **Proteus v0.3.1 Specification**. This document is not a redesign. It is an implementation-facing clarification layer: condensed phase ordering, operational invariants, truth tables, and testable edge-case rules.
 
 When prose in the main spec feels broad, this document gives the intended machine semantics.
 
@@ -49,9 +49,9 @@ For a single tick:
 4. **Pass 3 — Physics update**
    - Directed radiation propagation / listening / collision
    - Background radiation absorb resolution
-   - Background radiation decay then arrival
+   - Background radiation decay then Poisson arrival
    - `collect` (background mass -> free mass in the program's own cell)
-   - Background mass decay then arrival
+   - Background mass decay then Poisson arrival
    - Inert abandonment timer update
    - Maintenance
    - Free-resource decay
@@ -506,12 +506,16 @@ Background pools decay independently of thresholds.
 Both background pools use the same rule:
 
 1. existing units decay
-2. a new unit may arrive
+2. a Poisson-distributed number of new units may arrive
 
 Equivalent interpretation:
 - newly arrived background units do **not** decay on the same tick they arrive
 
 This rule should be consistent with steady-state calculations used in analysis.
+
+Fresh simulation initialization uses the same ambient law:
+- if `D > 0`, each cell samples that pool from `Poisson(R / D)`
+- if `D = 0`, there is no finite stationary distribution, so fresh simulations start with 0 in that pool
 
 ---
 

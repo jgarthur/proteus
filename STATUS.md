@@ -14,6 +14,7 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [x] Frontend spec (`FRONTEND-SPEC.md`)
 - [x] Build the frontend (implement `FRONTEND-SPEC.md`)
 - [x] Boot the simulator end-to-end and observe it (via `/debug/smoke`)
+- [x] CONFIG-RATES: Rework ambient config fields to use Poisson arrival rates and steady-state background initialization while keeping decay fields as binomial per-quantum probabilities
 
 ## Next
 
@@ -26,7 +27,6 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] METRIC-BIRTH-TYPES: Add boot_births and spawn_births metrics
 - [ ] SPEED-CONTROL: Replace the frontend-side target-TPS stepping shim with real backend speed control and re-align the frontend with the spec
 - [ ] FRONTEND-DEFAULTS: Reconcile local testing defaults and seed-program bootstrap hacks with the spec-backed frontend defaults
-- [ ] CONFIG-RATES: Rework backend ambient/decay config fields from probabilities to true rates
 - [ ] FRONTEND-CONFIG-TOOLS: Reconcile local config save/load debugging helpers with the frontend spec
 - [ ] COORDINATE-CONVENTIONS: Standardize frontend coordinates as 0-indexed and display them in `(y, x)` order
 - [ ] NO-SIM-STATUS: Replace the frontend startup `404 /v1/sim` probe with a cleaner no-simulation status path
