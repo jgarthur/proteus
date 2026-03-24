@@ -35,3 +35,4 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] INSPECTOR-TRACK-PROGRAM: Let the inspector follow a selected program as it moves
 - [ ] SEED-PROGRAM-QOL: Add seed-program library/import-export/disassembly tooling
 - [ ] TRANSPORT-CONTROLS: Promote play-pause-speed controls and add hotkeys
+- [ ] RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths

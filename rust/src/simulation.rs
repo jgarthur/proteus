@@ -93,6 +93,12 @@ pub struct TickReport {
     pub packet_count: u32,
 }
 
+struct PreparedTickSlot<'a> {
+    snapshot: &'a mut CellSnapshot,
+    live: &'a mut bool,
+    existed: &'a mut bool,
+}
+
 impl Simulation {
     /// Creates a simulation from a validated config and a fresh empty grid.
     pub fn new(config: SimConfig) -> Result<Self, SimulationError> {
@@ -308,6 +314,8 @@ fn clear_newborn_flags(grid: &mut Grid) {
     }
 }
 
+// FIXME(RAYON-BASELINE): If Rayon becomes baseline infrastructure, collapse the
+// cfg split here and the similar per-cell loops onto a single Rayon-backed path.
 fn populate_prepared_tick(
     cells: &[crate::model::Cell],
     snapshot: &mut [CellSnapshot],
@@ -322,12 +330,14 @@ fn populate_prepared_tick(
             .zip(existed_set.par_iter_mut())
             .zip(cells.par_iter())
             .for_each(|(((snapshot_slot, live_slot), existed_slot), cell)| {
-                *snapshot_slot = CellSnapshot::from(cell);
-                *existed_slot = cell.program.is_some();
-                *live_slot = cell
-                    .program
-                    .as_ref()
-                    .is_some_and(|program| program.live && !program.tick.is_newborn);
+                write_prepared_tick_slot(
+                    PreparedTickSlot {
+                        snapshot: snapshot_slot,
+                        live: live_slot,
+                        existed: existed_slot,
+                    },
+                    cell,
+                );
             });
     }
 
@@ -339,14 +349,25 @@ fn populate_prepared_tick(
             .zip(existed_set.iter_mut())
             .zip(cells.iter())
         {
-            *snapshot_slot = CellSnapshot::from(cell);
-            *existed_slot = cell.program.is_some();
-            *live_slot = cell
-                .program
-                .as_ref()
-                .is_some_and(|program| program.live && !program.tick.is_newborn);
+            write_prepared_tick_slot(
+                PreparedTickSlot {
+                    snapshot: snapshot_slot,
+                    live: live_slot,
+                    existed: existed_slot,
+                },
+                cell,
+            );
         }
     }
+}
+
+fn write_prepared_tick_slot(slot: PreparedTickSlot<'_>, cell: &crate::model::Cell) {
+    *slot.snapshot = CellSnapshot::from(cell);
+    *slot.existed = cell.program.is_some();
+    *slot.live = cell
+        .program
+        .as_ref()
+        .is_some_and(|program| program.live && !program.tick.is_newborn);
 }
 
 /// Describes why a simulation could not be constructed or started.
