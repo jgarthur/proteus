@@ -34,6 +34,17 @@ The crate's default `dev` profile is intentionally tuned for runtime speed
 (`opt-level = 3`, thin LTO, `codegen-units = 1`), so plain `cargo run` is the
 fast path for local simulator work.
 
+## Optional Parallelism
+
+The backend also exposes an opt-in `rayon` feature for deterministic
+data-parallel execution of the embarrassingly parallel passes:
+
+```bash
+cargo test --features rayon
+```
+
+The default build remains single-threaded.
+
 Then open `http://127.0.0.1:3000/debug/smoke`.
 
 To bind a different address/port:

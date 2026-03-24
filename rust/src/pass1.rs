@@ -5,12 +5,31 @@ use crate::grid::Grid;
 use crate::model::{Cell, CellSnapshot, Direction, Packet, QueuedAction};
 use crate::opcode::{Locality, Opcode};
 use crate::random::{cell_rng, WyRand};
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
 
 /// Collects the nonlocal actions and emitted packets produced by Pass 1.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Pass1Output {
     pub actions: Vec<QueuedAction>,
     pub emitted_packets: Vec<Packet>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Pass1CellOutput {
+    source_index: usize,
+    action: Option<QueuedAction>,
+    emitted_packets: Vec<Packet>,
+}
+
+#[derive(Clone, Copy)]
+struct Pass1Shared<'a> {
+    snapshot: &'a [CellSnapshot],
+    config: &'a SimConfig,
+    tick: u64,
+    seed: u64,
+    width: u32,
+    height: u32,
 }
 
 /// Computes the local action budget for one program size and exponent.
@@ -40,82 +59,143 @@ pub fn pass1_local(
         "live-set length must match grid size"
     );
 
-    for cell in grid.cells_mut() {
-        if let Some(program) = cell.program.as_mut() {
-            program.tick.reset_for_pass1(program.is_inert());
-        }
+    reset_cells_for_pass1(grid);
+
+    let shared = Pass1Shared {
+        snapshot,
+        config,
+        tick,
+        seed,
+        width: grid.width(),
+        height: grid.height(),
+    };
+    let cell_outputs = collect_pass1_cell_outputs(grid, live_set, shared);
+    canonicalize_pass1_output(cell_outputs)
+}
+
+fn reset_cells_for_pass1(grid: &mut Grid) {
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut().par_iter_mut().for_each(|cell| {
+            if let Some(program) = cell.program.as_mut() {
+                program.tick.reset_for_pass1(program.is_inert());
+            }
+        });
     }
 
-    let width = grid.width();
-    let height = grid.height();
-    let mut output = Pass1Output::default();
-
-    for index in 0..grid.len() {
-        if !live_set[index] {
-            continue;
+    #[cfg(not(feature = "rayon"))]
+    {
+        for cell in grid.cells_mut() {
+            if let Some(program) = cell.program.as_mut() {
+                program.tick.reset_for_pass1(program.is_inert());
+            }
         }
+    }
+}
 
-        let mut remaining_actions =
-            local_action_budget(snapshot[index].program_size, config.local_action_exponent);
-        let mut rng = cell_rng(seed, tick, index as u64);
+fn collect_pass1_cell_outputs(
+    grid: &mut Grid,
+    live_set: &[bool],
+    shared: Pass1Shared<'_>,
+) -> Vec<Pass1CellOutput> {
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut()
+            .par_iter_mut()
+            .enumerate()
+            .filter_map(|(cell_index, cell)| {
+                live_set[cell_index].then(|| execute_pass1_cell(cell, cell_index, shared))
+            })
+            .collect()
+    }
 
-        while remaining_actions > 0 {
-            let opcode = {
-                let cell = grid.get(index).expect("cell should exist during pass 1");
-                let program = cell
-                    .program
-                    .as_ref()
-                    .expect("live-set cells should contain a program");
-                let ip_index = current_ip_index(cell);
-                Opcode::decode(program.code[ip_index])
-            };
+    #[cfg(not(feature = "rayon"))]
+    {
+        grid.cells_mut()
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(cell_index, cell)| {
+                live_set[cell_index].then(|| execute_pass1_cell(cell, cell_index, shared))
+            })
+            .collect()
+    }
+}
 
-            match opcode.locality() {
-                Locality::Local => {
-                    let result = execute_local_instruction(
-                        grid.get_mut(index)
-                            .expect("cell should exist during pass 1"),
-                        index,
-                        opcode,
-                        snapshot,
-                        width,
-                        height,
-                        config,
-                        &mut rng,
-                    );
+fn execute_pass1_cell(
+    cell: &mut Cell,
+    cell_index: usize,
+    shared: Pass1Shared<'_>,
+) -> Pass1CellOutput {
+    let mut output = Pass1CellOutput {
+        source_index: cell_index,
+        ..Pass1CellOutput::default()
+    };
+    let mut remaining_actions = local_action_budget(
+        shared.snapshot[cell_index].program_size,
+        shared.config.local_action_exponent,
+    );
+    let mut rng = cell_rng(shared.seed, shared.tick, cell_index as u64);
 
-                    match result {
-                        LocalExecResult::Continue { packet } => {
-                            if let Some(packet) = packet {
-                                output.emitted_packets.push(packet);
-                            }
-                            remaining_actions -= 1;
+    while remaining_actions > 0 {
+        let opcode = {
+            let program = cell
+                .program
+                .as_ref()
+                .expect("live-set cells should contain a program");
+            let ip_index = current_ip_index(cell);
+            Opcode::decode(program.code[ip_index])
+        };
+
+        match opcode.locality() {
+            Locality::Local => {
+                let result = execute_local_instruction(
+                    cell,
+                    cell_index,
+                    opcode,
+                    shared.snapshot,
+                    shared.width,
+                    shared.height,
+                    shared.config,
+                    &mut rng,
+                );
+
+                match result {
+                    LocalExecResult::Continue { packet } => {
+                        if let Some(packet) = packet {
+                            output.emitted_packets.push(packet);
                         }
-                        LocalExecResult::HaltForTick => break,
+                        remaining_actions -= 1;
                     }
+                    LocalExecResult::HaltForTick => break,
                 }
-                Locality::Nonlocal => {
-                    let result = attempt_nonlocal_queue(
-                        grid.get_mut(index)
-                            .expect("cell should exist during pass 1"),
-                        index,
-                        opcode,
-                        width,
-                        height,
-                    );
+            }
+            Locality::Nonlocal => {
+                let result =
+                    attempt_nonlocal_queue(cell, cell_index, opcode, shared.width, shared.height);
 
-                    match result {
-                        NonlocalExecResult::HaltForTickNoAdvance => break,
-                        NonlocalExecResult::StopForTickAdvance { action } => {
-                            if let Some(action) = action {
-                                output.actions.push(action);
-                            }
-                            break;
-                        }
+                match result {
+                    NonlocalExecResult::HaltForTickNoAdvance => break,
+                    NonlocalExecResult::StopForTickAdvance { action } => {
+                        output.action = action;
+                        break;
                     }
                 }
             }
         }
+    }
+
+    output
+}
+
+fn canonicalize_pass1_output(mut cell_outputs: Vec<Pass1CellOutput>) -> Pass1Output {
+    cell_outputs.sort_unstable_by_key(|output| output.source_index);
+
+    let mut output = Pass1Output::default();
+    for cell_output in cell_outputs {
+        if let Some(action) = cell_output.action {
+            output.actions.push(action);
+        }
+        output.emitted_packets.extend(cell_output.emitted_packets);
     }
 
     output

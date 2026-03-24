@@ -14,9 +14,10 @@ use crate::pass3::{
     Pass3TailContext,
 };
 use crate::random::{cell_rng, poisson};
-
 const INITIAL_BG_RADIATION_SALT: u64 = 0x7400_f3bb_9241_b8d7;
 const INITIAL_BG_MASS_SALT: u64 = 0x2f61_5dce_0840_13a9;
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
 
 /// Owns reusable buffers that are rebuilt at the start of each tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -178,23 +179,12 @@ impl Simulation {
     /// Freezes the snapshot and start-of-tick masks used by the passes.
     pub fn prepare_tick(&mut self) -> PreparedTick<'_> {
         self.scratch.resize(self.grid.len());
-
-        for ((snapshot, live_slot), cell) in self
-            .scratch
-            .snapshot
-            .iter_mut()
-            .zip(self.scratch.live_set.iter_mut())
-            .zip(self.scratch.existed_set.iter_mut())
-            .zip(self.grid.cells().iter())
-        {
-            let ((snapshot, live_slot), existed_slot) = (snapshot, live_slot);
-            *snapshot = CellSnapshot::from(cell);
-            *existed_slot = cell.program.is_some();
-            *live_slot = cell
-                .program
-                .as_ref()
-                .is_some_and(|program| program.live && !program.tick.is_newborn);
-        }
+        populate_prepared_tick(
+            self.grid.cells(),
+            &mut self.scratch.snapshot,
+            &mut self.scratch.live_set,
+            &mut self.scratch.existed_set,
+        );
 
         PreparedTick {
             tick: self.tick,
@@ -299,9 +289,62 @@ pub struct PreparedTick<'a> {
 
 /// Clears the newborn marker once a full tick has completed.
 fn clear_newborn_flags(grid: &mut Grid) {
-    for cell in grid.cells_mut() {
-        if let Some(program) = cell.program.as_mut() {
-            program.tick.is_newborn = false;
+    #[cfg(feature = "rayon")]
+    {
+        grid.cells_mut().par_iter_mut().for_each(|cell| {
+            if let Some(program) = cell.program.as_mut() {
+                program.tick.is_newborn = false;
+            }
+        });
+    }
+
+    #[cfg(not(feature = "rayon"))]
+    {
+        for cell in grid.cells_mut() {
+            if let Some(program) = cell.program.as_mut() {
+                program.tick.is_newborn = false;
+            }
+        }
+    }
+}
+
+fn populate_prepared_tick(
+    cells: &[crate::model::Cell],
+    snapshot: &mut [CellSnapshot],
+    live_set: &mut [bool],
+    existed_set: &mut [bool],
+) {
+    #[cfg(feature = "rayon")]
+    {
+        snapshot
+            .par_iter_mut()
+            .zip(live_set.par_iter_mut())
+            .zip(existed_set.par_iter_mut())
+            .zip(cells.par_iter())
+            .for_each(|(((snapshot_slot, live_slot), existed_slot), cell)| {
+                *snapshot_slot = CellSnapshot::from(cell);
+                *existed_slot = cell.program.is_some();
+                *live_slot = cell
+                    .program
+                    .as_ref()
+                    .is_some_and(|program| program.live && !program.tick.is_newborn);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
+    {
+        for (((snapshot_slot, live_slot), existed_slot), cell) in snapshot
+            .iter_mut()
+            .zip(live_set.iter_mut())
+            .zip(existed_set.iter_mut())
+            .zip(cells.iter())
+        {
+            *snapshot_slot = CellSnapshot::from(cell);
+            *existed_slot = cell.program.is_some();
+            *live_slot = cell
+                .program
+                .as_ref()
+                .is_some_and(|program| program.live && !program.tick.is_newborn);
         }
     }
 }
