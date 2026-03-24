@@ -8,9 +8,9 @@ Proteus prioritizes a minimal substrate that enables emergent complexity. The in
 
 The physics layer provides real resource constraints (spatial locality, maintenance costs, conserved transactions with external energy and mass sources) that drive ecological dynamics without prescribing what those dynamics should look like. The substrate includes controlled stochastic elements — background radiation and mass arrival, mutation, `rand`, and probabilistic maintenance and decay — but is otherwise deterministic. All physics is fully discrete and translation-invariant under 90° rotations and reflections.
 
-### Changes from v0.2
+### Changes from v0.2.0
 
-v0.3 keeps the v0.2 execution model, instruction set, and lifecycle rules, but reinterprets the ambient arrival parameters `R_energy` and `R_mass` as **Poisson arrival means per cell per tick** instead of Bernoulli probabilities capped at one unit. Ambient decay remains per-quantum binomial thinning at `D_energy` / `D_mass`.
+v0.2.1 keeps the v0.2.0 execution model, instruction set, and lifecycle rules, but reinterprets the ambient arrival parameters `R_energy` and `R_mass` as **Poisson arrival means per cell per tick** instead of Bernoulli probabilities capped at one unit. Ambient decay remains per-quantum binomial thinning at `D_energy` / `D_mass`.
 
 Fresh simulations now initialize background radiation and background mass from the stationary ambient law implied by those rules: `Poisson(R / D)` for each cell when `D > 0`. If `D = 0`, there is no finite steady state for that pool, so fresh simulations start with 0 background in that pool.
 
