@@ -74,13 +74,24 @@ impl SimulationController {
     }
 
     /// Subscribes to the latest binary frame stream.
+    ///
+    /// The clone inherits `frame_rx`'s stale last-seen version, since
+    /// `current_frame()` only ever calls `borrow()` on it. Without
+    /// `mark_unchanged()`, a new subscriber's first `changed()` poll would
+    /// spuriously fire immediately, resending the already-current frame.
     pub fn frame_receiver(&self) -> watch::Receiver<Option<FramePayload>> {
-        self.frame_rx.clone()
+        let mut rx = self.frame_rx.clone();
+        rx.mark_unchanged();
+        rx
     }
 
     /// Subscribes to the latest metrics stream.
+    ///
+    /// See `frame_receiver()` for why `mark_unchanged()` is required here too.
     pub fn metrics_receiver(&self) -> watch::Receiver<Option<MetricsPayload>> {
-        self.metrics_rx.clone()
+        let mut rx = self.metrics_rx.clone();
+        rx.mark_unchanged();
+        rx
     }
 
     /// Subscribes to destroy notifications for active clients.
