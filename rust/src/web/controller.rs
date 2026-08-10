@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::model::{Direction, Program};
 use crate::observe::{
-    collect_metrics, encode_grid_frame, inspect_cell, inspect_region, CellInspection,
+    collect_metrics, encode_grid_frame, inspect_cell, inspect_region, CellInspection, EventTotals,
     MetricsSnapshot,
 };
 use crate::random::cell_rng;
@@ -258,6 +258,8 @@ struct ManagedSimulation {
     config: SimulationConfig,
     simulation: Simulation,
     lifecycle: SimulationLifecycle,
+    metrics_epoch: u64,
+    event_totals: EventTotals,
     latest_metrics: MetricsSnapshot,
     latest_frame: Arc<Vec<u8>>,
     ticks_per_second: f64,
@@ -267,21 +269,29 @@ struct ManagedSimulation {
 
 impl ManagedSimulation {
     /// Builds a managed simulation and publishes its initial observation state.
-    fn new(config: SimulationConfig) -> Result<Self, ControllerError> {
+    fn new(config: SimulationConfig, metrics_epoch: u64) -> Result<Self, ControllerError> {
         config.validate().map_err(ControllerError::InvalidConfig)?;
 
         let mut simulation =
             Simulation::new(config.to_engine_config()).map_err(simulation_error)?;
         apply_seed_programs(&mut simulation, &config).map_err(ControllerError::InvalidConfig)?;
 
-        let latest_metrics =
-            collect_metrics(simulation.grid(), simulation.tick(), TickReport::default());
+        let event_totals = EventTotals::default();
+        let latest_metrics = collect_metrics(
+            simulation.grid(),
+            metrics_epoch,
+            simulation.tick(),
+            TickReport::default(),
+            event_totals,
+        );
         let latest_frame = Arc::new(encode_grid_frame(simulation.grid(), simulation.tick()));
 
         Ok(Self {
             config,
             simulation,
             lifecycle: SimulationLifecycle::Created,
+            metrics_epoch,
+            event_totals,
             latest_metrics,
             latest_frame,
             ticks_per_second: 0.0,
@@ -340,8 +350,14 @@ impl ManagedSimulation {
 
     /// Recomputes the latest metrics snapshot and frame after a tick.
     fn refresh_observation(&mut self, report: TickReport) {
-        self.latest_metrics =
-            collect_metrics(self.simulation.grid(), self.simulation.tick(), report);
+        self.event_totals.record(report);
+        self.latest_metrics = collect_metrics(
+            self.simulation.grid(),
+            self.metrics_epoch,
+            self.simulation.tick(),
+            report,
+            self.event_totals,
+        );
         self.latest_frame = Arc::new(encode_grid_frame(
             self.simulation.grid(),
             self.simulation.tick(),
@@ -434,7 +450,7 @@ fn handle_command(
             let response = if simulation.is_some() {
                 Err(ControllerError::SimAlreadyExists)
             } else {
-                match ManagedSimulation::new(config) {
+                match ManagedSimulation::new(config, 0) {
                     Ok(sim) => {
                         let response = sim.create_response();
                         sim.publish(frame_tx, metrics_tx);
@@ -527,15 +543,19 @@ fn handle_command(
         }
         Command::Reset(response_tx) => {
             let result = match simulation.take() {
-                Some(existing) => match ManagedSimulation::new(existing.config.clone()) {
-                    Ok(sim) => {
+                Some(existing) => existing
+                    .metrics_epoch
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        ControllerError::Internal("metrics epoch overflowed u64".to_owned())
+                    })
+                    .and_then(|epoch| ManagedSimulation::new(existing.config.clone(), epoch))
+                    .map(|sim| {
                         let response = sim.status_response();
                         sim.publish(frame_tx, metrics_tx);
                         *simulation = Some(sim);
-                        Ok(response)
-                    }
-                    Err(err) => Err(err),
-                },
+                        response
+                    }),
                 None => Err(ControllerError::NoSim),
             };
             let _ = response_tx.send(result);

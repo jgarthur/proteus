@@ -2,9 +2,9 @@
 
 **Status**: Provisional — subject to change as the backend API matures.
 
-**Spec version**: 0.2.1
+**Spec version**: 0.2.2
 
-**Targets**: Proteus v0.2.1, API-SPEC v0.2.1
+**Targets**: Proteus v0.2.1, API-SPEC v0.2.2
 
 ---
 
@@ -143,7 +143,7 @@ The latest binary frame and metrics rolling buffer are stored in `useRef` (not r
 2. **Subscribe frames**: Send `{"subscribe": "frames", "max_fps": 30}` after connection opens, if a simulation exists.
 3. **Subscribe metrics**: Send `{"subscribe": "metrics", "every_n_ticks": 1}` after connection opens.
 4. **Receive**: Binary messages are grid frames (parse header + CellView array). JSON messages with `"type": "metrics"` are metrics updates. JSON messages with `"type": "error"` are logged to console.
-5. **Reconnect**: On close or error, attempt reconnection with exponential backoff (1s, 2s, 4s, 8s, max 30s). Re-subscribe on reconnect. Subscriptions are stateless per API-SPEC §16 Q4.
+5. **Reconnect**: On close or error, attempt reconnection with exponential backoff (1s, 2s, 4s, 8s, max 30s). Re-subscribe on reconnect. Subscriptions are stateless per API-SPEC §16 Q4. The first received metrics snapshot establishes or updates the cumulative-event baseline; a changed epoch, regressed tick, or regressed total clears the old chart series before rebaselining.
 6. **Teardown**: Close WebSocket on app unmount.
 
 ### Binary frame parsing
@@ -302,7 +302,7 @@ A slider (1–60) sets `max_fps` for the frame subscription. Changing it sends a
 
 ### Metrics sampling control
 
-A numeric input sets `every_n_ticks` for the metrics subscription. Changing it sends `unsubscribe` + re-`subscribe` on the WebSocket. Default: 1. Higher values reduce WebSocket traffic during long observation runs.
+A numeric input sets `every_n_ticks` for the metrics subscription. Changing it sends `unsubscribe` + re-`subscribe` on the WebSocket. Default: 1. Higher values reduce WebSocket traffic during long observation runs. Birth, death, and mutation charts remain correct at coarser sampling because they derive rates from cumulative `event_totals`, not by summing the delivered per-tick fields.
 
 ---
 
@@ -351,7 +351,7 @@ interface ChartDef {
 |-------|--------|--------|
 | Population | `live_count`, `inert_count`, `population` | Count |
 | Energy & Mass | `total_energy`, `total_mass` | Total (dual axis) |
-| Births / Deaths / Mutations | `births`, `deaths`, `mutations` | Per-tick count; `births` aggregates both `boot` and spontaneous spawn |
+| Birth / Death / Mutation Rates | Differences of `event_totals.births`, `.deaths`, `.mutations` | Average events per tick over each observation interval; births aggregate both `boot` and spontaneous spawn |
 | Program Size | `mean_program_size`, `max_program_size` | Instructions (dual axis) |
 | Diversity | `unique_genomes` | Count |
 
@@ -360,6 +360,10 @@ interface ChartDef {
 Metrics history is stored in typed arrays (one `Float64Array` per series) with a rolling window of 10,000 points. This gives uPlot a fixed-size data source and bounds memory usage. When the buffer is full, old points are evicted in FIFO order.
 
 The x-axis is `tick` (not wall-clock time) so charts remain meaningful across pauses.
+
+For birth, death, and mutation series, the first metrics snapshot is a baseline and displays a zero rate. Each later snapshot in the same epoch stores `(new_total - old_total) / (new_tick - old_tick)`. Duplicate snapshots replace the point without changing its rate. An epoch change or a regression in tick or totals clears the rolling buffer and establishes a new baseline. This handles reset, reconnect, and backend restart discontinuities without manufacturing an event spike.
+
+The frontend uses JavaScript `number` values for API `u64` fields and therefore assumes values remain at or below `Number.MAX_SAFE_INTEGER`, as constrained by API-SPEC §10.
 
 ---
 

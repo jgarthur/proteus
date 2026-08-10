@@ -38,6 +38,7 @@ import type {
   ColorMapMode,
   GridFrame,
   MetricsMessage,
+  MetricsSnapshot,
   SimConfig,
   SimStatus,
   SimStatusResponse,
@@ -132,7 +133,7 @@ interface SimContextValue {
   state: AppState;
   latestFrameRef: React.MutableRefObject<GridFrame | null>;
   metricsBufferRef: React.MutableRefObject<MetricsBuffer>;
-  latestMetrics: MetricsMessage | null;
+  latestMetrics: MetricsSnapshot | null;
   metricsVersion: number;
   config: SimConfig;
   configErrors: ConfigErrors;
@@ -180,7 +181,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     wsStatus: status,
   });
   const [config, setConfig] = useState<SimConfig>(DEFAULT_CONFIG);
-  const [latestMetrics, setLatestMetrics] = useState<MetricsMessage | null>(null);
+  const [latestMetrics, setLatestMetrics] = useState<MetricsSnapshot | null>(null);
   const [metricsVersion, setMetricsVersion] = useState(0);
   const [selectedCellData, setSelectedCellData] = useState<CellResponse | null>(null);
   const [selectedCellLoading, setSelectedCellLoading] = useState(false);

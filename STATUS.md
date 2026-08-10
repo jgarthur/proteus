@@ -16,6 +16,7 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [x] Boot the simulator end-to-end and observe it (via `/debug/smoke`)
 - [x] CONFIG-RATES: Rework ambient config fields to use Poisson arrival rates and steady-state background initialization while keeping decay fields as binomial per-quantum probabilities
 - [x] MOVE-ELIGIBILITY: Make tick-start eligibility follow a moving program
+- [x] METRIC-CUMULATIVE-EVENTS: Add per-simulation metrics epochs and cumulative birth, death, and mutation totals so sampled observation remains lossless
 
 ## Next
 

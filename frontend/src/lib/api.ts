@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../constants';
-import type { CellResponse, MetricsMessage, SimConfig, SimStatusResponse } from '../types';
+import type { CellResponse, MetricsSnapshot, SimConfig, SimStatusResponse } from '../types';
 
 interface ErrorEnvelope {
   message?: string;
@@ -142,10 +142,10 @@ export async function fetchCell(x: number, y: number): Promise<CellResponse> {
   }
 }
 
-export async function fetchMetrics(): Promise<MetricsMessage> {
+export async function fetchMetrics(): Promise<MetricsSnapshot> {
   try {
     const response = await fetch(`${API_BASE_URL}/v1/sim/metrics`);
-    return parseJson<MetricsMessage>(response);
+    return parseJson<MetricsSnapshot>(response);
   } catch (error) {
     throw normalizeFetchError(error);
   }

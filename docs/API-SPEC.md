@@ -2,7 +2,7 @@
 
 **Status**: Provisional — subject to change as the engine implementation matures.
 
-**Spec version**: 0.2.1
+**Spec version**: 0.2.2
 
 **Simulator version**: Targets Proteus v0.2.1
 
@@ -58,7 +58,7 @@ The API is independent of any specific frontend implementation.
 
 All REST endpoints are prefixed with `/v1`.
 
-All responses include the header `X-Proteus-API-Version: 0.2.1`.
+All responses include the header `X-Proteus-API-Version: 0.2.2`.
 
 Breaking changes increment the major URL version (`/v2`). Additive changes (new optional fields, new endpoints) do not.
 
@@ -287,6 +287,8 @@ POST /v1/sim/reset
 
 Destroy the current simulation and recreate it with the same config. Equivalent to DELETE + POST with the original config. Tick counter resets to 0. Returns `200 OK` with the new status.
 
+Reset also advances the metrics `epoch` and clears `event_totals`; see §10. This lets observers distinguish a reset from an ordinary sample at tick 0.
+
 ---
 
 ## 10. Metrics Schema
@@ -304,7 +306,7 @@ Client sends:
 }
 ```
 
-`every_n_ticks` controls sampling. Default 1 (every tick). Set higher to reduce volume.
+`every_n_ticks` controls sampling. Default 1 (every tick). Set higher to reduce volume. The stream is latest-value delivery: an observer can miss intermediate snapshots if the simulation advances faster than the connection can consume them. Current-state fields therefore describe the delivered tick, while cumulative `event_totals` preserve event counts across skipped or coalesced ticks.
 
 Client sends to stop:
 
@@ -321,6 +323,7 @@ Server pushes JSON:
 ```json
 {
   "type": "metrics",
+  "epoch": 0,
   "tick": 104832,
   "population": 1847,
   "live_count": 1623,
@@ -335,12 +338,20 @@ Server pushes JSON:
   "boot_births": 9,
   "spawn_births": 3,
   "deaths": 8,
-  "mutations": 3
+  "mutations": 3,
+  "event_totals": {
+    "births": 89231,
+    "boot_births": 64010,
+    "spawn_births": 25221,
+    "deaths": 87384,
+    "mutations": 1439
+  }
 }
 ```
 
 | Field | Type | Purpose | Stability |
 |-------|------|---------|-----------|
+| `epoch` | u64 | Metrics history generation; increments on reset | stable |
 | `tick` | u64 | Current tick number | stable |
 | `population` | u32 | Total programs (live + inert) | stable |
 | `live_count` | u32 | Live programs | stable |
@@ -356,6 +367,17 @@ Server pushes JSON:
 | `spawn_births` | u32 | Programs that became live this tick via spontaneous spawn | stable |
 | `deaths` | u32 | Programs destroyed (maintenance/decay) this tick | stable |
 | `mutations` | u32 | Mutation events this tick | stable |
+| `event_totals.births` | u64 | Cumulative live births in this epoch | stable |
+| `event_totals.boot_births` | u64 | Cumulative births caused by `boot` in this epoch | stable |
+| `event_totals.spawn_births` | u64 | Cumulative spontaneous spawn births in this epoch | stable |
+| `event_totals.deaths` | u64 | Cumulative program deaths in this epoch | stable |
+| `event_totals.mutations` | u64 | Cumulative mutation events in this epoch | stable |
+
+The top-level `births`, `boot_births`, `spawn_births`, `deaths`, and `mutations` fields remain counts for the single delivered tick. `event_totals` count every completed tick since the start of the current epoch, independent of observation cadence. Programs placed by `seed_programs` during creation or reset are bootstrap state and are not births. The invariant `births = boot_births + spawn_births` holds for both the per-tick and cumulative fields.
+
+To derive an event rate between two snapshots in the same epoch, clients divide the difference between cumulative totals by the difference in ticks. The first snapshot establishes a baseline. Clients must discard that baseline and begin a new series if `epoch` changes, the tick regresses, or any cumulative total regresses.
+
+All `u64` values are encoded as JSON numbers. JavaScript clients can represent them exactly only through `2^53 - 1` (`Number.MAX_SAFE_INTEGER`); clients requiring longer exact histories must reject values above that limit until the API adopts a string or binary integer representation.
 
 ### REST fallback
 
@@ -363,7 +385,7 @@ Server pushes JSON:
 GET /v1/sim/metrics
 ```
 
-Returns the latest metrics object as `200 OK`. Useful for polling without a WebSocket connection.
+Returns the latest metrics object as `200 OK`. It has the same fields and semantics as the WebSocket payload, except that it has no `"type"` discriminator. Useful for polling without a WebSocket connection.
 
 ---
 

@@ -46,18 +46,34 @@ export interface SimStatusResponse {
   ticks_per_second?: number;
 }
 
-export interface MetricsMessage {
-  type: 'metrics';
+export interface MetricsSnapshot {
+  epoch: number;
   tick: number;
   population: number;
   live_count: number;
   inert_count: number;
   total_energy: number;
+  packet_energy: number;
   total_mass: number;
   mean_program_size: number;
   max_program_size: number;
   unique_genomes: number;
   births: number;
+  boot_births: number;
+  spawn_births: number;
+  deaths: number;
+  mutations: number;
+  event_totals: EventTotals;
+}
+
+export interface MetricsMessage extends MetricsSnapshot {
+  type: 'metrics';
+}
+
+export interface EventTotals {
+  births: number;
+  boot_births: number;
+  spawn_births: number;
   deaths: number;
   mutations: number;
 }
@@ -132,10 +148,9 @@ export interface CellResponse {
   program: CellProgram | null;
 }
 
-export interface MetricsSnapshot extends Omit<MetricsMessage, 'type'> {}
-
 export interface MetricsBufferSnapshot {
   count: number;
+  epoch: Float64Array;
   tick: Float64Array;
   population: Float64Array;
   live_count: Float64Array;
