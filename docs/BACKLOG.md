@@ -8,6 +8,16 @@ Items are referenced by name from `STATUS.md` at the repo root. Use the exact it
 
 ## Items
 
+### MOVE-ELIGIBILITY: Make tick-start eligibility follow a moving program
+
+Context: `SPEC.md` line 252 scopes end-of-tick eligibility to *programs* ("the set of programs that are live at tick start ... eligible to ... pay maintenance this tick, age at end of tick, and mutate at end of tick"). The engine stores that set as position-indexed `Vec<bool>` masks over cells (`live_set` / `existed_set`), which is equivalent only while programs stay put. `apply_move_commit` relocates a program to a cell whose masks describe that cell's previous occupant (empty), so a successfully moved program skips maintenance, aging, and mutation for that tick. Confirmed by `rust/tests/move_eligibility.rs`: a moved program is charged 0 maintenance quanta against 2 for an identical stationary program, its age does not increment, and it does not mutate.
+
+This is pre-existing and independent of the Rayon work: the masks were position-indexed before the parallel paths were introduced.
+
+Note that simply deleting `existed_set` and relying on `tick.is_newborn` is not sufficient. `apply_append_create_commit` creates an inert program in a previously empty cell without setting `is_newborn`, so `existed_set` is what currently prevents charging maintenance to a program on the tick it was appended. The eligibility flags need to travel with the program - either applied alongside `MoveCommit`, or stored on the program's `TickState` so relocation carries them naturally.
+
+References: `rust/tests/move_eligibility.rs`, `rust/src/simulation.rs` (`prepare_tick`), `rust/src/pass2.rs` (`apply_move_commit`, `apply_append_create_commit`), `rust/src/pass3.rs` (`resolve_maintenance`, `resolve_age_update`, `mutate_end_of_tick`), `docs/SPEC.md` lines 252, 324, 326, 483
+
 ### RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
 
 Context: the current backend keeps a feature-gated non-Rayon path alongside the Rayon path for the newly parallelized per-cell loops. Revisit whether that duplication is worth keeping, or whether the crate should standardize on the Rayon iterator path and rely on a 1-thread pool when effectively running serially.

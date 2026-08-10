@@ -35,5 +35,6 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] INSPECTOR-TRACK-PROGRAM: Let the inspector follow a selected program as it moves
 - [ ] SEED-PROGRAM-QOL: Add seed-program library/import-export/disassembly tooling
 - [ ] TRANSPORT-CONTROLS: Promote play-pause-speed controls and add hotkeys
+- [ ] MOVE-ELIGIBILITY: Make tick-start eligibility follow a moving program (moved programs currently skip maintenance, aging, and mutation)
 - [ ] RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
 - [x] RAYON-PARITY: Automate the serial-vs-Rayon golden check (`rust/scripts/check-rayon-parity.sh`, wired into CI)

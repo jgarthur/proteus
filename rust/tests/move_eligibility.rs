@@ -1,0 +1,163 @@
+//! Tick-start eligibility must follow a program that moves during Pass 2.
+//!
+//! `SPEC.md` line 252 scopes end-of-tick eligibility to *programs*:
+//!
+//! > Also record the set of programs that are **live at tick start**. Only those
+//! > programs are eligible to execute in Pass 1, pay maintenance this tick, age at
+//! > end of tick, and mutate at end of tick.
+//!
+//! The engine stores that set as a position-indexed `Vec<bool>` over cells
+//! (`live_set` / `existed_set`), which is equivalent only while programs stay put.
+//! A successful `move` relocates the program to a cell whose masks describe the
+//! previous occupant (empty), so the moved program skips maintenance, aging, and
+//! mutation for that tick. This is a pre-existing engine bug, not a Rayon artifact:
+//! the masks were position-indexed before the parallel paths were introduced.
+
+mod helpers;
+
+use helpers::{ProgramBuilder, WorldBuilder};
+use proteus::{op, Simulation};
+
+const SOURCE: usize = 0;
+const TARGET: usize = 1;
+const START_AGE: u32 = 7;
+const START_ENERGY: u32 = 64;
+
+/// Builds a two-cell world running `code`, with maintenance forced to `maintenance_rate`.
+///
+/// Ambient input and decay are disabled so the only energy movements are the
+/// instruction cost and maintenance.
+fn build_world(code: &[u8], maintenance_rate: f64) -> Simulation {
+    WorldBuilder::new(2, 1)
+        .seed(0x_11_0e)
+        .configure(move |config| {
+            config.r_energy = 0.0;
+            config.r_mass = 0.0;
+            config.d_energy = 0.0;
+            config.d_mass = 0.0;
+            config.p_spawn = 0.0;
+            config.maintenance_rate = maintenance_rate;
+            config.maintenance_exponent = 1.0;
+            config.local_action_exponent = 1.0;
+            config.inert_grace_ticks = 0;
+            // Mutate every live program on every tick.
+            config.mutation_base_log2 = 0;
+            config.mutation_background_log2 = 0;
+        })
+        .at(
+            0,
+            0,
+            ProgramBuilder::new()
+                .code(code)
+                .free_energy(START_ENERGY)
+                .age(START_AGE),
+        )
+        .build_simulation()
+}
+
+/// Runs one tick and reports the energy spent by the program's occupied cell.
+///
+/// Comparing this across two maintenance rates isolates the maintenance charge from
+/// the instruction's own cost, which a bare `energy_after < energy_before` assertion
+/// cannot do - a `move` costs energy whether or not maintenance was applied.
+fn energy_spent_in_one_tick(code: &[u8], maintenance_rate: f64, occupied: usize) -> u32 {
+    let mut simulation = build_world(code, maintenance_rate);
+    simulation.run_tick_report();
+    let cell = simulation.grid().get(occupied).expect("cell should exist");
+    assert!(
+        cell.program.is_some(),
+        "program should occupy cell {occupied} after the tick"
+    );
+    START_ENERGY - cell.free_energy
+}
+
+/// Control: a program that stays put is charged maintenance, ages, and mutates.
+#[test]
+fn stationary_program_is_charged_maintenance_and_ages_and_mutates() {
+    let mut simulation = build_world(&[op::NOP, op::NOP], 1.0);
+    let report = simulation.run_tick_report();
+
+    let cell = simulation.grid().get(SOURCE).expect("cell should exist");
+    let program = cell.program.as_ref().expect("program should still exist");
+
+    assert_eq!(program.age, START_AGE + 1, "stationary program should age");
+    assert_eq!(report.mutations, 1, "stationary program should mutate");
+
+    let without = energy_spent_in_one_tick(&[op::NOP, op::NOP], 0.0, SOURCE);
+    let with = energy_spent_in_one_tick(&[op::NOP, op::NOP], 1.0, SOURCE);
+    assert!(
+        with > without,
+        "stationary program should be charged maintenance \
+         (spent {with} with maintenance vs {without} without)"
+    );
+}
+
+/// The move itself works: the program relocates and is not treated as a newborn.
+#[test]
+fn move_relocates_the_program_without_marking_it_newborn() {
+    let mut simulation = build_world(&[op::MOVE, op::NOP], 1.0);
+    simulation.run_tick_report();
+
+    assert!(
+        simulation
+            .grid()
+            .get(SOURCE)
+            .expect("cell should exist")
+            .program
+            .is_none(),
+        "source cell should be empty after a successful move"
+    );
+    let program = simulation
+        .grid()
+        .get(TARGET)
+        .expect("cell should exist")
+        .program
+        .as_ref()
+        .expect("program should have moved into the target cell")
+        .clone();
+    assert!(
+        !program.tick.is_newborn,
+        "a moved program is not newborn; it existed before the move"
+    );
+}
+
+#[test]
+#[ignore = "known bug: tick-start eligibility is position-indexed, so a moved program \
+            skips aging and mutation (SPEC.md:252, 326, 483)"]
+fn moved_program_ages_and_mutates() {
+    let mut simulation = build_world(&[op::MOVE, op::NOP], 1.0);
+    let report = simulation.run_tick_report();
+
+    let program = simulation
+        .grid()
+        .get(TARGET)
+        .expect("cell should exist")
+        .program
+        .as_ref()
+        .expect("program should have moved into the target cell")
+        .clone();
+
+    assert_eq!(
+        program.age,
+        START_AGE + 1,
+        "moved program should age: SPEC.md:326 ages all programs live at tick start"
+    );
+    assert_eq!(
+        report.mutations, 1,
+        "moved program should mutate: SPEC.md:483 scopes mutation to programs live at tick start"
+    );
+}
+
+#[test]
+#[ignore = "known bug: tick-start eligibility is position-indexed, so a moved program \
+            skips maintenance (SPEC.md:252, 324)"]
+fn moved_program_is_charged_maintenance() {
+    let without = energy_spent_in_one_tick(&[op::MOVE, op::NOP], 0.0, TARGET);
+    let with = energy_spent_in_one_tick(&[op::MOVE, op::NOP], 1.0, TARGET);
+
+    assert!(
+        with > without,
+        "moved program should be charged maintenance: SPEC.md:324 charges every program \
+         that existed at tick start (spent {with} with maintenance vs {without} without)"
+    );
+}
