@@ -4,9 +4,12 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
 use crate::config::{ConfigError, SimConfig};
 use crate::grid::{Grid, GridError};
-use crate::model::{CellSnapshot, Packet, QueuedAction};
+use crate::model::{Cell, CellSnapshot, Packet, QueuedAction};
 use crate::pass1::{pass1_local, Pass1Output};
 use crate::pass2::{pass2_nonlocal, Pass2Output};
 use crate::pass3::{
@@ -14,17 +17,15 @@ use crate::pass3::{
     Pass3TailContext,
 };
 use crate::random::{cell_rng, poisson};
+
 const INITIAL_BG_RADIATION_SALT: u64 = 0x7400_f3bb_9241_b8d7;
 const INITIAL_BG_MASS_SALT: u64 = 0x2f61_5dce_0840_13a9;
-#[cfg(feature = "rayon")]
-use rayon::prelude::*;
 
 /// Owns reusable buffers that are rebuilt at the start of each tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TickScratch {
     snapshot: Vec<CellSnapshot>,
     live_set: Vec<bool>,
-    existed_set: Vec<bool>,
 }
 
 impl TickScratch {
@@ -33,7 +34,6 @@ impl TickScratch {
         Self {
             snapshot: vec![CellSnapshot::default(); cell_count],
             live_set: vec![false; cell_count],
-            existed_set: vec![false; cell_count],
         }
     }
 
@@ -57,16 +57,10 @@ impl TickScratch {
         &self.live_set
     }
 
-    /// Returns the occupied-at-tick-start mask for the prepared tick.
-    pub fn existed_set(&self) -> &[bool] {
-        &self.existed_set
-    }
-
     /// Resizes the reusable scratch buffers to match the current grid.
     fn resize(&mut self, cell_count: usize) {
         self.snapshot.resize(cell_count, CellSnapshot::default());
         self.live_set.resize(cell_count, false);
-        self.existed_set.resize(cell_count, false);
     }
 }
 
@@ -96,7 +90,6 @@ pub struct TickReport {
 struct PreparedTickSlot<'a> {
     snapshot: &'a mut CellSnapshot,
     live: &'a mut bool,
-    existed: &'a mut bool,
 }
 
 impl Simulation {
@@ -186,17 +179,15 @@ impl Simulation {
     pub fn prepare_tick(&mut self) -> PreparedTick<'_> {
         self.scratch.resize(self.grid.len());
         populate_prepared_tick(
-            self.grid.cells(),
+            self.grid.cells_mut(),
             &mut self.scratch.snapshot,
             &mut self.scratch.live_set,
-            &mut self.scratch.existed_set,
         );
 
         PreparedTick {
             tick: self.tick,
             snapshot: &self.scratch.snapshot,
             live_set: &self.scratch.live_set,
-            existed_set: &self.scratch.existed_set,
         }
     }
 
@@ -252,8 +243,6 @@ impl Simulation {
         let tail = pass3_tail(
             &mut self.grid,
             Pass3TailContext {
-                existed_set: self.scratch.existed_set(),
-                live_set: self.scratch.live_set(),
                 incoming_writes: &pass2.incoming_writes,
                 spawn_candidates: &ambient.spawn_candidates,
                 config: &self.config,
@@ -261,13 +250,7 @@ impl Simulation {
                 seed: self.seed,
             },
         );
-        let mutations = mutate_end_of_tick(
-            &mut self.grid,
-            self.scratch.live_set(),
-            &self.config,
-            self.tick,
-            self.seed,
-        );
+        let mutations = mutate_end_of_tick(&mut self.grid, &self.config, self.tick, self.seed);
         clear_newborn_flags(&mut self.grid);
         self.tick = self.tick.wrapping_add(1);
 
@@ -290,7 +273,6 @@ pub struct PreparedTick<'a> {
     pub tick: u64,
     pub snapshot: &'a [CellSnapshot],
     pub live_set: &'a [bool],
-    pub existed_set: &'a [bool],
 }
 
 /// Clears the newborn marker once a full tick has completed.
@@ -317,24 +299,21 @@ fn clear_newborn_flags(grid: &mut Grid) {
 // FIXME(RAYON-BASELINE): If Rayon becomes baseline infrastructure, collapse the
 // cfg split here and the similar per-cell loops onto a single Rayon-backed path.
 fn populate_prepared_tick(
-    cells: &[crate::model::Cell],
+    cells: &mut [Cell],
     snapshot: &mut [CellSnapshot],
     live_set: &mut [bool],
-    existed_set: &mut [bool],
 ) {
     #[cfg(feature = "rayon")]
     {
         snapshot
             .par_iter_mut()
             .zip(live_set.par_iter_mut())
-            .zip(existed_set.par_iter_mut())
-            .zip(cells.par_iter())
-            .for_each(|(((snapshot_slot, live_slot), existed_slot), cell)| {
+            .zip(cells.par_iter_mut())
+            .for_each(|((snapshot_slot, live_slot), cell)| {
                 write_prepared_tick_slot(
                     PreparedTickSlot {
                         snapshot: snapshot_slot,
                         live: live_slot,
-                        existed: existed_slot,
                     },
                     cell,
                 );
@@ -343,17 +322,15 @@ fn populate_prepared_tick(
 
     #[cfg(not(feature = "rayon"))]
     {
-        for (((snapshot_slot, live_slot), existed_slot), cell) in snapshot
+        for ((snapshot_slot, live_slot), cell) in snapshot
             .iter_mut()
             .zip(live_set.iter_mut())
-            .zip(existed_set.iter_mut())
-            .zip(cells.iter())
+            .zip(cells.iter_mut())
         {
             write_prepared_tick_slot(
                 PreparedTickSlot {
                     snapshot: snapshot_slot,
                     live: live_slot,
-                    existed: existed_slot,
                 },
                 cell,
             );
@@ -361,13 +338,18 @@ fn populate_prepared_tick(
     }
 }
 
-fn write_prepared_tick_slot(slot: PreparedTickSlot<'_>, cell: &crate::model::Cell) {
-    *slot.snapshot = CellSnapshot::from(cell);
-    *slot.existed = cell.program.is_some();
-    *slot.live = cell
+fn write_prepared_tick_slot(slot: PreparedTickSlot<'_>, cell: &mut Cell) {
+    *slot.snapshot = CellSnapshot::from(&*cell);
+    let was_live_at_tick_start = cell
         .program
         .as_ref()
         .is_some_and(|program| program.live && !program.tick.is_newborn);
+    *slot.live = was_live_at_tick_start;
+
+    if let Some(program) = cell.program.as_mut() {
+        program.tick.existed_at_tick_start = true;
+        program.tick.was_live_at_tick_start = was_live_at_tick_start;
+    }
 }
 
 /// Describes why a simulation could not be constructed or started.
@@ -570,7 +552,6 @@ mod tests {
             tick,
             snapshot,
             live_set,
-            existed_set,
         } = sim.prepare_tick();
 
         assert_eq!(tick, 0);
@@ -581,7 +562,16 @@ mod tests {
         assert_eq!(snapshot[0].program_size, 2);
         assert_eq!(snapshot[0].program_id, 9);
         assert_eq!(live_set, &[true, false]);
-        assert_eq!(existed_set, &[true, true]);
+
+        let live = sim.grid().get(0).expect("live cell should exist");
+        let live_tick = &live.program.as_ref().expect("program should exist").tick;
+        assert!(live_tick.existed_at_tick_start);
+        assert!(live_tick.was_live_at_tick_start);
+
+        let newborn = sim.grid().get(1).expect("newborn cell should exist");
+        let newborn_tick = &newborn.program.as_ref().expect("program should exist").tick;
+        assert!(newborn_tick.existed_at_tick_start);
+        assert!(!newborn_tick.was_live_at_tick_start);
     }
 
     #[test]

@@ -155,10 +155,15 @@ The driver should do as little logic as possible itself: build the snapshot, run
 ### Pass 0
 
 ```rust
-fn pass0_snapshot(grid: &Grid) -> Vec<CellSnapshot>
+fn pass0_snapshot(grid: &mut Grid) -> Vec<CellSnapshot>
 ```
 
-Embarrassingly parallel. `par_iter` over cells, write snapshot. Also record `live_at_tick_start` as a `BitVec` or a `Vec<bool>` indexed by cell index.
+Embarrassingly parallel. `par_iter` over cells and write the snapshot. Record
+`live_at_tick_start` as a `BitVec` or `Vec<bool>` indexed by cell for Pass 1, and
+record tick-start existence and liveness on each program's `TickState` for the
+tick-end eligibility checks. The program-carried flags are required because `move`
+changes a program's cell index during Pass 2; a cell-indexed mask no longer identifies
+that program afterward.
 
 ### Pass 1
 
@@ -201,7 +206,7 @@ This pass is parallel across target cells but the number of target cells with ac
 ### Pass 3
 
 ```rust
-fn pass3_physics(grid: &mut Grid, live_set: &[bool], packets: &mut Vec<Packet>)
+fn pass3_physics(grid: &mut Grid, packets: &mut Vec<Packet>)
 ```
 
 Follow the spec's sub-step ordering (radiation propagation, listening, collision, absorb resolution, bg radiation decay/arrival, collect, bg mass decay/arrival, inert lifecycle, maintenance, free-resource decay, age update, spontaneous creation).
@@ -216,6 +221,9 @@ For stochastic draws, derive each cell's Wyrand RNG from `(master_seed, tick, ce
 ### Mutation (end of tick)
 
 After Pass 3's 12 sub-steps, run mutation for every program that was live at tick start. This is logically step 13 of the tick.
+
+Read this eligibility from the program's `TickState`, not from its current cell index,
+so a program that moved during Pass 2 still mutates and ages normally.
 
 Each eligible program mutates with probability based on whether it consumed background radiation for base-cost payment this tick:
 

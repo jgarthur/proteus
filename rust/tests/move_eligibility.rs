@@ -6,12 +6,11 @@
 //! > programs are eligible to execute in Pass 1, pay maintenance this tick, age at
 //! > end of tick, and mutate at end of tick.
 //!
-//! The engine stores that set as a position-indexed `Vec<bool>` over cells
-//! (`live_set` / `existed_set`), which is equivalent only while programs stay put.
-//! A successful `move` relocates the program to a cell whose masks describe the
-//! previous occupant (empty), so the moved program skips maintenance, aging, and
-//! mutation for that tick. This is a pre-existing engine bug, not a Rayon artifact:
-//! the masks were position-indexed before the parallel paths were introduced.
+//! The engine previously used only position-indexed `Vec<bool>` masks over cells
+//! (`live_set` / `existed_set`). A successful `move` therefore relocated the program
+//! to a cell whose masks described the previous occupant (empty), causing it to skip
+//! maintenance, aging, and mutation. Eligibility now also lives on `TickState`, which
+//! travels with the program through Pass 2.
 
 mod helpers;
 
@@ -122,8 +121,6 @@ fn move_relocates_the_program_without_marking_it_newborn() {
 }
 
 #[test]
-#[ignore = "known bug: tick-start eligibility is position-indexed, so a moved program \
-            skips aging and mutation (SPEC.md:252, 326, 483)"]
 fn moved_program_ages_and_mutates() {
     let mut simulation = build_world(&[op::MOVE, op::NOP], 1.0);
     let report = simulation.run_tick_report();
@@ -149,8 +146,6 @@ fn moved_program_ages_and_mutates() {
 }
 
 #[test]
-#[ignore = "known bug: tick-start eligibility is position-indexed, so a moved program \
-            skips maintenance (SPEC.md:252, 324)"]
 fn moved_program_is_charged_maintenance() {
     let without = energy_spent_in_one_tick(&[op::MOVE, op::NOP], 0.0, TARGET);
     let with = energy_spent_in_one_tick(&[op::MOVE, op::NOP], 1.0, TARGET);
@@ -160,4 +155,44 @@ fn moved_program_is_charged_maintenance() {
         "moved program should be charged maintenance: SPEC.md:324 charges every program \
          that existed at tick start (spent {with} with maintenance vs {without} without)"
     );
+}
+
+#[test]
+fn appended_inert_program_skips_maintenance_on_its_creation_tick() {
+    let mut simulation = WorldBuilder::new(2, 1)
+        .configure(|config| {
+            config.r_energy = 0.0;
+            config.r_mass = 0.0;
+            config.d_energy = 0.0;
+            config.d_mass = 0.0;
+            config.p_spawn = 0.0;
+            config.maintenance_rate = 1.0;
+            config.inert_grace_ticks = 0;
+        })
+        .at(
+            SOURCE as u32,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::APPEND_ADJ])
+                .stack(&[i16::from(op::NOP)])
+                .free_energy(1)
+                .free_mass(1),
+        )
+        .build_simulation();
+
+    let report = simulation.run_tick_report();
+
+    let target = simulation
+        .grid()
+        .get(TARGET)
+        .expect("target cell should exist");
+    let program = target.program.as_ref().unwrap_or_else(|| {
+        panic!(
+            "new inert program should survive its creation tick: report={report:?}, grid={:?}",
+            simulation.grid().cells()
+        )
+    });
+    assert!(!program.live);
+    assert!(!program.tick.is_newborn);
+    assert!(!program.tick.existed_at_tick_start);
 }

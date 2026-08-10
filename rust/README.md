@@ -61,7 +61,7 @@ The serial and Rayon paths are mutually exclusive `cfg` blocks, so no single tes
 binary can compare them - a test compiled with `--features rayon` cannot see the
 serial code at all. `scripts/check-rayon-parity.sh` closes that gap by building
 `examples/parity_digest.rs` in both configurations and diffing full-replay digests
-across several thread counts:
+across sparse, moderate, dense, and moving fixtures at several thread counts:
 
 ```bash
 ./scripts/check-rayon-parity.sh            # 300 ticks, threads 1 2 4 8

@@ -199,6 +199,34 @@ fn dense_32x32() -> Simulation {
     })
 }
 
+/// Moving 8x1 grid where every program relocates into an empty neighbor.
+///
+/// Exercises the program-carried tick-start eligibility used by maintenance, aging,
+/// and mutation after Pass 2 changes a program's cell index.
+fn moving_8x1() -> Simulation {
+    let config = SimConfig {
+        width: 8,
+        height: 1,
+        seed: 0x110e,
+        r_energy: 0.0,
+        r_mass: 0.0,
+        d_energy: 0.0,
+        d_mass: 0.0,
+        maintenance_rate: 0.25,
+        mutation_base_log2: 3,
+        mutation_background_log2: 3,
+        ..SimConfig::default()
+    };
+
+    build(config, |index| {
+        if index.is_multiple_of(2) {
+            program_cell(&[op::MOVE, op::NOP], Direction::Right, index as u8, 32, 2)
+        } else {
+            Cell::default()
+        }
+    })
+}
+
 fn main() {
     let ticks: u32 = std::env::args()
         .nth(1)
@@ -214,4 +242,5 @@ fn main() {
     digest_fixture("sparse-8x8", sparse_8x8(), ticks);
     digest_fixture("frontend-64x64", frontend_64x64(), ticks);
     digest_fixture("dense-32x32", dense_32x32(), ticks);
+    digest_fixture("moving-8x1", moving_8x1(), ticks);
 }

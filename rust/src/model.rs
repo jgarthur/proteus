@@ -85,6 +85,10 @@ pub struct TickState {
     pub is_open: bool,
     pub bg_radiation_consumed: u32,
     pub is_newborn: bool,
+    /// Whether this program existed when the current tick began.
+    pub existed_at_tick_start: bool,
+    /// Whether this program was live and eligible when the current tick began.
+    pub was_live_at_tick_start: bool,
 }
 
 impl TickState {
@@ -96,9 +100,13 @@ impl TickState {
     /// Prepares the transient state for the start of Pass 1.
     pub fn reset_for_pass1(&mut self, is_inert: bool) {
         let is_newborn = self.is_newborn;
+        let existed_at_tick_start = self.existed_at_tick_start;
+        let was_live_at_tick_start = self.was_live_at_tick_start;
         *self = Self {
             is_open: is_inert,
             is_newborn,
+            existed_at_tick_start,
+            was_live_at_tick_start,
             ..Self::default()
         };
     }
@@ -311,7 +319,7 @@ pub enum QueuedAction {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cell, CellSnapshot, Direction, Program, ProgramError};
+    use super::{Cell, CellSnapshot, Direction, Program, ProgramError, TickState};
 
     #[test]
     fn direction_rotation_matches_spec_clockwise_order() {
@@ -335,5 +343,23 @@ mod tests {
         assert_eq!(snapshot.program_size, 0);
         assert_eq!(snapshot.program_id, 0);
         assert!(!snapshot.has_program);
+    }
+
+    #[test]
+    fn pass1_reset_preserves_tick_start_eligibility() {
+        let mut tick = TickState {
+            did_nop: true,
+            is_newborn: true,
+            existed_at_tick_start: true,
+            was_live_at_tick_start: false,
+            ..TickState::default()
+        };
+
+        tick.reset_for_pass1(false);
+
+        assert!(!tick.did_nop);
+        assert!(tick.is_newborn);
+        assert!(tick.existed_at_tick_start);
+        assert!(!tick.was_live_at_tick_start);
     }
 }

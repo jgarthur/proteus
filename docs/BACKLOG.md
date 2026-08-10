@@ -10,13 +10,15 @@ Items are referenced by name from `STATUS.md` at the repo root. Use the exact it
 
 ### MOVE-ELIGIBILITY: Make tick-start eligibility follow a moving program
 
-Context: `SPEC.md` line 252 scopes end-of-tick eligibility to *programs* ("the set of programs that are live at tick start ... eligible to ... pay maintenance this tick, age at end of tick, and mutate at end of tick"). The engine stores that set as position-indexed `Vec<bool>` masks over cells (`live_set` / `existed_set`), which is equivalent only while programs stay put. `apply_move_commit` relocates a program to a cell whose masks describe that cell's previous occupant (empty), so a successfully moved program skips maintenance, aging, and mutation for that tick. Confirmed by `rust/tests/move_eligibility.rs`: a moved program is charged 0 maintenance quanta against 2 for an identical stationary program, its age does not increment, and it does not mutate.
+Context: `SPEC.md` line 252 scopes end-of-tick eligibility to *programs* ("the set of programs that are live at tick start ... eligible to ... pay maintenance this tick, age at end of tick, and mutate at end of tick"). The engine previously stored that set only as position-indexed `Vec<bool>` masks over cells (`live_set` / `existed_set`), which was equivalent only while programs stayed put. `apply_move_commit` relocated a program to a cell whose masks described that cell's previous occupant (empty), so a successfully moved program skipped maintenance, aging, and mutation for that tick. This was confirmed by `rust/tests/move_eligibility.rs`: a moved program was charged 0 maintenance quanta against 2 for an identical stationary program, its age did not increment, and it did not mutate.
 
 This is pre-existing and independent of the Rayon work: the masks were position-indexed before the parallel paths were introduced.
 
-Note that simply deleting `existed_set` and relying on `tick.is_newborn` is not sufficient. `apply_append_create_commit` creates an inert program in a previously empty cell without setting `is_newborn`, so `existed_set` is what currently prevents charging maintenance to a program on the tick it was appended. The eligibility flags need to travel with the program - either applied alongside `MoveCommit`, or stored on the program's `TickState` so relocation carries them naturally.
+The fix could not simply delete `existed_set` and rely on `tick.is_newborn`. `apply_append_create_commit` creates an inert program in a previously empty cell without setting `is_newborn`, so the old `existed_set` check was also what prevented charging maintenance on the tick it was appended. The replacement therefore needed explicit existence and liveness flags that travel with the program.
 
 References: `rust/tests/move_eligibility.rs`, `rust/src/simulation.rs` (`prepare_tick`), `rust/src/pass2.rs` (`apply_move_commit`, `apply_append_create_commit`), `rust/src/pass3.rs` (`resolve_maintenance`, `resolve_age_update`, `mutate_end_of_tick`), `docs/SPEC.md` lines 252, 324, 326, 483
+
+Resolution: tick-start existence and liveness are now recorded on each program's `TickState`, so successful movement carries eligibility to the target cell. The direct movement assertions run normally in both feature configurations, an append-created inert regression preserves the creation-tick maintenance exemption, and the serial/Rayon parity harness includes a successful-movement fixture.
 
 ### RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
 

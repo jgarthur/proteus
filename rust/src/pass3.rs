@@ -41,8 +41,6 @@ pub struct Pass3TailOutput {
 /// Bundles the immutable inputs needed by the Pass 3 tail.
 #[derive(Clone, Copy, Debug)]
 pub struct Pass3TailContext<'a> {
-    pub existed_set: &'a [bool],
-    pub live_set: &'a [bool],
     pub incoming_writes: &'a [bool],
     pub spawn_candidates: &'a [bool],
     pub config: &'a SimConfig,
@@ -110,16 +108,6 @@ pub fn pass3_ambient(
 pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) -> Pass3TailOutput {
     assert_eq!(
         grid.len(),
-        context.existed_set.len(),
-        "existed-set length must match grid size"
-    );
-    assert_eq!(
-        grid.len(),
-        context.live_set.len(),
-        "live-set length must match grid size"
-    );
-    assert_eq!(
-        grid.len(),
         context.incoming_writes.len(),
         "incoming-write length must match grid size"
     );
@@ -130,15 +118,9 @@ pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) -> Pass3TailOu
     );
 
     resolve_inert_lifecycle(grid, context.incoming_writes);
-    let deaths = resolve_maintenance(
-        grid,
-        context.existed_set,
-        context.config,
-        context.tick,
-        context.seed,
-    );
+    let deaths = resolve_maintenance(grid, context.config, context.tick, context.seed);
     resolve_free_resource_decay(grid, context.config, context.tick, context.seed);
-    resolve_age_update(grid, context.live_set);
+    resolve_age_update(grid);
     let spontaneous_births = resolve_spontaneous_creation(
         grid,
         context.spawn_candidates,
@@ -154,27 +136,13 @@ pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) -> Pass3TailOu
 }
 
 /// Applies end-of-tick mutation to programs that were live at tick start.
-pub fn mutate_end_of_tick(
-    grid: &mut Grid,
-    live_set: &[bool],
-    config: &SimConfig,
-    tick: u64,
-    seed: u64,
-) -> u32 {
-    assert_eq!(
-        grid.len(),
-        live_set.len(),
-        "live-set length must match grid size"
-    );
-
+pub fn mutate_end_of_tick(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) -> u32 {
     #[cfg(feature = "rayon")]
     {
         grid.cells_mut()
             .par_iter_mut()
             .enumerate()
-            .map(|(cell_index, cell)| {
-                mutate_end_of_tick_cell(cell, live_set[cell_index], config, tick, seed, cell_index)
-            })
+            .map(|(cell_index, cell)| mutate_end_of_tick_cell(cell, config, tick, seed, cell_index))
             .sum()
     }
 
@@ -183,9 +151,7 @@ pub fn mutate_end_of_tick(
         grid.cells_mut()
             .iter_mut()
             .enumerate()
-            .map(|(cell_index, cell)| {
-                mutate_end_of_tick_cell(cell, live_set[cell_index], config, tick, seed, cell_index)
-            })
+            .map(|(cell_index, cell)| mutate_end_of_tick_cell(cell, config, tick, seed, cell_index))
             .sum()
     }
 }
@@ -367,27 +333,14 @@ fn resolve_inert_lifecycle(grid: &mut Grid, incoming_writes: &[bool]) {
 }
 
 /// Charges maintenance to programs that still exist after the grace checks.
-fn resolve_maintenance(
-    grid: &mut Grid,
-    existed_set: &[bool],
-    config: &SimConfig,
-    tick: u64,
-    seed: u64,
-) -> u32 {
+fn resolve_maintenance(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) -> u32 {
     #[cfg(feature = "rayon")]
     {
         grid.cells_mut()
             .par_iter_mut()
             .enumerate()
             .map(|(cell_index, cell)| {
-                resolve_maintenance_cell(
-                    cell,
-                    existed_set[cell_index],
-                    config,
-                    tick,
-                    seed,
-                    cell_index,
-                )
+                resolve_maintenance_cell(cell, config, tick, seed, cell_index)
             })
             .sum()
     }
@@ -398,14 +351,7 @@ fn resolve_maintenance(
             .iter_mut()
             .enumerate()
             .map(|(cell_index, cell)| {
-                resolve_maintenance_cell(
-                    cell,
-                    existed_set[cell_index],
-                    config,
-                    tick,
-                    seed,
-                    cell_index,
-                )
+                resolve_maintenance_cell(cell, config, tick, seed, cell_index)
             })
             .sum()
     }
@@ -460,21 +406,18 @@ fn resolve_free_resource_decay(grid: &mut Grid, config: &SimConfig, tick: u64, s
 }
 
 /// Increments age for programs that were live at tick start.
-fn resolve_age_update(grid: &mut Grid, live_set: &[bool]) {
+fn resolve_age_update(grid: &mut Grid) {
     #[cfg(feature = "rayon")]
     {
         grid.cells_mut()
             .par_iter_mut()
-            .enumerate()
-            .for_each(|(cell_index, cell)| {
-                resolve_age_update_cell(cell, live_set[cell_index]);
-            });
+            .for_each(resolve_age_update_cell);
     }
 
     #[cfg(not(feature = "rayon"))]
     {
-        for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
-            resolve_age_update_cell(cell, live_set[cell_index]);
+        for cell in grid.cells_mut().iter_mut() {
+            resolve_age_update_cell(cell);
         }
     }
 }
@@ -526,19 +469,17 @@ fn resolve_spontaneous_creation(
 
 fn mutate_end_of_tick_cell(
     cell: &mut Cell,
-    is_live_at_tick_start: bool,
     config: &SimConfig,
     tick: u64,
     seed: u64,
     cell_index: usize,
 ) -> u32 {
-    if !is_live_at_tick_start {
-        return 0;
-    }
-
     let Some(program) = cell.program.as_ref() else {
         return 0;
     };
+    if !program.tick.was_live_at_tick_start {
+        return 0;
+    }
 
     let probability = mutation_probability(program, config);
     let mut rng = cell_rng(seed ^ MUTATION_SALT, tick, cell_index as u64);
@@ -615,20 +556,15 @@ fn resolve_inert_lifecycle_cell(cell: &mut Cell, incoming_write: bool) {
 
 fn resolve_maintenance_cell(
     cell: &mut Cell,
-    existed_at_tick_start: bool,
     config: &SimConfig,
     tick: u64,
     seed: u64,
     cell_index: usize,
 ) -> u32 {
-    if !existed_at_tick_start {
-        return 0;
-    }
-
     let Some(program) = cell.program.as_ref() else {
         return 0;
     };
-    if program.tick.is_newborn {
+    if !program.tick.existed_at_tick_start || program.tick.is_newborn {
         return 0;
     }
 
@@ -675,14 +611,13 @@ fn resolve_free_resource_decay_cell(
     cell.free_mass -= mass_decay;
 }
 
-fn resolve_age_update_cell(cell: &mut Cell, was_live_at_tick_start: bool) {
-    if !was_live_at_tick_start {
-        return;
-    }
-
+fn resolve_age_update_cell(cell: &mut Cell) {
     let Some(program) = cell.program.as_mut() else {
         return;
     };
+    if !program.tick.was_live_at_tick_start {
+        return;
+    }
     program.age = program.age.wrapping_add(1);
 }
 

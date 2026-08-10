@@ -271,10 +271,9 @@ Worth splitting if the branch is not squash-merged.
 
 ## Recommendation
 
-The core parallelization work is good and I would not hold it up. Findings 1-4 have
-since been addressed (see addendum and finding 3 above); the minor cleanup list
-remains, along with `MOVE-ELIGIBILITY`, a pre-existing engine bug surfaced during this
-review and tracked separately.
+The core parallelization work is good and I would not hold it up. Findings 1-4 and
+`MOVE-ELIGIBILITY` have since been addressed (see the addendum below); the optional
+minor cleanup list remains.
 
 Note that the measurements above answer the `RAYON-BASELINE` question in the negative:
 a 1-thread Rayon pool is slower than the serial path, so the cfg split is currently
@@ -286,8 +285,9 @@ earning its keep.
 
 Findings 1, 2 and 4 are now closed:
 
-- **`rust/examples/parity_digest.rs`** — replays three fixtures matching the configs
-  `docs/BACKEND-TESTING.md` §6 asks for (sparse 8×8, moderate 64×64, dense 32×32) and
+- **`rust/examples/parity_digest.rs`** — initially replayed three fixtures matching
+  the configs `docs/BACKEND-TESTING.md` §6 asks for (sparse 8×8, moderate 64×64,
+  dense 32×32), and now also includes a successful-movement fixture. It
   prints FNV-1a digests of the final grid, the packet list, and every `TickReport`.
   Digests go to stdout, build configuration to stderr, so runs diff cleanly.
 - **`rust/scripts/check-rayon-parity.sh`** — builds that example with default features
@@ -344,12 +344,21 @@ the parallelization neither caused nor worsened it.
 
 **A minimal fix is not simply dropping `existed_set`.**
 `apply_append_create_commit` creates an inert program in a previously empty cell
-*without* setting `is_newborn`, so `existed_set` is currently what stops that program
+*without* setting `is_newborn`, so `existed_set` was what stopped that program
 being charged maintenance on the tick it was appended. Eligibility has to travel with
 the program: either applied alongside `MoveCommit`, or — cleaner — stored on the
 program's `TickState`, so relocation carries it naturally and the tick-end helpers stop
 consulting position-indexed masks at all.
 
-Tracked as `MOVE-ELIGIBILITY` in `STATUS.md` and `docs/BACKLOG.md`. The two failing
-tests are committed as `#[ignore]` with the spec citation in the ignore reason, so the
-suite stays green and the fix has a ready-made gate.
+The initial reproduction was tracked as `MOVE-ELIGIBILITY` in `STATUS.md` and
+`docs/BACKLOG.md`, with the two spec assertions committed as ignored tests.
+
+### Resolution: eligibility now travels with the program
+
+The fix records tick-start existence and liveness on `Program::tick` during Pass 0.
+Those flags survive the Pass-1 transient-state reset and naturally travel through
+`apply_move_commit`, so maintenance, aging, and mutation no longer consult cell-indexed
+masks after movement. The movement assertions now run as ordinary tests, and a new
+regression confirms that an inert program created by `appendAdj` still skips
+maintenance on its creation tick. The parity harness also includes a successful-move
+fixture so both the serial and Rayon implementations exercise the corrected path.
