@@ -273,19 +273,24 @@ fn listener_packet_capture_is_stable_across_rayon_thread_counts() {
 fn frontend_default_seed_ecology_is_deterministic_for_long_rayon_replay() {
     let ticks = frontend_seed_benchmark_ticks();
 
-    let baseline_start = Instant::now();
+    let rayon_1_start = Instant::now();
     let (baseline_simulation, baseline_reports) =
         run_simulation_in_pool(1, build_frontend_seed_fixture, ticks);
-    let baseline_elapsed = baseline_start.elapsed();
+    let rayon_1_elapsed = rayon_1_start.elapsed();
 
-    let candidate_start = Instant::now();
+    let rayon_4_start = Instant::now();
     let (candidate_simulation, candidate_reports) =
         run_simulation_in_pool(4, build_frontend_seed_fixture, ticks);
-    let candidate_elapsed = candidate_start.elapsed();
+    let rayon_4_elapsed = rayon_4_start.elapsed();
 
+    // Both arms are Rayon builds, so this ratio is Rayon scaling across thread counts,
+    // not the speedup from enabling the feature. A 1-thread Rayon pool is itself slower
+    // than the serial build, so reading it as a serial baseline overstates the benefit.
+    // For a true serial comparison use scripts/check-rayon-parity.sh, which builds both
+    // configurations. The ratio is informational: nothing here asserts on timing.
     eprintln!(
-        "frontend-seed determinism benchmark: ticks={ticks} single_thread={baseline_elapsed:?} rayon_4={candidate_elapsed:?} speedup={:.2}x",
-        baseline_elapsed.as_secs_f64() / candidate_elapsed.as_secs_f64()
+        "frontend-seed determinism benchmark: ticks={ticks} rayon_1={rayon_1_elapsed:?} rayon_4={rayon_4_elapsed:?} rayon_scaling={:.2}x",
+        rayon_1_elapsed.as_secs_f64() / rayon_4_elapsed.as_secs_f64()
     );
 
     let diffs = diff_grids(baseline_simulation.grid(), candidate_simulation.grid());

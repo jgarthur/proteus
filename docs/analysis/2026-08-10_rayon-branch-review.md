@@ -158,7 +158,7 @@ Two smaller coverage gaps against §6, which asks for sparse / moderate / dense 
 My 96×96 stress fixture covers both and passes, so this is a coverage gap rather than a
 latent defect — but it is worth landing as a test.
 
-### 3. The benchmark's printed speedup overstates the benefit by ~40%
+### 3. The benchmark's printed speedup overstates the benefit by ~40% (closed)
 
 `frontend_default_seed_ecology_is_deterministic_for_long_rayon_replay` prints:
 
@@ -194,10 +194,11 @@ Worth noting the good news in that table: **the branch costs the serial path not
 expected a regression there and did not find one — hoisting `&mut Cell` out of the
 instruction loop appears to pay for the extra marshalling.
 
-Suggested change: rename the variable, and either compare against a committed baseline
-or drop the ratio from the assertion-free `eprintln!`. A timing benchmark inside a
-correctness test is also a mild smell — it makes the test ~1.5s and its output is
-unactionable in CI.
+**Closed.** The label is now `rayon_1` rather than `single_thread`, the timing
+variables are named for the thread counts they measure, and the ratio is reported as
+`rayon_scaling` rather than `speedup`, with a comment stating that both arms are Rayon
+builds and pointing at `scripts/check-rayon-parity.sh` for a true serial comparison.
+The ratio remains informational — nothing asserts on timing.
 
 **This directly informs the open `RAYON-BASELINE` decision.** The branch defers the
 question of whether Rayon should replace the serial paths entirely (relying on a
@@ -270,8 +271,10 @@ Worth splitting if the branch is not squash-merged.
 
 ## Recommendation
 
-The core parallelization work is good and I would not hold it up. Findings 1, 2 and 4
-have since been addressed (see addendum); finding 3 and the cleanup list remain.
+The core parallelization work is good and I would not hold it up. Findings 1-4 have
+since been addressed (see addendum and finding 3 above); the minor cleanup list
+remains, along with `MOVE-ELIGIBILITY`, a pre-existing engine bug surfaced during this
+review and tracked separately.
 
 Note that the measurements above answer the `RAYON-BASELINE` question in the negative:
 a 1-thread Rayon pool is slower than the serial path, so the cfg split is currently
