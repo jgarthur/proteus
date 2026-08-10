@@ -6,6 +6,8 @@ This folder contains the active Rust backend implementation for Proteus.
 
 - `src/` - Rust library source for the simulator core.
 - `tests/` - Integration tests for engine semantics and the feature-gated web API surface.
+- `examples/` - Standalone binaries used by checks that cannot run inside a single test binary. See `examples/parity_digest.rs`.
+- `scripts/` - Developer and CI check scripts. See `scripts/check-rayon-parity.sh`.
 
 ## Key Files
 
@@ -34,6 +36,14 @@ The crate's default `dev` profile is intentionally tuned for runtime speed
 (`opt-level = 3`, thin LTO, `codegen-units = 1`), so plain `cargo run` is the
 fast path for local simulator work.
 
+Then open `http://127.0.0.1:3000/debug/smoke`.
+
+To bind a different address/port:
+
+```bash
+cargo run --features web --bin proteus-server -- 127.0.0.1:4000
+```
+
 ## Optional Parallelism
 
 The backend also exposes an opt-in `rayon` feature for deterministic
@@ -45,10 +55,18 @@ cargo test --features rayon
 
 The default build remains single-threaded.
 
-Then open `http://127.0.0.1:3000/debug/smoke`.
+### Verifying Serial/Rayon Parity
 
-To bind a different address/port:
+The serial and Rayon paths are mutually exclusive `cfg` blocks, so no single test
+binary can compare them - a test compiled with `--features rayon` cannot see the
+serial code at all. `scripts/check-rayon-parity.sh` closes that gap by building
+`examples/parity_digest.rs` in both configurations and diffing full-replay digests
+across several thread counts:
 
 ```bash
-cargo run --features web --bin proteus-server -- 127.0.0.1:4000
+./scripts/check-rayon-parity.sh            # 300 ticks, threads 1 2 4 8
+./scripts/check-rayon-parity.sh 1000 1 16  # custom ticks and thread counts
 ```
+
+It exits non-zero and prints a per-fixture diff if the two paths disagree. Run it
+after touching any `#[cfg(feature = "rayon")]` block; CI runs it on every push.

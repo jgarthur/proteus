@@ -36,3 +36,4 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] SEED-PROGRAM-QOL: Add seed-program library/import-export/disassembly tooling
 - [ ] TRANSPORT-CONTROLS: Promote play-pause-speed controls and add hotkeys
 - [ ] RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
+- [x] RAYON-PARITY: Automate the serial-vs-Rayon golden check (`rust/scripts/check-rayon-parity.sh`, wired into CI)
