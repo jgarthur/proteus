@@ -34,11 +34,28 @@ jobs:
       - name: Check Formatting
         run: cargo fmt --all -- --check
 
+      # Default features and --all-features are separate compilations: the Rayon and
+      # serial execution paths are mutually exclusive `cfg` blocks, so a step that only
+      # runs one of them leaves the other entirely unchecked.
       - name: Run Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run Clippy (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Build
         run: cargo build --verbose
 
+      - name: Build (all features)
+        run: cargo build --all-features --verbose
+
       - name: Run Tests
         run: cargo test --verbose
+
+      - name: Run Tests (all features)
+        run: cargo test --all-features --verbose
+
+      # Golden check from docs/BACKEND-TESTING.md section 6: single-threaded == Rayon.
+      # Cannot live in a test binary, since the two paths never coexist in one build.
+      - name: Check Rayon Parity
+        run: ./scripts/check-rayon-parity.sh

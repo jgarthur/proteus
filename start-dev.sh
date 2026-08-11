@@ -6,6 +6,21 @@ BACKEND_PID=""
 FRONTEND_PID=""
 FRONTEND_DIR="${ROOT_DIR}/frontend"
 FRONTEND_VITE_BIN="${FRONTEND_DIR}/node_modules/.bin/vite"
+RAYON_THREADS="${RAYON_NUM_THREADS:-}"
+BACKEND_FEATURES="web"
+
+usage() {
+  cat <<EOF
+Usage: ./start-dev.sh [--threads N]
+
+Options:
+  --threads N  Set RAYON_NUM_THREADS for the backend process and enable the Rayon backend feature.
+  -h, --help   Show this help text.
+
+Environment:
+  RAYON_NUM_THREADS  Default backend Rayon thread count when --threads is not provided.
+EOF
+}
 
 cleanup() {
   local exit_code="${1:-$?}"
@@ -48,6 +63,38 @@ wait_for_first_exit() {
 trap 'cleanup $?' EXIT
 trap 'cleanup 130' INT TERM
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --threads)
+      if [[ $# -lt 2 ]]; then
+        echo "--threads requires a positive integer argument" >&2
+        usage >&2
+        exit 1
+      fi
+      RAYON_THREADS="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -n "${RAYON_THREADS}" && ! "${RAYON_THREADS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Rayon thread count must be a positive integer, got: ${RAYON_THREADS}" >&2
+  exit 1
+fi
+
+if [[ -n "${RAYON_THREADS}" ]]; then
+  BACKEND_FEATURES="web,rayon"
+fi
+
 if [[ ! -x "${FRONTEND_VITE_BIN}" ]]; then
   cat <<EOF
 Frontend dependencies are missing.
@@ -57,15 +104,22 @@ Run:
   npm install
 
 Then rerun:
-  ./start-dev.sh
+  ./start-dev.sh [--threads N]
 EOF
   exit 1
 fi
 
-echo "Starting backend from ${ROOT_DIR}/rust"
+if [[ -n "${RAYON_THREADS}" ]]; then
+  echo "Starting backend from ${ROOT_DIR}/rust with features=${BACKEND_FEATURES} and RAYON_NUM_THREADS=${RAYON_THREADS}"
+else
+  echo "Starting backend from ${ROOT_DIR}/rust with features=${BACKEND_FEATURES}"
+fi
 (
   cd "${ROOT_DIR}/rust"
-  exec cargo run --features web --bin proteus-server
+  if [[ -n "${RAYON_THREADS}" ]]; then
+    export RAYON_NUM_THREADS="${RAYON_THREADS}"
+  fi
+  exec cargo run --features "${BACKEND_FEATURES}" --bin proteus-server
 ) &
 BACKEND_PID=$!
 

@@ -297,9 +297,10 @@ For fuzz-found bugs, `cargo-fuzz` can minimize the input. Convert the minimized 
 
 ### CI pipeline order
 1. `cargo test` — all unit + integration tests
-2. `cargo test --features rayon` — parallelism correctness (the golden determinism test)
-3. Property tests (proptest runs ~256 cases by default, increase to 1000+ in CI)
-4. Fuzz targets — run for a time budget (e.g., 60s each) in CI, longer runs nightly
+2. `cargo test --all-features` — feature-gated unit + integration tests
+3. `scripts/check-rayon-parity.sh` — cross-build serial/Rayon golden comparison
+4. Property tests (proptest runs ~256 cases by default, increase to 1000+ in CI)
+5. Fuzz targets — run for a time budget (e.g., 60s each) in CI, longer runs nightly
 
 ### Development workflow
 - Run single-opcode tests while implementing each opcode
