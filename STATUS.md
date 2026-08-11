@@ -15,6 +15,7 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [x] Build the frontend (implement `FRONTEND-SPEC.md`)
 - [x] Boot the simulator end-to-end and observe it (via `/debug/smoke`)
 - [x] CONFIG-RATES: Rework ambient config fields to use Poisson arrival rates and steady-state background initialization while keeping decay fields as binomial per-quantum probabilities
+- [x] MOVE-ELIGIBILITY: Make tick-start eligibility follow a moving program
 
 ## Next
 
@@ -35,7 +36,6 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] INSPECTOR-TRACK-PROGRAM: Let the inspector follow a selected program as it moves
 - [ ] SEED-PROGRAM-QOL: Add seed-program library/import-export/disassembly tooling
 - [ ] TRANSPORT-CONTROLS: Promote play-pause-speed controls and add hotkeys
-- [x] MOVE-ELIGIBILITY: Make tick-start eligibility follow a moving program
 - [ ] RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
 - [ ] RAYON-PERFORMANCE: Remove Pass 2 grid-clone overhead and fuse compatible Rayon Pass 3 traversals; see `docs/analysis/2026-08-11_rayon-performance-profile.md`
 - [x] RAYON-PARITY: Automate the serial-vs-Rayon golden check (`rust/scripts/check-rayon-parity.sh`, wired into CI)
