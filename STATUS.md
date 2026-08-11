@@ -37,4 +37,5 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] TRANSPORT-CONTROLS: Promote play-pause-speed controls and add hotkeys
 - [x] MOVE-ELIGIBILITY: Make tick-start eligibility follow a moving program
 - [ ] RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
+- [ ] RAYON-PERFORMANCE: Remove Pass 2 grid-clone overhead and fuse compatible Rayon Pass 3 traversals; see `docs/analysis/2026-08-11_rayon-performance-profile.md`
 - [x] RAYON-PARITY: Automate the serial-vs-Rayon golden check (`rust/scripts/check-rayon-parity.sh`, wired into CI)

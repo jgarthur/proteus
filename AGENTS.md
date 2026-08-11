@@ -3,6 +3,7 @@
 ## STATUS.md
 
 - `STATUS.md` at the repo root is the project status log. Read it at the start of a conversation to understand what is done and what is next.
+- Before working on a named status item, run `rg -n '<ITEM-NAME>' .` to find its code and documentation breadcrumbs.
 - When you complete a task that corresponds to a status item, mark it done (`[x]`).
 - If new follow-up work emerges, add it to the **Next** section.
 
