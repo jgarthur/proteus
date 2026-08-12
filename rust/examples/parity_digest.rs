@@ -9,7 +9,9 @@
 //! Digests go to stdout so they can be diffed directly; build configuration goes to
 //! stderr so it does not perturb the comparison.
 
-use proteus::{op, Cell, Direction, Grid, Program, SimConfig, Simulation};
+use proteus::{
+    op, Cell, Direction, Grid, Opcode, Program, SimConfig, Simulation, SPEC_OPCODE_COUNT,
+};
 
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -30,9 +32,21 @@ fn fnv1a(bytes: &[u8], mut hash: u64) -> u64 {
 /// Replays one fixture and prints digests of the grid, tick reports, and packets.
 fn digest_fixture(name: &str, mut simulation: Simulation, ticks: u32) {
     let mut reports = FNV_OFFSET_BASIS;
+    let mut births = 0_u64;
+    let mut boot_births = 0_u64;
+    let mut spawn_births = 0_u64;
+    let mut deaths = 0_u64;
+    let mut mutations = 0_u64;
+    let mut max_packets = 0_u32;
     for _ in 0..ticks {
         let report = simulation.run_tick_report();
         reports = fnv1a(format!("{report:?}").as_bytes(), reports);
+        births += u64::from(report.births);
+        boot_births += u64::from(report.boot_births);
+        spawn_births += u64::from(report.spawn_births);
+        deaths += u64::from(report.deaths);
+        mutations += u64::from(report.mutations);
+        max_packets = max_packets.max(report.packet_count);
     }
 
     let mut grid = FNV_OFFSET_BASIS;
@@ -44,9 +58,21 @@ fn digest_fixture(name: &str, mut simulation: Simulation, ticks: u32) {
         format!("{:?}", simulation.packets()).as_bytes(),
         FNV_OFFSET_BASIS,
     );
+    let final_programs = simulation
+        .grid()
+        .cells()
+        .iter()
+        .filter(|cell| cell.program.is_some())
+        .count();
+    let final_live_programs = simulation
+        .grid()
+        .cells()
+        .iter()
+        .filter(|cell| cell.program.as_ref().is_some_and(|program| program.live))
+        .count();
 
     println!(
-        "{name:<16} ticks={ticks:<5} grid={grid:016x} reports={reports:016x} packets={packets:016x}"
+        "{name:<16} ticks={ticks:<5} grid={grid:016x} reports={reports:016x} packets={packets:016x} births={births} boot={boot_births} spawn={spawn_births} deaths={deaths} mutations={mutations} max_packets={max_packets} final_programs={final_programs} final_live={final_live_programs}"
     );
 }
 
@@ -227,6 +253,163 @@ fn moving_8x1() -> Simulation {
     })
 }
 
+/// One live carrier for every spec-defined opcode byte.
+///
+/// Every carrier is eligible on tick 0, has enough stack operands and resources
+/// to enter its dispatch arm, and cannot die from maintenance. This is an
+/// execution census, while the focused integration tests cover branch outcomes.
+fn all_opcodes_71x1() -> Simulation {
+    let opcode_bytes = (u8::MIN..=u8::MAX)
+        .filter(|byte| !Opcode::decode(*byte).is_noop())
+        .collect::<Vec<_>>();
+    assert_eq!(opcode_bytes.len(), SPEC_OPCODE_COUNT);
+
+    let config = SimConfig {
+        width: u32::try_from(opcode_bytes.len()).expect("opcode count should fit in u32"),
+        height: 1,
+        seed: 0xc0de_ce05,
+        r_energy: 0.0,
+        r_mass: 0.0,
+        d_energy: 0.0,
+        d_mass: 0.0,
+        maintenance_rate: 0.0,
+        p_spawn: 0.0,
+        mutation_base_log2: 31,
+        mutation_background_log2: 31,
+        ..SimConfig::default()
+    };
+
+    build(config, |index| {
+        let mut cell = program_cell(
+            &[opcode_bytes[index]],
+            Direction::Right,
+            index as u8,
+            1_000,
+            1_000,
+        );
+        cell.bg_radiation = 1_000;
+        cell.bg_mass = 1_000;
+        cell.program
+            .as_mut()
+            .expect("opcode carrier should contain a program")
+            .stack = vec![1, 2, 3, 4];
+        cell
+    })
+}
+
+/// Successful representatives of every Pass 2 action plus one mixed conflict.
+fn exclusive_actions_5x9() -> Simulation {
+    let config = SimConfig {
+        width: 5,
+        height: 9,
+        seed: 0xe7c1_051e,
+        r_energy: 0.0,
+        r_mass: 0.0,
+        d_energy: 0.0,
+        d_mass: 0.0,
+        maintenance_rate: 0.0,
+        p_spawn: 0.0,
+        mutation_base_log2: 31,
+        mutation_background_log2: 31,
+        ..SimConfig::default()
+    };
+
+    build(config, |index| {
+        let x = index % 5;
+        let y = index / 5;
+        match (x, y) {
+            (1, 0) => program_cell(&[op::READ_ADJ], Direction::Right, 1, 10, 10),
+            (2, 0) => program_cell(&[op::DUP], Direction::Right, 2, 0, 0),
+            (1, 1) => program_cell(&[op::push(7), op::WRITE_ADJ], Direction::Right, 3, 10, 10),
+            (2, 1) => program_cell(&[op::NOP], Direction::Right, 4, 0, 0),
+            (1, 2) => program_cell(&[op::push(7), op::APPEND_ADJ], Direction::Right, 5, 10, 10),
+            (2, 2) => program_cell(&[op::NOP], Direction::Right, 6, 0, 0),
+            (1, 3) => program_cell(&[op::DEL_ADJ], Direction::Right, 7, 10, 10),
+            (2, 3) => program_cell(&[op::NOP, op::NOP], Direction::Right, 8, 2, 0),
+            (1, 4) => program_cell(&[op::push(3), op::GIVE_E], Direction::Right, 9, 10, 10),
+            (2, 4) => program_cell(&[op::NOP], Direction::Right, 10, 0, 0),
+            (1, 5) => program_cell(&[op::push(3), op::GIVE_M], Direction::Right, 11, 10, 10),
+            (2, 5) => program_cell(&[op::NOP], Direction::Right, 12, 0, 0),
+            (1, 6) => program_cell(&[op::MOVE], Direction::Right, 13, 10, 2),
+            (1, 7) => program_cell(&[op::BOOT], Direction::Right, 14, 10, 10),
+            (2, 7) => Cell {
+                program: Some(
+                    Program::new_inert(vec![op::NOP], Direction::Right, 15)
+                        .expect("boot target should be valid"),
+                ),
+                ..Cell::default()
+            },
+            (1, 8) => program_cell(&[op::push(1), op::WRITE_ADJ], Direction::Right, 16, 10, 10),
+            (2, 8) => program_cell(&[op::NOP], Direction::Right, 17, 0, 0),
+            (3, 8) => program_cell(&[op::push(2), op::APPEND_ADJ], Direction::Left, 18, 10, 10),
+            _ => Cell::default(),
+        }
+    })
+}
+
+/// Proves the exclusive-action fixture reaches the intended success/conflict paths.
+fn verify_exclusive_fixture() {
+    let mut simulation = exclusive_actions_5x9();
+    let report = simulation.run_tick_report();
+    let cell = |x, y| {
+        simulation
+            .grid()
+            .get(simulation.grid().index(x, y))
+            .expect("exclusive fixture cell should exist")
+    };
+
+    assert_eq!(
+        cell(1, 0)
+            .program
+            .as_ref()
+            .expect("read source should survive")
+            .stack,
+        vec![i16::from(op::DUP)]
+    );
+    assert_eq!(
+        cell(2, 1)
+            .program
+            .as_ref()
+            .expect("write target should survive")
+            .code,
+        vec![7]
+    );
+    assert_eq!(
+        cell(2, 2)
+            .program
+            .as_ref()
+            .expect("append target should survive")
+            .code,
+        vec![op::NOP, 7]
+    );
+    assert_eq!(
+        cell(2, 3)
+            .program
+            .as_ref()
+            .expect("delete target should survive")
+            .code
+            .len(),
+        1
+    );
+    assert_eq!(cell(2, 4).free_energy, 3);
+    assert_eq!(cell(2, 5).free_mass, 3);
+    assert!(cell(1, 6).program.is_none());
+    assert!(cell(2, 6).program.is_some());
+    assert!(cell(2, 7)
+        .program
+        .as_ref()
+        .is_some_and(|program| program.live));
+    assert_eq!(report.boot_births, 1);
+    assert_ne!(
+        cell(2, 8)
+            .program
+            .as_ref()
+            .expect("conflict target should survive")
+            .code,
+        vec![op::NOP]
+    );
+}
+
 fn main() {
     let ticks: u32 = std::env::args()
         .nth(1)
@@ -239,8 +422,12 @@ fn main() {
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".to_owned()),
     );
 
+    verify_exclusive_fixture();
+
     digest_fixture("sparse-8x8", sparse_8x8(), ticks);
     digest_fixture("frontend-64x64", frontend_64x64(), ticks);
     digest_fixture("dense-32x32", dense_32x32(), ticks);
     digest_fixture("moving-8x1", moving_8x1(), ticks);
+    digest_fixture("all-opcodes-71x1", all_opcodes_71x1(), ticks);
+    digest_fixture("exclusive-5x9", exclusive_actions_5x9(), ticks);
 }

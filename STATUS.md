@@ -39,6 +39,8 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] INSPECTOR-TRACK-PROGRAM: Let the inspector follow a selected program as it moves
 - [ ] SEED-PROGRAM-QOL: Add seed-program library/import-export/disassembly tooling
 - [ ] TRANSPORT-CONTROLS: Promote play-pause-speed controls and add hotkeys
-- [ ] RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
-- [ ] RAYON-PERFORMANCE: Remove Pass 2 grid-clone overhead and fuse compatible Rayon Pass 3 traversals; see `docs/analysis/2026-08-11_rayon-performance-profile.md`
+- [x] RAYON-BASELINE: Keep the direct serial iteration paths; a one-thread Rayon pool remained 3-15% slower across the final fixture sweep. See `docs/analysis/2026-08-12_rayon-optimization-results.md`.
+- [x] RAYON-PERFORMANCE: Remove Pass 2 grid-clone overhead, fuse compatible Rayon Pass 3 traversals, add dense-growth benchmarking, and strengthen parity/instruction audits. See `docs/analysis/2026-08-12_rayon-optimization-results.md`.
+- [ ] DYADIC-SAMPLERS: Implement exact power-of-two probability samplers and Poisson inversion per `docs/analysis/2026-08-13_dyadic-sampler-plan.md` (includes the approved dyadic spec adjustment for decay probabilities)
+- [ ] RAYON-HOTSPOTS: Remaining performance tiers after the sampler work (SoA hot-field split, inline program storage behind data-justified caps, Pass 1 dispatch); roadmap in `docs/analysis/2026-08-13_performance-roadmap.md`
 - [x] RAYON-PARITY: Automate the serial-vs-Rayon golden check (`rust/scripts/check-rayon-parity.sh`, wired into CI)

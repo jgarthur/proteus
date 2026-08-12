@@ -58,6 +58,38 @@ pub fn pass3_packets(grid: &mut Grid, packets: &mut Vec<Packet>, tick: u64, seed
         packet.position = grid.neighbor(packet.position, packet.direction);
     }
 
+    // Sorting avoids a grid-sized bucket allocation when packets are sparse,
+    // while dense packet fields are faster with direct bucketing.
+    if packets.len() > grid.len() / 4 {
+        resolve_packets_bucketed(grid, packets, tick, seed);
+        return;
+    }
+
+    packets.sort_by_key(|packet| packet.position);
+    let mut run_start = 0;
+    let mut survivor_count = 0;
+    while run_start < packets.len() {
+        let cell_index = packets[run_start].position;
+        let run_end = run_start
+            + packets[run_start..].partition_point(|packet| packet.position == cell_index);
+        let bucket = &packets[run_start..run_end];
+        let cell = grid.get_mut(cell_index).expect("cell should exist");
+        if program(cell).is_some_and(|program| program.tick.did_listen) {
+            apply_listen_capture(cell, cell_index, bucket, tick, seed);
+        } else if bucket.len() >= 2 {
+            cell.free_energy +=
+                u32::try_from(bucket.len()).expect("packet count should fit in u32");
+        } else {
+            packets[survivor_count] = packets[run_start];
+            survivor_count += 1;
+        }
+
+        run_start = run_end;
+    }
+    packets.truncate(survivor_count);
+}
+
+fn resolve_packets_bucketed(grid: &mut Grid, packets: &mut Vec<Packet>, tick: u64, seed: u64) {
     let mut buckets = vec![Vec::<Packet>::new(); grid.len()];
     for packet in packets.drain(..) {
         buckets[packet.position].push(packet);
@@ -72,16 +104,12 @@ pub fn pass3_packets(grid: &mut Grid, packets: &mut Vec<Packet>, tick: u64, seed
         let cell = grid.get_mut(cell_index).expect("cell should exist");
         if program(cell).is_some_and(|program| program.tick.did_listen) {
             apply_listen_capture(cell, cell_index, &bucket, tick, seed);
-            continue;
-        }
-
-        if bucket.len() >= 2 {
+        } else if bucket.len() >= 2 {
             cell.free_energy +=
                 u32::try_from(bucket.len()).expect("packet count should fit in u32");
-            continue;
+        } else {
+            survivors.push(bucket[0]);
         }
-
-        survivors.push(bucket[0]);
     }
 
     *packets = survivors;
@@ -97,9 +125,14 @@ pub fn pass3_ambient(
     let mut output = Pass3AmbientOutput::new(grid.len());
 
     resolve_absorb(grid);
-    resolve_background_radiation(grid, config, tick, seed);
-    resolve_collect(grid);
-    resolve_background_mass(grid, config, tick, seed, &mut output);
+    #[cfg(feature = "rayon")]
+    resolve_ambient_cells_rayon(grid, config, tick, seed, &mut output);
+    #[cfg(not(feature = "rayon"))]
+    {
+        resolve_background_radiation(grid, config, tick, seed);
+        resolve_collect(grid);
+        resolve_background_mass(grid, config, tick, seed, &mut output);
+    }
 
     output
 }
@@ -117,21 +150,29 @@ pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) -> Pass3TailOu
         "spawn-candidate length must match grid size"
     );
 
-    resolve_inert_lifecycle(grid, context.incoming_writes);
-    let deaths = resolve_maintenance(grid, context.config, context.tick, context.seed);
-    resolve_free_resource_decay(grid, context.config, context.tick, context.seed);
-    resolve_age_update(grid);
-    let spontaneous_births = resolve_spontaneous_creation(
-        grid,
-        context.spawn_candidates,
-        context.config,
-        context.tick,
-        context.seed,
-    );
+    #[cfg(feature = "rayon")]
+    {
+        resolve_tail_cells_rayon(grid, context)
+    }
 
-    Pass3TailOutput {
-        deaths,
-        spontaneous_births,
+    #[cfg(not(feature = "rayon"))]
+    {
+        resolve_inert_lifecycle(grid, context.incoming_writes);
+        let deaths = resolve_maintenance(grid, context.config, context.tick, context.seed);
+        resolve_free_resource_decay(grid, context.config, context.tick, context.seed);
+        resolve_age_update(grid);
+        let spontaneous_births = resolve_spontaneous_creation(
+            grid,
+            context.spawn_candidates,
+            context.config,
+            context.tick,
+            context.seed,
+        );
+
+        Pass3TailOutput {
+            deaths,
+            spontaneous_births,
+        }
     }
 }
 
@@ -183,6 +224,14 @@ fn apply_listen_capture(
 
 /// Splits background radiation across all absorb footprints.
 fn resolve_absorb(grid: &mut Grid) {
+    if !grid.cells().iter().any(|cell| {
+        cell.program
+            .as_ref()
+            .is_some_and(|program| program.tick.absorb_count > 0)
+    }) {
+        return;
+    }
+
     let mut buckets = vec![Vec::<usize>::new(); grid.len()];
     for source in 0..grid.len() {
         let Some(program) = grid
@@ -217,9 +266,10 @@ fn resolve_absorb(grid: &mut Grid) {
             continue;
         }
 
-        let share = bg / u32::try_from(absorbers.len()).expect("absorber count should fit in u32");
-        let remainder =
-            bg % u32::try_from(absorbers.len()).expect("absorber count should fit in u32");
+        let absorber_count =
+            u32::try_from(absorbers.len()).expect("absorber count should fit in u32");
+        let share = bg / absorber_count;
+        let remainder = bg % absorber_count;
         if share > 0 {
             for absorber in absorbers {
                 gains[absorber] += share;
@@ -241,44 +291,44 @@ fn resolve_absorb(grid: &mut Grid) {
     }
 }
 
-/// Applies decay and Poisson arrival for background radiation.
-fn resolve_background_radiation(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
-    #[cfg(feature = "rayon")]
-    {
-        grid.cells_mut()
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(cell_index, cell)| {
-                resolve_background_radiation_cell(cell, config, tick, seed, cell_index);
-            });
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    {
-        for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
+/// Runs radiation, collect, then mass for each cell in one Rayon traversal.
+#[cfg(feature = "rayon")]
+fn resolve_ambient_cells_rayon(
+    grid: &mut Grid,
+    config: &SimConfig,
+    tick: u64,
+    seed: u64,
+    output: &mut Pass3AmbientOutput,
+) {
+    grid.cells_mut()
+        .par_iter_mut()
+        .zip(output.spawn_candidates.par_iter_mut())
+        .enumerate()
+        .for_each(|(cell_index, (cell, spawn_candidate))| {
             resolve_background_radiation_cell(cell, config, tick, seed, cell_index);
-        }
+            resolve_collect_cell(cell);
+            *spawn_candidate = resolve_background_mass_cell(cell, config, tick, seed, cell_index);
+        });
+}
+
+/// Applies decay and Poisson arrival for background radiation.
+#[cfg(not(feature = "rayon"))]
+fn resolve_background_radiation(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
+    for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
+        resolve_background_radiation_cell(cell, config, tick, seed, cell_index);
     }
 }
 
 /// Moves background mass into free mass for cells that collected this tick.
+#[cfg(not(feature = "rayon"))]
 fn resolve_collect(grid: &mut Grid) {
-    #[cfg(feature = "rayon")]
-    {
-        grid.cells_mut()
-            .par_iter_mut()
-            .for_each(resolve_collect_cell);
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    {
-        for cell in grid.cells_mut() {
-            resolve_collect_cell(cell);
-        }
+    for cell in grid.cells_mut() {
+        resolve_collect_cell(cell);
     }
 }
 
 /// Applies decay and Poisson arrival for background mass and marks spawn candidates.
+#[cfg(not(feature = "rayon"))]
 fn resolve_background_mass(
     grid: &mut Grid,
     config: &SimConfig,
@@ -286,75 +336,79 @@ fn resolve_background_mass(
     seed: u64,
     output: &mut Pass3AmbientOutput,
 ) {
-    #[cfg(feature = "rayon")]
+    for (cell_index, (cell, spawn_candidate)) in grid
+        .cells_mut()
+        .iter_mut()
+        .zip(output.spawn_candidates.iter_mut())
+        .enumerate()
     {
-        let spawn_candidates = &mut output.spawn_candidates;
-        grid.cells_mut()
-            .par_iter_mut()
-            .zip(spawn_candidates.par_iter_mut())
-            .enumerate()
-            .for_each(|(cell_index, (cell, spawn_candidate))| {
-                *spawn_candidate =
-                    resolve_background_mass_cell(cell, config, tick, seed, cell_index);
-            });
+        *spawn_candidate = resolve_background_mass_cell(cell, config, tick, seed, cell_index);
     }
+}
 
-    #[cfg(not(feature = "rayon"))]
-    {
-        for (cell_index, (cell, spawn_candidate)) in grid
-            .cells_mut()
-            .iter_mut()
-            .zip(output.spawn_candidates.iter_mut())
-            .enumerate()
-        {
-            *spawn_candidate = resolve_background_mass_cell(cell, config, tick, seed, cell_index);
-        }
+/// Runs lifecycle, maintenance, decay, age, then spawn per cell in one Rayon traversal.
+#[cfg(feature = "rayon")]
+fn resolve_tail_cells_rayon(grid: &mut Grid, context: Pass3TailContext<'_>) -> Pass3TailOutput {
+    let (deaths, spontaneous_births) = grid
+        .cells_mut()
+        .par_iter_mut()
+        .enumerate()
+        .map(|(cell_index, cell)| {
+            resolve_inert_lifecycle_cell(cell, context.incoming_writes[cell_index]);
+            let deaths = resolve_maintenance_cell(
+                cell,
+                context.config,
+                context.tick,
+                context.seed,
+                cell_index,
+            );
+            resolve_free_resource_decay_cell(
+                cell,
+                context.config,
+                context.tick,
+                context.seed,
+                cell_index,
+            );
+            resolve_age_update_cell(cell);
+            let births = resolve_spontaneous_creation_cell(
+                cell,
+                context.spawn_candidates[cell_index],
+                context.config,
+                context.tick,
+                context.seed,
+                cell_index,
+            );
+            (deaths, births)
+        })
+        .reduce(
+            || (0, 0),
+            |(left_deaths, left_births), (right_deaths, right_births)| {
+                (left_deaths + right_deaths, left_births + right_births)
+            },
+        );
+
+    Pass3TailOutput {
+        deaths,
+        spontaneous_births,
     }
 }
 
 /// Updates inert abandonment timers and openness after Pass 2 writes.
+#[cfg(not(feature = "rayon"))]
 fn resolve_inert_lifecycle(grid: &mut Grid, incoming_writes: &[bool]) {
-    #[cfg(feature = "rayon")]
-    {
-        grid.cells_mut()
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(cell_index, cell)| {
-                resolve_inert_lifecycle_cell(cell, incoming_writes[cell_index]);
-            });
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    {
-        for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
-            resolve_inert_lifecycle_cell(cell, incoming_writes[cell_index]);
-        }
+    for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
+        resolve_inert_lifecycle_cell(cell, incoming_writes[cell_index]);
     }
 }
 
 /// Charges maintenance to programs that still exist after the grace checks.
+#[cfg(not(feature = "rayon"))]
 fn resolve_maintenance(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) -> u32 {
-    #[cfg(feature = "rayon")]
-    {
-        grid.cells_mut()
-            .par_iter_mut()
-            .enumerate()
-            .map(|(cell_index, cell)| {
-                resolve_maintenance_cell(cell, config, tick, seed, cell_index)
-            })
-            .sum()
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    {
-        grid.cells_mut()
-            .iter_mut()
-            .enumerate()
-            .map(|(cell_index, cell)| {
-                resolve_maintenance_cell(cell, config, tick, seed, cell_index)
-            })
-            .sum()
-    }
+    grid.cells_mut()
+        .iter_mut()
+        .enumerate()
+        .map(|(cell_index, cell)| resolve_maintenance_cell(cell, config, tick, seed, cell_index))
+        .sum()
 }
 
 /// Burns maintenance quanta out of free energy, then program code, then live state.
@@ -386,43 +440,23 @@ fn apply_maintenance(cell: &mut Cell, mut quanta: u32) -> bool {
 }
 
 /// Decays free resources above the per-cell threshold.
+#[cfg(not(feature = "rayon"))]
 fn resolve_free_resource_decay(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
-    #[cfg(feature = "rayon")]
-    {
-        grid.cells_mut()
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(cell_index, cell)| {
-                resolve_free_resource_decay_cell(cell, config, tick, seed, cell_index);
-            });
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    {
-        for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
-            resolve_free_resource_decay_cell(cell, config, tick, seed, cell_index);
-        }
+    for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
+        resolve_free_resource_decay_cell(cell, config, tick, seed, cell_index);
     }
 }
 
 /// Increments age for programs that were live at tick start.
+#[cfg(not(feature = "rayon"))]
 fn resolve_age_update(grid: &mut Grid) {
-    #[cfg(feature = "rayon")]
-    {
-        grid.cells_mut()
-            .par_iter_mut()
-            .for_each(resolve_age_update_cell);
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    {
-        for cell in grid.cells_mut().iter_mut() {
-            resolve_age_update_cell(cell);
-        }
+    for cell in grid.cells_mut().iter_mut() {
+        resolve_age_update_cell(cell);
     }
 }
 
 /// Spawns new one-cell programs in empty candidate cells.
+#[cfg(not(feature = "rayon"))]
 fn resolve_spontaneous_creation(
     grid: &mut Grid,
     spawn_candidates: &[bool],
@@ -430,41 +464,20 @@ fn resolve_spontaneous_creation(
     tick: u64,
     seed: u64,
 ) -> u32 {
-    #[cfg(feature = "rayon")]
-    {
-        grid.cells_mut()
-            .par_iter_mut()
-            .enumerate()
-            .map(|(cell_index, cell)| {
-                resolve_spontaneous_creation_cell(
-                    cell,
-                    spawn_candidates[cell_index],
-                    config,
-                    tick,
-                    seed,
-                    cell_index,
-                )
-            })
-            .sum()
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    {
-        grid.cells_mut()
-            .iter_mut()
-            .enumerate()
-            .map(|(cell_index, cell)| {
-                resolve_spontaneous_creation_cell(
-                    cell,
-                    spawn_candidates[cell_index],
-                    config,
-                    tick,
-                    seed,
-                    cell_index,
-                )
-            })
-            .sum()
-    }
+    grid.cells_mut()
+        .iter_mut()
+        .enumerate()
+        .map(|(cell_index, cell)| {
+            resolve_spontaneous_creation_cell(
+                cell,
+                spawn_candidates[cell_index],
+                config,
+                tick,
+                seed,
+                cell_index,
+            )
+        })
+        .sum()
 }
 
 fn mutate_end_of_tick_cell(
@@ -716,7 +729,7 @@ mod tests {
     use crate::grid::Grid;
     use crate::model::{Cell, Direction, Packet, Program};
 
-    use super::{pass3_ambient, pass3_packets, Pass3AmbientOutput};
+    use super::{pass3_ambient, pass3_packets, resolve_packets_bucketed, Pass3AmbientOutput};
     use crate::opcode::op;
 
     #[test]
@@ -791,6 +804,58 @@ mod tests {
         assert_eq!(program.registers.msg, 9);
         assert_eq!(program.registers.dir, Direction::Left);
         assert!(program.registers.flag);
+    }
+
+    #[test]
+    fn sparse_sorted_packet_path_matches_bucketed_reference() {
+        let mut listener = Cell::with_program(
+            Program::new_live(vec![op::LISTEN], Direction::Up, 4).expect("program should build"),
+        );
+        listener
+            .program
+            .as_mut()
+            .expect("program should exist")
+            .tick
+            .did_listen = true;
+        let mut cells = vec![Cell::default(); 16];
+        cells[7] = listener;
+        let grid = Grid::from_cells(16, 1, cells).expect("grid should build");
+        let packets = vec![
+            Packet {
+                position: 1,
+                direction: Direction::Right,
+                message: 1,
+            },
+            Packet {
+                position: 3,
+                direction: Direction::Left,
+                message: 2,
+            },
+            Packet {
+                position: 6,
+                direction: Direction::Right,
+                message: 3,
+            },
+            Packet {
+                position: 11,
+                direction: Direction::Right,
+                message: 4,
+            },
+        ];
+
+        let mut sorted_grid = grid.clone();
+        let mut sorted_packets = packets.clone();
+        pass3_packets(&mut sorted_grid, &mut sorted_packets, 5, 11);
+
+        let mut bucketed_grid = grid;
+        let mut bucketed_packets = packets;
+        for packet in &mut bucketed_packets {
+            packet.position = bucketed_grid.neighbor(packet.position, packet.direction);
+        }
+        resolve_packets_bucketed(&mut bucketed_grid, &mut bucketed_packets, 5, 11);
+
+        assert_eq!(sorted_grid, bucketed_grid);
+        assert_eq!(sorted_packets, bucketed_packets);
     }
 
     #[test]

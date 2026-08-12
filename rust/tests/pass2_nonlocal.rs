@@ -6,6 +6,145 @@ use proteus::op;
 use proteus::{pass2_nonlocal, Direction, Pass2Output, QueuedAction, PROGRAM_SIZE_CAP};
 
 #[test]
+fn no_actions_leave_the_grid_bit_identical() {
+    let (mut grid, config) = WorldBuilder::new(2, 1)
+        .at(
+            0,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::DUP, op::DROP])
+                .free_energy(7)
+                .free_mass(5)
+                .bg_radiation(3)
+                .bg_mass(2),
+        )
+        .free_energy_at(1, 0, 11)
+        .bg_mass_at(1, 0, 13)
+        .build();
+    let before = grid.clone();
+
+    let output = pass2_nonlocal(&mut grid, &[], 17, config.seed);
+
+    assert_eq!(grid, before);
+    assert_eq!(output, Pass2Output::new(2));
+}
+
+#[test]
+fn additive_only_mix_preserves_untouched_state_and_skips_exclusives() {
+    let mut simulation = WorldBuilder::new(3, 1)
+        .at(
+            0,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::NOP])
+                .flag(true)
+                .free_energy(5)
+                .free_mass(4)
+                .bg_radiation(7)
+                .bg_mass(8),
+        )
+        .at(
+            1,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::DUP])
+                .free_energy(2)
+                .free_mass(3)
+                .bg_radiation(9)
+                .bg_mass(10),
+        )
+        .bg_radiation_at(2, 0, 11)
+        .bg_mass_at(2, 0, 12)
+        .build_simulation();
+
+    let output = simulation.run_pass2(&[
+        QueuedAction::GiveE {
+            source: 0,
+            target: 2,
+            amount: 3,
+        },
+        QueuedAction::GiveM {
+            source: 1,
+            target: 2,
+            amount: 2,
+        },
+    ]);
+
+    assert_eq!(output, Pass2Output::new(3));
+    assert_cell!(
+        simulation.grid(),
+        (0, 0),
+        free_energy == 2,
+        free_mass == 4,
+        bg_radiation == 7,
+        bg_mass == 8
+    );
+    assert_cell!(
+        simulation.grid(),
+        (1, 0),
+        free_energy == 2,
+        free_mass == 1,
+        bg_radiation == 9,
+        bg_mass == 10
+    );
+    assert_cell!(
+        simulation.grid(),
+        (2, 0),
+        free_energy == 3,
+        free_mass == 2,
+        bg_radiation == 11,
+        bg_mass == 12
+    );
+    assert_program!(simulation.grid(), (0, 0), flag == false);
+    assert_program!(simulation.grid(), (1, 0), flag == false);
+}
+
+#[test]
+fn invalid_exclusives_only_set_source_flags() {
+    let mut simulation = WorldBuilder::new(4, 1)
+        .at(
+            0,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::NOP])
+                .free_energy(4)
+                .bg_radiation(5),
+        )
+        .at(1, 0, ProgramBuilder::new().code(&[op::DUP]))
+        .at(2, 0, ProgramBuilder::new().code(&[op::DROP]).free_mass(3))
+        .at(3, 0, ProgramBuilder::new().code(&[op::SWAP]))
+        .build_simulation();
+    let before = simulation.grid().clone();
+
+    let output = simulation.run_pass2(&[
+        QueuedAction::WriteAdj {
+            source: 0,
+            target: 1,
+            value: 0x7f,
+            dst_cursor: 0,
+        },
+        QueuedAction::Move {
+            source: 2,
+            target: 3,
+        },
+    ]);
+
+    assert_eq!(output, Pass2Output::new(4));
+    assert_program!(simulation.grid(), (0, 0), flag == true);
+    assert_program!(simulation.grid(), (2, 0), flag == true);
+    for index in [1, 3] {
+        assert_eq!(simulation.grid().get(index), before.get(index));
+    }
+    assert_cell!(
+        simulation.grid(),
+        (0, 0),
+        free_energy == 4,
+        bg_radiation == 5
+    );
+    assert_cell!(simulation.grid(), (2, 0), free_mass == 3);
+}
+
+#[test]
 fn two_read_adj_actions_against_same_target_both_succeed() {
     let mut simulation = WorldBuilder::new(3, 1)
         .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).src(4))
@@ -457,7 +596,7 @@ fn boot_plus_boot_on_same_inert_target_all_succeed() {
         .at(2, 0, ProgramBuilder::new().code(&[op::DUP]).live(false))
         .build_simulation();
 
-    simulation.run_pass2(&[
+    let output = simulation.run_pass2(&[
         QueuedAction::Boot {
             source: 0,
             target: 2,
@@ -470,6 +609,7 @@ fn boot_plus_boot_on_same_inert_target_all_succeed() {
 
     assert_program!(simulation.grid(), (0, 0), flag == false);
     assert_program!(simulation.grid(), (1, 0), flag == false);
+    assert_eq!(output.booted_programs, 1);
     assert_program!(
         simulation.grid(),
         (2, 0),
@@ -523,6 +663,46 @@ fn del_adj_additional_cost_failure_has_no_fallback_winner() {
         (2, 0),
         code == &[op::ADD, op::SUB, op::NEG][..]
     );
+}
+
+#[test]
+fn del_adj_uses_staged_target_strength_and_post_transfer_source_energy() {
+    let mut simulation = WorldBuilder::new(4, 1)
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]))
+        .at(
+            1,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::DUP, op::DROP, op::SWAP])
+                .free_energy(1)
+                .open(true),
+        )
+        .at(2, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(2))
+        .at(3, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1))
+        .build_simulation();
+
+    simulation.run_pass2(&[
+        QueuedAction::DelAdj {
+            source: 0,
+            target: 1,
+            dst_cursor: 0,
+        },
+        QueuedAction::GiveE {
+            source: 2,
+            target: 1,
+            amount: 2,
+        },
+        QueuedAction::GiveE {
+            source: 3,
+            target: 0,
+            amount: 1,
+        },
+    ]);
+
+    assert_program!(simulation.grid(), (0, 0), flag == false, dst == 1);
+    assert_cell!(simulation.grid(), (0, 0), free_energy == 0, free_mass == 1);
+    assert_program!(simulation.grid(), (1, 0), code == &[op::DROP, op::SWAP][..]);
+    assert_cell!(simulation.grid(), (1, 0), free_energy == 3);
 }
 
 #[test]
@@ -829,6 +1009,51 @@ fn move_transfers_program_and_free_resources_but_leaves_background_behind() {
         bg_radiation == 7,
         bg_mass == 8
     );
+}
+
+#[test]
+fn write_to_listener_is_carried_by_its_deferred_move() {
+    let mut simulation = WorldBuilder::new(3, 1)
+        .at(0, 0, ProgramBuilder::new().code(&[op::NOP]).free_energy(1))
+        .at(
+            1,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::DUP, op::DROP])
+                .free_energy(2)
+                .free_mass(3)
+                .open(true),
+        )
+        .build_simulation();
+
+    let output = simulation.run_pass2(&[
+        QueuedAction::WriteAdj {
+            source: 0,
+            target: 1,
+            value: op::NEG,
+            dst_cursor: 0,
+        },
+        QueuedAction::Move {
+            source: 1,
+            target: 2,
+        },
+    ]);
+
+    assert_eq!(output.incoming_writes, vec![false, true, false]);
+    assert_cell!(
+        simulation.grid(),
+        (1, 0),
+        has_program == false,
+        free_energy == 0,
+        free_mass == 0
+    );
+    assert_program!(
+        simulation.grid(),
+        (2, 0),
+        code == &[op::NEG, op::DROP][..],
+        flag == false
+    );
+    assert_cell!(simulation.grid(), (2, 0), free_energy == 2, free_mass == 3);
 }
 
 #[test]

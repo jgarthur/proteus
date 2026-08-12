@@ -3,7 +3,59 @@ mod helpers;
 
 use helpers::{ProgramBuilder, WorldBuilder};
 use proteus::op;
-use proteus::{Direction, Packet, Pass1Output, QueuedAction, PROGRAM_SIZE_CAP};
+use proteus::{
+    Direction, Opcode, Packet, Pass1Output, QueuedAction, PROGRAM_SIZE_CAP, SPEC_OPCODE_COUNT,
+};
+
+#[test]
+fn every_spec_instruction_executes_thirty_two_times_in_one_pass() {
+    const REPETITIONS: usize = 32;
+
+    let opcode_bytes = (u8::MIN..=u8::MAX)
+        .filter(|byte| !Opcode::decode(*byte).is_noop())
+        .collect::<Vec<_>>();
+    assert_eq!(opcode_bytes.len(), SPEC_OPCODE_COUNT);
+
+    let width = u32::try_from(opcode_bytes.len() * REPETITIONS)
+        .expect("opcode census width should fit in u32");
+    let mut builder = WorldBuilder::new(width, 1);
+    for repetition in 0..REPETITIONS {
+        for (opcode_index, opcode) in opcode_bytes.iter().copied().enumerate() {
+            let x = u32::try_from(repetition * opcode_bytes.len() + opcode_index)
+                .expect("opcode census coordinate should fit in u32");
+            builder = builder.at(
+                x,
+                0,
+                ProgramBuilder::new()
+                    .code(&[opcode])
+                    .stack(&[1, 2, 3, 4])
+                    .free_energy(100)
+                    .free_mass(100)
+                    .bg_radiation(100)
+                    .bg_mass(100),
+            );
+        }
+    }
+    let mut simulation = builder.build_simulation();
+
+    let output = simulation.run_pass1();
+
+    let nonlocal_opcode_count = opcode_bytes
+        .iter()
+        .filter(|byte| {
+            matches!(
+                Opcode::decode(**byte).locality(),
+                proteus::Locality::Nonlocal
+            )
+        })
+        .count();
+    assert_eq!(output.actions.len(), nonlocal_opcode_count * REPETITIONS);
+    assert_eq!(output.emitted_packets.len(), REPETITIONS);
+    assert!(simulation.grid().cells().iter().all(|cell| cell
+        .program
+        .as_ref()
+        .is_some_and(|program| program.tick.was_live_at_tick_start)));
+}
 
 #[test]
 fn listen_is_flag_neutral_and_opens_the_cell() {

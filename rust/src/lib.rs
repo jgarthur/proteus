@@ -36,4 +36,6 @@ pub use pass3::{
     Pass3TailContext, Pass3TailOutput,
 };
 pub use random::{binomial, cell_rng, poisson, splitmix64, WyRand};
-pub use simulation::{PreparedTick, Simulation, SimulationError, TickReport, TickScratch};
+pub use simulation::{
+    PreparedTick, Simulation, SimulationError, TickObserver, TickPhase, TickReport, TickScratch,
+};
