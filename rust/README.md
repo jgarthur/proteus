@@ -118,3 +118,26 @@ across sparse, moderate, dense, and moving fixtures at several thread counts:
 
 It exits non-zero and prints a per-fixture diff if the two paths disagree. Run it
 after touching any `#[cfg(feature = "rayon")]` block; CI runs it on every push.
+
+The digest now covers six fixtures: sparse, frontend-style growth, dense mixed
+activity, movement, one carrier for every spec-defined instruction, and a
+successful/conflicting nonlocal-action fixture. It also prints activity totals so
+a fixture that silently dies or stops exercising its intended behavior is visible.
+
+### Benchmarking tick phases and grown ecologies
+
+`examples/tick_bench.rs` reports whole-tick and per-phase wall time for six
+fixtures. Its `web-256x256-single` fixture is the exact growing web scenario
+recorded in `docs/analysis/2026-08-12_rayon-optimization-results.md`. An optional
+fourth argument replays an untimed checkpoint once, then clones it for each timed
+repetition:
+
+```bash
+cargo run --release --example tick_bench -- 1000 3 web-256x256-single
+RAYON_NUM_THREADS=4 cargo run --release --features rayon --example tick_bench -- \
+  100 3 web-256x256-single 6500
+```
+
+Build through `cargo run` with explicit features: serial and Rayon examples share
+one output path, so directly invoking a stale `target/release/examples/tick_bench`
+can benchmark the wrong feature set.

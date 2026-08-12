@@ -15,8 +15,13 @@ References: `docs/RUNNER-SPEC.md`, `SEED-BOOTSTRAP`, `SEED-ENVIRONMENT`, `SNAPSH
 
 ### RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
 
-Context: the current backend keeps a feature-gated non-Rayon path alongside the Rayon path for the newly parallelized per-cell loops. Revisit whether that duplication is worth keeping, or whether the crate should standardize on the Rayon iterator path and rely on a 1-thread pool when effectively running serially.
-References: `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/simulation.rs`, `.github/workflows/rust.yml`
+Decision (2026-08-12): keep the feature-gated direct serial paths. A one-thread Rayon pool was 3-15% slower than the direct serial build across the six final benchmark fixtures, while four threads provided substantial gains. This item is closed; retain the context here so the duplication remains an explicit measured choice.
+References: `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/simulation.rs`, `.github/workflows/rust.yml`, `docs/analysis/2026-08-12_rayon-optimization-results.md`
+
+### RAYON-HOTSPOTS: Investigate remaining ambient and Pass 1 costs
+
+Context: after the clone-free Pass 2 and fused Rayon Pass 3 work, the supplied web ecology at 80% occupancy spends about 46% of four-thread tick time in ambient processing and 29% in Pass 1. A line sample points primarily to binomial/Poisson sampling (including `log_gamma` and power operations) and opcode decoding rather than Rayon launch overhead. Investigate algorithm-equivalent improvements without changing RNG draw streams or deterministic semantics. Parallel absorption, Pass 2 scratch reuse, and further traversal fusion should be considered only if a fresh profile attributes material time to them.
+References: `docs/analysis/2026-08-12_rayon-optimization-results.md`, `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/random.rs`
 
 ### SEED-BOOTSTRAP: Extract seed-program bootstrap module
 

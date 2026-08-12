@@ -3,6 +3,7 @@
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
@@ -90,6 +91,77 @@ pub struct TickReport {
 struct PreparedTickSlot<'a> {
     snapshot: &'a mut CellSnapshot,
     live: &'a mut bool,
+}
+
+/// Identifies one timed span inside the tick driver, in execution order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TickPhase {
+    Prepare,
+    Pass1,
+    Pass2,
+    Packets,
+    Ambient,
+    Tail,
+    Mutation,
+    NewbornClear,
+    Total,
+}
+
+impl TickPhase {
+    /// Lists all phases in driver execution order, with the whole-tick total last.
+    pub const ALL: [Self; 9] = [
+        Self::Prepare,
+        Self::Pass1,
+        Self::Pass2,
+        Self::Packets,
+        Self::Ambient,
+        Self::Tail,
+        Self::Mutation,
+        Self::NewbornClear,
+        Self::Total,
+    ];
+
+    /// Returns a short stable label for reports.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Prepare => "prepare",
+            Self::Pass1 => "pass1",
+            Self::Pass2 => "pass2",
+            Self::Packets => "packets",
+            Self::Ambient => "ambient",
+            Self::Tail => "tail",
+            Self::Mutation => "mutation",
+            Self::NewbornClear => "newborn-clear",
+            Self::Total => "total",
+        }
+    }
+}
+
+/// Receives wall-clock phase measurements from [`Simulation::run_tick_report_observed`].
+///
+/// The no-op implementation on `()` is what `run_tick_report` uses; with
+/// `ENABLED == false` the driver takes no clock readings at all, so the
+/// unobserved path stays free of timing overhead.
+pub trait TickObserver {
+    /// Compile-time switch; when false the driver skips every `Instant` read.
+    const ENABLED: bool;
+
+    /// Records one completed phase measurement.
+    fn record(&mut self, phase: TickPhase, elapsed: Duration);
+}
+
+impl TickObserver for () {
+    const ENABLED: bool = false;
+
+    fn record(&mut self, _phase: TickPhase, _elapsed: Duration) {}
+}
+
+/// Records one phase lap and restarts the phase clock.
+fn lap<O: TickObserver>(observer: &mut O, phase_start: &mut Option<Instant>, phase: TickPhase) {
+    let Some(start) = *phase_start else { return };
+    let now = Instant::now();
+    observer.record(phase, now.duration_since(start));
+    *phase_start = Some(now);
 }
 
 impl Simulation {
@@ -226,7 +298,19 @@ impl Simulation {
 
     /// Advances the simulation by one full tick and returns observer counts.
     pub fn run_tick_report(&mut self) -> TickReport {
+        self.run_tick_report_observed(&mut ())
+    }
+
+    /// Runs one tick while reporting per-phase wall-clock durations.
+    ///
+    /// Simulation behavior is identical to [`Self::run_tick_report`]; the
+    /// observer only receives timing callbacks and cannot influence state.
+    pub fn run_tick_report_observed<O: TickObserver>(&mut self, observer: &mut O) -> TickReport {
+        let total_start = O::ENABLED.then(Instant::now);
+        let mut phase_start = total_start;
+
         self.prepare_tick();
+        lap(observer, &mut phase_start, TickPhase::Prepare);
 
         let pass1 = pass1_local(
             &mut self.grid,
@@ -236,10 +320,18 @@ impl Simulation {
             self.tick,
             self.seed,
         );
+        lap(observer, &mut phase_start, TickPhase::Pass1);
+
         let pass2 = pass2_nonlocal(&mut self.grid, &pass1.actions, self.tick, self.seed);
+        lap(observer, &mut phase_start, TickPhase::Pass2);
+
         self.packets.extend(pass1.emitted_packets);
         pass3_packets(&mut self.grid, &mut self.packets, self.tick, self.seed);
+        lap(observer, &mut phase_start, TickPhase::Packets);
+
         let ambient = pass3_ambient(&mut self.grid, &self.config, self.tick, self.seed);
+        lap(observer, &mut phase_start, TickPhase::Ambient);
+
         let tail = pass3_tail(
             &mut self.grid,
             Pass3TailContext {
@@ -250,9 +342,18 @@ impl Simulation {
                 seed: self.seed,
             },
         );
+        lap(observer, &mut phase_start, TickPhase::Tail);
+
         let mutations = mutate_end_of_tick(&mut self.grid, &self.config, self.tick, self.seed);
+        lap(observer, &mut phase_start, TickPhase::Mutation);
+
         clear_newborn_flags(&mut self.grid);
+        lap(observer, &mut phase_start, TickPhase::NewbornClear);
+
         self.tick = self.tick.wrapping_add(1);
+        if let Some(start) = total_start {
+            observer.record(TickPhase::Total, start.elapsed());
+        }
 
         TickReport {
             // API-SPEC §10 treats any transition to live within the tick as a birth,

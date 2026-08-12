@@ -32,12 +32,15 @@ pub fn pass2_nonlocal(
     tick: u64,
     seed: u64,
 ) -> Pass2Output {
-    let pre_pass2 = grid.clone();
     let mut output = Pass2Output::new(grid.len());
+    if actions.is_empty() {
+        return output;
+    }
 
-    resolve_reads(grid, &pre_pass2, actions);
-    resolve_additive_transfers(grid, &pre_pass2, actions);
-    resolve_exclusive(grid, &pre_pass2, actions, tick, seed, &mut output);
+    let (candidates, invalid_sources) = stage_exclusive(grid, actions);
+    resolve_reads(grid, actions);
+    resolve_additive_transfers(grid, actions);
+    resolve_exclusive(grid, candidates, invalid_sources, tick, seed, &mut output);
 
     output
 }
@@ -50,6 +53,8 @@ struct ExclusiveCandidate {
     target: usize,
     strength: u32,
     size: u16,
+    target_strength: u32,
+    target_has_program: bool,
 }
 
 /// Records a successful move to apply after winner resolution finishes.
@@ -66,8 +71,28 @@ struct AppendCreateCommit {
     value: u8,
 }
 
-/// Resolves all read-only queued actions against the pre-Pass-2 snapshot.
-fn resolve_reads(grid: &mut Grid, pre_pass2: &Grid, actions: &[QueuedAction]) {
+/// Stages exclusive candidates against the immutable pre-Pass-2 state.
+fn stage_exclusive(grid: &Grid, actions: &[QueuedAction]) -> (Vec<ExclusiveCandidate>, Vec<usize>) {
+    let mut candidates = Vec::new();
+    let mut invalid_sources = Vec::new();
+
+    for action in actions {
+        let Some((source, _)) = exclusive_endpoints(*action) else {
+            continue;
+        };
+
+        if let Some(candidate) = validate_exclusive(*action, grid) {
+            candidates.push(candidate);
+        } else {
+            invalid_sources.push(source);
+        }
+    }
+
+    (candidates, invalid_sources)
+}
+
+/// Resolves all read-only queued actions in place.
+fn resolve_reads(grid: &mut Grid, actions: &[QueuedAction]) {
     for action in actions {
         let QueuedAction::ReadAdj {
             source,
@@ -78,12 +103,19 @@ fn resolve_reads(grid: &mut Grid, pre_pass2: &Grid, actions: &[QueuedAction]) {
             continue;
         };
 
-        let target_cell = pre_pass2.get(target).expect("target cell should exist");
+        let target_value = grid
+            .get(target)
+            .expect("target cell should exist")
+            .program
+            .as_ref()
+            .map(|target_program| {
+                let read_index = usize::from(src_cursor % target_program.size());
+                target_program.code[read_index]
+            });
         let source_cell = grid.get_mut(source).expect("source cell should exist");
 
-        if let Some(target_program) = target_cell.program.as_ref() {
-            let read_index = usize::from(src_cursor % target_program.size());
-            let pushed = push_stack(source_cell, i16::from(target_program.code[read_index]));
+        if let Some(target_value) = target_value {
+            let pushed = push_stack(source_cell, i16::from(target_value));
             if pushed {
                 program_mut(source_cell).registers.src =
                     program(source_cell).registers.src.wrapping_add(1);
@@ -96,12 +128,10 @@ fn resolve_reads(grid: &mut Grid, pre_pass2: &Grid, actions: &[QueuedAction]) {
     }
 }
 
-/// Resolves all additive mass and energy transfers in aggregate.
-fn resolve_additive_transfers(grid: &mut Grid, pre_pass2: &Grid, actions: &[QueuedAction]) {
-    let mut energy_in = vec![0_u32; grid.len()];
-    let mut energy_out = vec![0_u32; grid.len()];
-    let mut mass_in = vec![0_u32; grid.len()];
-    let mut mass_out = vec![0_u32; grid.len()];
+/// Resolves additive transfers after staging caps against pre-transfer resources.
+fn resolve_additive_transfers(grid: &mut Grid, actions: &[QueuedAction]) {
+    let mut energy_transfers = Vec::new();
+    let mut mass_transfers = Vec::new();
 
     for action in actions {
         match *action {
@@ -115,13 +145,11 @@ fn resolve_additive_transfers(grid: &mut Grid, pre_pass2: &Grid, actions: &[Queu
                 }
 
                 let transferable = (amount as u32).min(
-                    pre_pass2
-                        .get(source)
+                    grid.get(source)
                         .expect("source cell should exist")
                         .free_energy,
                 );
-                energy_out[source] += transferable;
-                energy_in[target] += transferable;
+                energy_transfers.push((source, target, transferable));
                 set_flag(
                     grid.get_mut(source).expect("source cell should exist"),
                     false,
@@ -137,13 +165,11 @@ fn resolve_additive_transfers(grid: &mut Grid, pre_pass2: &Grid, actions: &[Queu
                 }
 
                 let transferable = (amount as u32).min(
-                    pre_pass2
-                        .get(source)
+                    grid.get(source)
                         .expect("source cell should exist")
                         .free_mass,
                 );
-                mass_out[source] += transferable;
-                mass_in[target] += transferable;
+                mass_transfers.push((source, target, transferable));
                 set_flag(
                     grid.get_mut(source).expect("source cell should exist"),
                     false,
@@ -153,110 +179,102 @@ fn resolve_additive_transfers(grid: &mut Grid, pre_pass2: &Grid, actions: &[Queu
         }
     }
 
-    for index in 0..grid.len() {
-        let cell = grid.get_mut(index).expect("cell should exist");
-        cell.free_energy = cell.free_energy - energy_out[index] + energy_in[index];
-        cell.free_mass = cell.free_mass - mass_out[index] + mass_in[index];
+    for (source, target, amount) in energy_transfers {
+        grid.get_mut(source)
+            .expect("source cell should exist")
+            .free_energy -= amount;
+        grid.get_mut(target)
+            .expect("target cell should exist")
+            .free_energy += amount;
+    }
+    for (source, target, amount) in mass_transfers {
+        grid.get_mut(source)
+            .expect("source cell should exist")
+            .free_mass -= amount;
+        grid.get_mut(target)
+            .expect("target cell should exist")
+            .free_mass += amount;
     }
 }
 
 /// Resolves all exclusive actions target by target.
 fn resolve_exclusive(
     grid: &mut Grid,
-    pre_pass2: &Grid,
-    actions: &[QueuedAction],
+    mut candidates: Vec<ExclusiveCandidate>,
+    invalid_sources: Vec<usize>,
     tick: u64,
     seed: u64,
     output: &mut Pass2Output,
 ) {
-    let exclusive_base = grid.clone();
-    let mut working = exclusive_base.clone();
-    let mut candidates = Vec::new();
-    let mut by_target = vec![Vec::<usize>::new(); grid.len()];
+    if candidates.is_empty() && invalid_sources.is_empty() {
+        return;
+    }
+
     let mut moves = Vec::new();
     let mut creates = Vec::new();
 
-    for action in actions {
-        let Some((source, target)) = exclusive_endpoints(*action) else {
-            continue;
-        };
-
-        if let Some(candidate) = validate_exclusive(*action, pre_pass2) {
-            by_target[target].push(candidates.len());
-            candidates.push(candidate);
-        } else {
-            set_flag(
-                working.get_mut(source).expect("source cell should exist"),
-                true,
-            );
-        }
+    for source in invalid_sources {
+        set_flag(
+            grid.get_mut(source).expect("source cell should exist"),
+            true,
+        );
     }
 
-    for (target, group) in by_target.iter().enumerate() {
-        if group.is_empty() {
-            continue;
-        }
+    candidates.sort_by_key(|candidate| (candidate.target, candidate.source));
+    let mut group_start = 0;
+    while group_start < candidates.len() {
+        let target = candidates[group_start].target;
+        let group_end = group_start
+            + candidates[group_start..].partition_point(|candidate| candidate.target == target);
+        let group = &candidates[group_start..group_end];
 
         if group
             .iter()
-            .all(|candidate| matches!(candidates[*candidate].action, QueuedAction::Boot { .. }))
+            .all(|candidate| matches!(candidate.action, QueuedAction::Boot { .. }))
         {
-            for candidate_index in group {
-                let candidate = candidates[*candidate_index];
+            for candidate in group {
                 set_flag(
-                    working
-                        .get_mut(candidate.source)
+                    grid.get_mut(candidate.source)
                         .expect("source cell should exist"),
                     false,
                 );
             }
-            apply_boot_success(working.get_mut(target).expect("target cell should exist"));
+            apply_boot_success(grid.get_mut(target).expect("target cell should exist"));
             output.booted_programs += 1;
-            continue;
-        }
+        } else {
+            let winner_index = choose_winner(group, target, tick, seed);
+            for (candidate_index, candidate) in group.iter().enumerate() {
+                if candidate_index == winner_index {
+                    continue;
+                }
 
-        let winner_index = choose_winner(&candidates, group, target, tick, seed);
-        for candidate_index in group {
-            if *candidate_index == winner_index {
-                continue;
+                set_flag(
+                    grid.get_mut(candidate.source)
+                        .expect("source cell should exist"),
+                    true,
+                );
             }
 
-            let candidate = candidates[*candidate_index];
-            set_flag(
-                working
-                    .get_mut(candidate.source)
-                    .expect("source cell should exist"),
-                true,
-            );
+            apply_winner(grid, group[winner_index], &mut moves, &mut creates, output);
         }
 
-        apply_winner(
-            &mut working,
-            pre_pass2,
-            candidates[winner_index],
-            &mut moves,
-            &mut creates,
-            output,
-        );
+        group_start = group_end;
     }
 
-    let mut final_grid = working;
     for commit in moves {
-        apply_move_commit(&mut final_grid, &exclusive_base, commit);
+        apply_move_commit(grid, commit);
     }
     for commit in creates {
-        apply_append_create_commit(&mut final_grid, commit, tick, seed);
+        apply_append_create_commit(grid, commit, tick, seed);
     }
-
-    *grid = final_grid;
 }
 
 /// Validates one exclusive action against the pre-Pass-2 target state.
-fn validate_exclusive(action: QueuedAction, pre_pass2: &Grid) -> Option<ExclusiveCandidate> {
+fn validate_exclusive(action: QueuedAction, grid: &Grid) -> Option<ExclusiveCandidate> {
     let (source, target) = exclusive_endpoints(action)?;
-    let source_cell = pre_pass2.get(source).expect("source cell should exist");
+    let source_cell = grid.get(source).expect("source cell should exist");
     let source_program = source_cell.program.as_ref()?;
-    let target_cell = pre_pass2.get(target).expect("target cell should exist");
+    let target_cell = grid.get(target).expect("target cell should exist");
 
     let valid = match action {
         QueuedAction::WriteAdj { .. } => target_cell.has_program() && target_is_open(target_cell),
@@ -279,29 +297,27 @@ fn validate_exclusive(action: QueuedAction, pre_pass2: &Grid) -> Option<Exclusiv
         target,
         strength: u32::from(source_program.size()).min(source_cell.free_energy),
         size: source_program.size(),
+        target_strength: target_cell.program.as_ref().map_or(0, |program| {
+            u32::from(program.size()).min(target_cell.free_energy)
+        }),
+        target_has_program: target_cell.has_program(),
     })
 }
 
 /// Picks the winning exclusive candidate for one target cell.
-fn choose_winner(
-    candidates: &[ExclusiveCandidate],
-    group: &[usize],
-    target: usize,
-    tick: u64,
-    seed: u64,
-) -> usize {
+fn choose_winner(group: &[ExclusiveCandidate], target: usize, tick: u64, seed: u64) -> usize {
     let best_strength = group
         .iter()
-        .map(|candidate| candidates[*candidate].strength)
+        .map(|candidate| candidate.strength)
         .max()
         .expect("group should contain at least one candidate");
 
     let mut tied = group
         .iter()
-        .copied()
-        .filter(|candidate| candidates[*candidate].strength == best_strength)
+        .enumerate()
+        .filter_map(|(index, candidate)| (candidate.strength == best_strength).then_some(index))
         .collect::<Vec<_>>();
-    tied.sort_by_key(|candidate| candidates[*candidate].source);
+    tied.sort_by_key(|candidate| group[*candidate].source);
 
     if tied.len() == 1 {
         return tied[0];
@@ -309,14 +325,14 @@ fn choose_winner(
 
     let total_weight = tied
         .iter()
-        .map(|candidate| u64::from(candidates[*candidate].size))
+        .map(|candidate| u64::from(group[*candidate].size))
         .sum::<u64>();
     let mut rng = cell_rng(seed ^ EXCLUSIVE_TIE_SALT, tick, target as u64);
     let roll = rng.next_u64() % total_weight;
 
     let mut cumulative = 0_u64;
     for candidate in tied {
-        cumulative += u64::from(candidates[candidate].size);
+        cumulative += u64::from(group[candidate].size);
         if roll < cumulative {
             return candidate;
         }
@@ -326,10 +342,8 @@ fn choose_winner(
 }
 
 /// Applies the effects of one winning exclusive action.
-#[allow(clippy::too_many_arguments)]
 fn apply_winner(
     working: &mut Grid,
-    pre_pass2: &Grid,
     candidate: ExclusiveCandidate,
     moves: &mut Vec<MoveCommit>,
     creates: &mut Vec<AppendCreateCommit>,
@@ -367,11 +381,7 @@ fn apply_winner(
             source_cell.free_mass -= 1;
             set_flag(source_cell, false);
 
-            if pre_pass2
-                .get(candidate.target)
-                .expect("target cell should exist")
-                .has_program()
-            {
+            if candidate.target_has_program {
                 let target_program = program_mut(
                     working
                         .get_mut(candidate.target)
@@ -388,21 +398,12 @@ fn apply_winner(
             output.incoming_writes[candidate.target] = true;
         }
         QueuedAction::DelAdj { dst_cursor, .. } => {
-            let target_cell = pre_pass2
-                .get(candidate.target)
-                .expect("target cell should exist");
-            let target_program = target_cell
-                .program
-                .as_ref()
-                .expect("validated delAdj target should exist");
-            let strength = u32::from(target_program.size()).min(target_cell.free_energy);
-
-            if source_cell.free_energy < strength {
+            if source_cell.free_energy < candidate.target_strength {
                 set_flag(source_cell, true);
                 return;
             }
 
-            source_cell.free_energy -= strength;
+            source_cell.free_energy -= candidate.target_strength;
             source_cell.free_mass += 1;
             set_flag(source_cell, false);
             program_mut(source_cell).registers.dst =
@@ -452,30 +453,24 @@ fn apply_boot_success(target_cell: &mut Cell) {
 }
 
 /// Applies the deferred state transfer for a successful move.
-fn apply_move_commit(grid: &mut Grid, exclusive_base: &Grid, commit: MoveCommit) {
-    let source_base = exclusive_base
-        .get(commit.source)
-        .expect("source cell should exist");
-    let source_working = grid
-        .get(commit.source)
-        .expect("source cell should exist")
-        .clone();
+fn apply_move_commit(grid: &mut Grid, commit: MoveCommit) {
+    let (program, free_energy, free_mass) = {
+        let source_cell = grid
+            .get_mut(commit.source)
+            .expect("source cell should exist");
+        (
+            source_cell.program.take(),
+            std::mem::take(&mut source_cell.free_energy),
+            std::mem::take(&mut source_cell.free_mass),
+        )
+    };
     let target_cell = grid
         .get_mut(commit.target)
         .expect("target cell should exist");
 
-    target_cell.program = source_working.program;
-    target_cell.free_energy += source_working.free_energy;
-    target_cell.free_mass += source_working.free_mass;
-
-    let source_cell = grid
-        .get_mut(commit.source)
-        .expect("source cell should exist");
-    source_cell.program = None;
-    source_cell.free_energy = 0;
-    source_cell.free_mass = 0;
-    source_cell.bg_radiation = source_base.bg_radiation;
-    source_cell.bg_mass = source_base.bg_mass;
+    target_cell.program = program;
+    target_cell.free_energy += free_energy;
+    target_cell.free_mass += free_mass;
 }
 
 /// Applies the deferred inert-program creation for `appendAdj` into empty space.
@@ -560,6 +555,8 @@ mod tests {
                 target: 9,
                 strength: 2,
                 size: 4,
+                target_strength: 0,
+                target_has_program: false,
             },
             ExclusiveCandidate {
                 action: QueuedAction::Move {
@@ -570,9 +567,11 @@ mod tests {
                 target: 9,
                 strength: 5,
                 size: 1,
+                target_strength: 0,
+                target_has_program: false,
             },
         ];
 
-        assert_eq!(choose_winner(&candidates, &[0, 1], 9, 0, 0), 1);
+        assert_eq!(choose_winner(&candidates, 9, 0, 0), 1);
     }
 }
