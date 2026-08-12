@@ -263,17 +263,30 @@ For schema `0.1.0`, the digest projection contains, in order:
 6. `observation`
 
 `run_id` and `output_directory` are excluded because identity and storage do not
-change simulation or observation results. The runner serializes this typed
-projection as compact JSON using `serde_json`: struct field order is fixed as
-above, integers use decimal JSON representation, and finite `f64` values use
-`serde_json`'s shortest round-tripping representation. It then computes SHA-256
-over those exact UTF-8 bytes and renders `sha256:<lowercase hex>`. Array sorting
-means reordering independent bootstrap entries does not change the digest. A
-negative floating-point zero is normalized to positive zero before serialization.
-A change to this canonical serialization requires a new runner schema version.
-Callers should normally treat the digest as an opaque runner-produced value.
+change simulation or observation results. The canonical projection is compact
+UTF-8 JSON with no whitespace or trailing newline. Object fields use the fixed
+order above and the nested field order shown in §6. Integers use base-10 digits
+with no leading zeroes. Each finite `f64` is represented in the digest projection
+as a JSON string containing `0x` followed by exactly 16 lowercase hexadecimal
+digits from `f64::to_bits()`; negative zero is normalized to positive zero first.
+This float representation is part of the runner contract and does not depend on
+`serde_json`'s number formatter. The runner computes SHA-256 over those exact
+bytes and renders `sha256:<lowercase hex>`. Array sorting means reordering
+independent bootstrap entries does not change the digest. A change to this
+canonical serialization requires a new runner schema version. Callers should
+normally treat the digest as an opaque runner-produced value.
 The child and supervisor must call one shared normalization-and-digest library
 function; independent implementations are forbidden.
+
+For the complete example manifest in §6, the canonical digest projection is the
+following single line (the displayed line ending is not part of the bytes):
+
+```text
+{"runner_schema_version":"0.1.0","simulation":{"width":64,"height":64,"seed":42,"r_energy":"0x3fd0000000000000","r_mass":"0x3fa999999999999a","d_energy":"0x3f847ae147ae147b","d_mass":"0x3f847ae147ae147b","t_cap":"0x4010000000000000","maintenance_rate":"0x3f80000000000000","maintenance_exponent":"0x3ff0000000000000","local_action_exponent":"0x3ff0000000000000","n_synth":1,"inert_grace_ticks":10,"p_spawn":"0x0000000000000000","mutation_base_log2":16,"mutation_background_log2":8},"bootstrap":{"programs":[{"x":32,"y":24,"code":[80,100],"free_energy":20,"free_mass":12}],"environment":[{"x":31,"y":24,"free_energy":20,"free_mass":12,"bg_radiation":0,"bg_mass":0}]},"limits":{"ticks":10000},"observation":{"every_n_ticks":50}}
+```
+
+Its required digest is
+`sha256:e5053c7b811503c8d875fde5bb1a85d6fbbfb15596d591c300fae351cb11ac03`.
 
 Build provenance describes the executable that performs the simulation. Capture
 it at build time, not by inspecting a possibly unrelated checkout at launch:
@@ -281,7 +294,18 @@ it at build time, not by inspecting a possibly unrelated checkout at launch:
 - engine crate version and simulator spec version
 - Git commit, or `null` when unavailable
 - whether the source worktree was dirty at build time, or `null` when unavailable
+- source digest, always present and independent of Git metadata
 - Cargo profile, enabled Cargo features, target triple, and Rust compiler version
+
+`source_digest` is SHA-256 over a canonical build-source inventory rooted at the
+Rust crate. The inventory contains `Cargo.toml`, `Cargo.lock`, `build.rs` when
+present, and every non-hidden regular file below `src/`. Paths are UTF-8,
+relative to the crate, `/`-separated, and sorted bytewise. For each file, hash
+the path length as an unsigned 64-bit big-endian integer, the path bytes, the
+content length in the same encoding, then the raw content bytes. Render the
+result as `sha256:<lowercase hex>`. A selected non-regular file or non-UTF-8 path
+is a build error. This gives Git-less builds a meaningful identity instead of
+letting two `null` Git records compare equal.
 
 Launch and completion provenance collectively contain runtime facts: resolved
 executable path, start and finish UTC timestamps, monotonic wall-clock duration,
@@ -428,7 +452,7 @@ Schema `0.1.0` has these exact top-level fields:
 | `execution_digest` | SHA-256 digest of the exact `proteus-run` executable |
 | `input` | Object containing normalized `simulation`, sorted `bootstrap`, `limits`, `observation`, and resolved `output_directory` |
 | `execution` | Object containing `bootstrap_rng_version`, hexadecimal-string `bootstrap_rng_salt`, and `engine_threads` |
-| `build` | Object containing `engine_crate_version`, `simulator_spec_version`, nullable `git_commit`, nullable `source_dirty`, `cargo_profile`, sorted `cargo_features`, `target_triple`, and `rustc_version` |
+| `build` | Object containing `engine_crate_version`, `simulator_spec_version`, nullable `git_commit`, nullable `source_dirty`, non-null `source_digest`, `cargo_profile`, sorted `cargo_features`, `target_triple`, and `rustc_version` |
 | `launch` | Object containing resolved `executable`, resolved `source_manifest`, and `started_at` |
 
 `bootstrap_rng_version` is `seed-program-v1` and `bootstrap_rng_salt` is
@@ -580,6 +604,15 @@ equal or one is an ancestor of another. Resolve paths against a canonicalized
 nearest existing ancestor so symlink aliases cannot bypass the overlap check.
 An output path must not resolve to a filesystem root, and it must not equal or
 contain the batch manifest or any referenced run manifest.
+
+Each output directory also reserves a retry-archive namespace in its parent:
+siblings named `<output-name>.attempt-N`, where `N` is a zero-padded decimal
+integer of at least four digits (`0001`, ..., `9999`, `10000`, ...). Preflight
+rejects a declared output path that equals or descends from another run's archive
+namespace, and rejects a batch/run manifest located inside such a namespace.
+For example, `runs/x` and `runs/x.attempt-0001` cannot appear in the same batch.
+This check occurs on the resolved paths after symlink handling.
+
 Any preflight error prevents all launches and creates no output directories.
 After successful preflight, the supervisor creates missing output parents as
 needed and reserves each run directory immediately before its launch.
@@ -643,12 +676,17 @@ On every batch invocation:
    output collision and exits nonzero for that run.
 6. With `--retry-incomplete`, the supervisor atomically renames a runner-owned
    incomplete directory to the first unused sibling
-   `<output_directory>.attempt-NNNN`, starting at `0001`. It then reserves a new
-   output directory and launches the requested run. No files are copied forward.
+   `<output-name>.attempt-N`, using the archive namespace defined in §11 and
+   starting at `0001`. An existing file or directory makes a candidate occupied.
+   It then reserves a new output directory and launches the requested run. No
+   files are copied forward.
 
 Direct `proteus-run` has no retry flag and never archives output. This keeps
 resume and retry policy under the supervisor that owns authoritative completion.
 The batch does not provide an MVP option to rerun a matching successful job.
+After an interrupted batch, the normal command is to invoke the same manifest
+with `--retry-incomplete`; matching completed runs are skipped and each
+interrupted run is archived and restarted from tick 0.
 
 MVP resume occurs only between whole runs. Resuming within a partially completed simulation is deferred with snapshot support.
 
@@ -673,14 +711,16 @@ The smallest corrected MVP is:
 1. Shared bootstrap module with neighborhood preload support.
 2. Shared manifest, digest, and observation serialization that is usable without
    enabling the web feature.
-3. `proteus-run` wrapping `Simulation::run_tick_report()`.
-4. Tick-limit termination only.
-5. Sampled JSONL metrics using cumulative event counters.
-6. Immutable manifest and final summary.
-7. `proteus-batch` supervising `N` single-threaded subprocesses from
+3. A SHA-256 dependency plus build-time source and runtime executable provenance
+   support for the input, source, and execution digests.
+4. `proteus-run` wrapping `Simulation::run_tick_report()`.
+5. Tick-limit termination only.
+6. Sampled JSONL metrics using cumulative event counters.
+7. Immutable manifest and final summary.
+8. `proteus-batch` supervising `N` single-threaded subprocesses from
    file-referenced manifests.
-8. Supervisor-owned atomic completion records.
-9. Job-level resume by run ID, canonical input digest, and execution digest.
+9. Supervisor-owned atomic completion records.
+10. Job-level resume by run ID, canonical input digest, and execution digest.
 
 Defer memory limits, wall-clock limits, batch per-child thread controls,
 automatic CPU topology management, in-run checkpoints, optimizer integration,
@@ -695,11 +735,14 @@ and scientific stopping rules.
 - Environment preload/program overlap follows the documented resource override order.
 - Unknown, missing, duplicate, out-of-range, and non-finite manifest values are rejected.
 - Alternate JSON float spellings and normalized-manifest round trips produce the same input digest.
+- The §7 golden projection produces its exact frozen SHA-256 digest.
+- Source digest is stable without Git metadata and changes when any selected source byte changes.
 - A tick limit of `N` performs exactly `N` complete ticks and reports final tick `N`.
 - Observation cadences 1 and 100 produce identical final cumulative event totals.
 - Observation cadence does not change final simulation state.
 - The final metrics row is emitted when the tick limit is off cadence.
 - Duplicate run IDs and overlapping output directories are rejected before launch.
+- A declared output cannot collide with or descend from another run's retry-archive namespace.
 - `jobs` is never exceeded.
 - A child panic/nonzero exit produces a supervisor-authored failure completion record.
 - A killed child cannot be mistaken for success because it happened to leave a summary file.
