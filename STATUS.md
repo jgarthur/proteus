@@ -20,6 +20,7 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 
 ## Next
 
+- [ ] HEADLESS-RUNNER: Implement deterministic single-run and fixed-batch execution from `docs/RUNNER-SPEC.md`
 - [ ] Design 1–2 minimal self-replicating seed programs
 - [ ] SEED-ENVIRONMENT: Support seed-neighborhood resource preload
 - [ ] SEED-BOOTSTRAP: Extract seed-program bootstrap module

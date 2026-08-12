@@ -8,6 +8,11 @@ Items are referenced by name from `STATUS.md` at the repo root. Use the exact it
 
 ## Items
 
+### HEADLESS-RUNNER: Implement deterministic single-run and fixed-batch execution
+
+Context: add `proteus-run` for one fully specified engine-direct run and `proteus-batch` for bounded subprocess supervision. Keep parameter search, scoring, and emergence optimization in an external outer loop. Share bootstrap and environmental preload semantics with the web controller rather than duplicating them.
+References: `docs/RUNNER-SPEC.md`, `SEED-BOOTSTRAP`, `SEED-ENVIRONMENT`, `SNAPSHOT-BOUNDARY`, `rust/src/simulation.rs`, `rust/src/web/controller.rs`
+
 ### RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
 
 Context: the current backend keeps a feature-gated non-Rayon path alongside the Rayon path for the newly parallelized per-cell loops. Revisit whether that duplication is worth keeping, or whether the crate should standardize on the Rayon iterator path and rely on a 1-thread pool when effectively running serially.
