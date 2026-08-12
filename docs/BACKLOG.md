@@ -57,6 +57,31 @@ References: `docs/API-SPEC.md` §10, `docs/FRONTEND-SPEC.md` §6, `rust/src/obse
 Context: the current backend validates `r_energy`, `r_mass`, `d_energy`, and `d_mass` as probabilities in `[0, 1]`, but the intended tuning model treats them as rates. Reconcile the engine, API docs, and frontend defaults around a single rate-based semantics.
 References: `docs/SPEC.md`, `docs/API-SPEC.md` §8, `rust/src/config.rs`, `rust/src/pass3.rs`, `frontend/src/constants.ts`
 
+### CONFIG-SCENARIO: Share one engine-owned scenario type between the web layer and the runner
+
+Context: the simulation input field list currently exists four times. `SimConfig` (`rust/src/config.rs`) is canonical, `CreateSimulationRequest` re-lists all sixteen fields as `Option`, the resolved `SimulationConfig` re-lists them again flat with the bootstrap arrays inlined, and `frontend/src/types.ts` mirrors that flat shape a fourth time. Adding one config field means touching all four. The runner already composes the canonical types directly (`RunManifest.simulation` + `RunManifest.bootstrap`); the web layer is the outlier.
+
+Do not merge the run manifest and the web config, and do not make either a superset of the other. Their strictness policies are deliberately opposed: the manifest requires every field and denies unknown fields because `input_digest` is computed over a canonical projection (`docs/RUNNER-SPEC.md` §7), so implicit defaults would make a manifest's meaning depend on the binary that read it; the web request is optional-with-defaults because that is the ergonomics of `POST /v1/sim`. The manifest also carries run-only concerns (`run_id`, `limits`, `output_directory`) that are meaningless for an open-ended web session, which negotiates observation cadence per WebSocket connection instead.
+
+Factor the intersection instead. Add an engine-owned `Scenario { simulation: SimConfig, bootstrap: BootstrapConfig }` in a new `rust/src/scenario.rs`. `Scenario` must be engine-owned, not runner-owned: placing it under `runner/` would force the web layer to depend on a runner module in order to construct a simulation, inverting the layering, and `docs/RUNNER-SPEC.md` §2 lists web integration as an explicit non-goal. Its natural portable serialization stays nested (`{"simulation": {...}, "bootstrap": {"programs": [], "environment": []}}`).
+
+In scope:
+
+- Add `Scenario` and have `ManagedSimulation` store it directly, removing the per-construction `to_engine_config()` / `bootstrap_config()` conversions at `rust/src/web/controller.rs:273`, `:456`, and `:552`.
+- Delete the resolved `SimulationConfig` mirror in `rust/src/web/types.rs`.
+- Preserve the existing flat v1 response shape through a web-owned, serialization-only view that flattens `SimConfig` and renames the bootstrap arrays to `seed_programs` / `seed_environment`. Do not give `Scenario` itself custom flat serialization.
+- Keep `CreateSimulationRequest` unchanged and typed.
+- Keep `RunManifest` and its digest bytes byte-identical.
+
+Explicit non-goals for this item:
+
+- Do not replace the typed request DTO with generic `serde_json::Map` overlay merging. It would silently collapse duplicate keys that derived `Deserialize` currently rejects, weaken error messages by dropping line/column, require lifting `seed_programs` / `seed_environment` out of the map before deserializing the remainder as a `deny_unknown_fields` `SimConfig`, and would newly reject unknown fields that `CreateSimulationRequest` accepts today.
+- Web-to-runner export (a tuned session emitted as a run manifest, `Scenario` plus `run_id` / `limits` / `output_directory`) is a separate follow-up.
+- A canonical nested request body plus a defaults endpoint is a versioned API decision, not part of this refactor. Note that a defaults endpoint removes duplicated default *values* only; eliminating the TypeScript field list additionally requires generated types (OpenAPI or JSON Schema), since the frontend accesses fields such as `config.width` statically.
+
+Acceptance: `rust/tests/web_api.rs` and `rust/tests/runner_cli.rs` pass unchanged, and the §7 canonical digest projection for the `docs/RUNNER-SPEC.md` §6 example manifest is unchanged.
+References: `docs/RUNNER-SPEC.md` §2, §6, §7, `docs/API-SPEC.md` §8, `rust/src/config.rs`, `rust/src/bootstrap.rs`, `rust/src/runner/mod.rs`, `rust/src/web/types.rs`, `rust/src/web/controller.rs`, `frontend/src/types.ts`, `FRONTEND-CONFIG-TOOLS`, `FRONTEND-DEFAULTS`
+
 ### COORDINATE-CONVENTIONS: Standardize frontend coordinates as 0-indexed and display them in `(y, x)` order
 
 Context: current frontend UI and config tooling still lean on `x, y` ordering from the API surface. Reconcile the display language, validation messaging, and editor fields so the UI is consistently 0-indexed and uses `(y, x)` ordering. This is intentionally marked tricky because it cuts across inspector display, seed-program editing, hit-testing labels, and API request mapping.

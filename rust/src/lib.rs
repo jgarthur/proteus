@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod bootstrap;
 pub mod config;
 pub mod grid;
 pub mod model;
@@ -11,10 +12,15 @@ pub mod pass1;
 pub mod pass2;
 pub mod pass3;
 pub mod random;
+pub mod runner;
 pub mod simulation;
 #[cfg(feature = "web")]
 pub mod web;
 
+pub use bootstrap::{
+    apply_bootstrap, BootstrapConfig, BootstrapError, EnvironmentPreload, SeedProgram,
+    BOOTSTRAP_RNG_SALT, BOOTSTRAP_RNG_VERSION,
+};
 pub use config::{ConfigError, SimConfig, PROGRAM_SIZE_CAP, SPEC_VERSION};
 pub use grid::{Grid, GridError};
 pub use model::{

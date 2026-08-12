@@ -1,0 +1,10 @@
+{
+  "runner_schema_version": "0.1.0",
+  "jobs": 4,
+  "runs": [
+    { "manifest": "seed-1.json" },
+    { "manifest": "seed-2.json" },
+    { "manifest": "seed-3.json" },
+    { "manifest": "seed-4.json" }
+  ]
+}

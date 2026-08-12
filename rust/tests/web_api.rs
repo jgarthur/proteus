@@ -44,6 +44,14 @@ async fn rest_lifecycle_flow_and_inspection_work() {
                     "code": [80, 100],
                     "free_energy": 3,
                     "free_mass": 2
+                }],
+                "seed_environment": [{
+                    "x": 1,
+                    "y": 0,
+                    "free_energy": 7,
+                    "free_mass": 8,
+                    "bg_radiation": 9,
+                    "bg_mass": 10
                 }]
             }),
         ))
@@ -63,8 +71,8 @@ async fn rest_lifecycle_flow_and_inspection_work() {
     assert_eq!(status_response.status(), StatusCode::OK);
     let status_json = response_json(status_response).await;
     assert_eq!(status_json["population"], 1);
-    assert_eq!(status_json["total_energy"], 3);
-    assert_eq!(status_json["total_mass"], 4);
+    assert_eq!(status_json["total_energy"], 19);
+    assert_eq!(status_json["total_mass"], 22);
 
     let config_response = app
         .clone()
@@ -74,6 +82,7 @@ async fn rest_lifecycle_flow_and_inspection_work() {
     let config_json = response_json(config_response).await;
     assert_eq!(config_json["width"], 2);
     assert_eq!(config_json["seed_programs"][0]["code"], json!([80, 100]));
+    assert_eq!(config_json["seed_environment"][0]["bg_radiation"], 9);
 
     let cell_response = app
         .clone()
@@ -82,6 +91,18 @@ async fn rest_lifecycle_flow_and_inspection_work() {
         .expect("cell request should succeed");
     let cell_json = response_json(cell_response).await;
     assert_eq!(cell_json["program"]["disassembly"], json!(["nop", "boot"]));
+
+    let environment_response = app
+        .clone()
+        .oneshot(empty_request(Method::GET, "/v1/sim/cell?x=1&y=0"))
+        .await
+        .expect("environment cell request should succeed");
+    let environment_json = response_json(environment_response).await;
+    assert_eq!(environment_json["free_energy"], 7);
+    assert_eq!(environment_json["free_mass"], 8);
+    assert_eq!(environment_json["bg_radiation"], 9);
+    assert_eq!(environment_json["bg_mass"], 10);
+    assert!(environment_json["program"].is_null());
 
     let step_from_created_response = app
         .clone()
@@ -303,6 +324,7 @@ async fn websocket_subscriptions_stream_current_state_and_report_errors() {
             "free_mass": 1
         }))
         .expect("seed program should deserialize")],
+        seed_environment: Vec::new(),
     }
     .resolve()
     .expect("config should resolve");
@@ -392,6 +414,7 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
         mutation_base_log2: None,
         mutation_background_log2: None,
         seed_programs: Vec::new(),
+        seed_environment: Vec::new(),
     }
     .resolve()
     .expect("config should resolve");

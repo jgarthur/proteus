@@ -1,4 +1,4 @@
-import type { SeedProgram, SimConfig } from '../types';
+import type { SeedEnvironment, SeedProgram, SimConfig } from '../types';
 
 export type ConfigErrors = Record<string, string>;
 
@@ -89,6 +89,20 @@ export function validateConfig(config: SimConfig): ConfigErrors {
     }
   });
 
+  config.seed_environment.forEach((seed, index) => {
+    if (!Number.isInteger(seed.x) || seed.x < 0 || seed.x >= config.width) {
+      errors[`seed_environment.${index}.x`] = 'Must be within grid width';
+    }
+    if (!Number.isInteger(seed.y) || seed.y < 0 || seed.y >= config.height) {
+      errors[`seed_environment.${index}.y`] = 'Must be within grid height';
+    }
+    (['free_energy', 'free_mass', 'bg_radiation', 'bg_mass'] as const).forEach((field) => {
+      if (!Number.isInteger(seed[field]) || seed[field] < 0) {
+        errors[`seed_environment.${index}.${field}`] = 'Must be a non-negative integer';
+      }
+    });
+  });
+
   return errors;
 }
 
@@ -128,6 +142,22 @@ function isValidSeedProgram(value: unknown): value is SeedProgram {
   );
 }
 
+function isValidSeedEnvironment(value: unknown): value is SeedEnvironment {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Partial<SeedEnvironment>;
+  return (
+    typeof candidate.x === 'number' &&
+    typeof candidate.y === 'number' &&
+    typeof candidate.free_energy === 'number' &&
+    typeof candidate.free_mass === 'number' &&
+    typeof candidate.bg_radiation === 'number' &&
+    typeof candidate.bg_mass === 'number'
+  );
+}
+
 export function loadConfigFromStorage(): SimConfig | null {
   const raw = window.localStorage.getItem(CONFIG_STORAGE_KEY);
   if (!raw) {
@@ -153,7 +183,10 @@ export function loadConfigFromStorage(): SimConfig | null {
     typeof parsed.mutation_base_log2 !== 'number' ||
     typeof parsed.mutation_background_log2 !== 'number' ||
     !Array.isArray(parsed.seed_programs) ||
-    !parsed.seed_programs.every(isValidSeedProgram)
+    !parsed.seed_programs.every(isValidSeedProgram) ||
+    (parsed.seed_environment !== undefined &&
+      (!Array.isArray(parsed.seed_environment) ||
+        !parsed.seed_environment.every(isValidSeedEnvironment)))
   ) {
     throw new Error('Saved config is malformed.');
   }
@@ -176,5 +209,6 @@ export function loadConfigFromStorage(): SimConfig | null {
     mutation_base_log2: parsed.mutation_base_log2,
     mutation_background_log2: parsed.mutation_background_log2,
     seed_programs: parsed.seed_programs,
+    seed_environment: parsed.seed_environment ?? [],
   };
 }

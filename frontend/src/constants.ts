@@ -53,6 +53,7 @@ export const DEFAULT_CONFIG: SimConfig = {
       free_mass: 12,
     },
   ],
+  seed_environment: [],
 };
 
 export const INITIAL_STATE: AppState = {

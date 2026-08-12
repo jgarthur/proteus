@@ -1,14 +1,16 @@
 //! Defines the HTTP and WebSocket payload types for the web API.
 
-use std::collections::HashSet;
-
 use serde::{Deserialize, Serialize};
 
-use crate::config::{SimConfig, PROGRAM_SIZE_CAP};
+use crate::bootstrap::BootstrapConfig;
+pub use crate::bootstrap::{
+    EnvironmentPreload as SeedEnvironmentConfig, SeedProgram as SeedProgramConfig,
+};
+use crate::config::SimConfig;
 use crate::observe::MetricsSnapshot;
 
 /// Declares the current version string for the HTTP/WebSocket API.
-pub const API_VERSION: &str = "0.2.2";
+pub const API_VERSION: &str = "0.2.3";
 /// Names the response header that reports the API version.
 pub const API_VERSION_HEADER: &str = "X-Proteus-API-Version";
 
@@ -55,6 +57,8 @@ pub struct CreateSimulationRequest {
     pub mutation_background_log2: Option<u32>,
     #[serde(default)]
     pub seed_programs: Vec<SeedProgramConfig>,
+    #[serde(default)]
+    pub seed_environment: Vec<SeedEnvironmentConfig>,
 }
 
 impl CreateSimulationRequest {
@@ -87,6 +91,7 @@ impl CreateSimulationRequest {
                 .mutation_background_log2
                 .unwrap_or(defaults.mutation_background_log2),
             seed_programs: self.seed_programs,
+            seed_environment: self.seed_environment,
         };
 
         config.validate()?;
@@ -115,6 +120,8 @@ pub struct SimulationConfig {
     pub mutation_background_log2: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seed_programs: Vec<SeedProgramConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seed_environment: Vec<SeedEnvironmentConfig>,
 }
 
 impl SimulationConfig {
@@ -124,35 +131,19 @@ impl SimulationConfig {
             .validate()
             .map_err(|err| err.to_string())?;
 
-        let mut occupied = HashSet::new();
-        for seed_program in &self.seed_programs {
-            if seed_program.x >= self.width || seed_program.y >= self.height {
-                return Err(format!(
-                    "seed program at ({}, {}) is outside the {}x{} grid",
-                    seed_program.x, seed_program.y, self.width, self.height
-                ));
-            }
-            if seed_program.code.is_empty() {
-                return Err(format!(
-                    "seed program at ({}, {}) must contain at least one instruction",
-                    seed_program.x, seed_program.y
-                ));
-            }
-            if seed_program.code.len() > usize::from(PROGRAM_SIZE_CAP) {
-                return Err(format!(
-                    "seed program at ({}, {}) exceeds the program size cap",
-                    seed_program.x, seed_program.y
-                ));
-            }
-            if !occupied.insert((seed_program.x, seed_program.y)) {
-                return Err(format!(
-                    "multiple seed programs target the same cell ({}, {})",
-                    seed_program.x, seed_program.y
-                ));
-            }
-        }
+        self.bootstrap_config()
+            .validate(&self.to_engine_config())
+            .map_err(|error| error.to_string())?;
 
         Ok(())
+    }
+
+    /// Converts API bootstrap fields into the engine-shared bootstrap model.
+    pub fn bootstrap_config(&self) -> BootstrapConfig {
+        BootstrapConfig {
+            programs: self.seed_programs.clone(),
+            environment: self.seed_environment.clone(),
+        }
     }
 
     /// Converts the API config into the engine config type.
@@ -176,16 +167,6 @@ impl SimulationConfig {
             mutation_background_log2: self.mutation_background_log2,
         }
     }
-}
-
-/// Describes one seed program to place into the world at creation time.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SeedProgramConfig {
-    pub x: u32,
-    pub y: u32,
-    pub code: Vec<u8>,
-    pub free_energy: u32,
-    pub free_mass: u32,
 }
 
 /// Returns the API payload for a successful create request.
