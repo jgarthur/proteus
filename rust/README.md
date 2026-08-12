@@ -7,6 +7,7 @@ This folder contains the active Rust backend implementation for Proteus.
 - `src/` - Rust library source for the simulator core.
 - `tests/` - Integration tests for engine semantics, headless runner behavior, and the feature-gated web API surface.
 - `examples/` - Standalone binaries used by checks that cannot run inside a single test binary. See `examples/parity_digest.rs`.
+- `example-batch/` - Runnable four-seed batch example with one exact manifest per run.
 - `scripts/` - Developer and CI check scripts. See `scripts/check-rayon-parity.sh`.
 
 ## Key Files
@@ -42,12 +43,17 @@ Direct runs require a fresh `output_directory`, so change that field before
 reusing the example for another run. See the complete input and output contract
 in [`docs/RUNNER-SPEC.md`](../docs/RUNNER-SPEC.md).
 
-To run a batch manifest you have created:
+The batch example runs the same starter scenario with seeds 1 through 4 and
+launches up to four single-threaded child processes at once:
 
 ```bash
 cargo build --bins
-./target/debug/proteus-batch --manifest /path/to/batch.json
+./target/debug/proteus-batch --manifest example-batch/batch.json
 ```
+
+Batch manifests reference one exact run manifest per child, so the example is a
+small flat directory rather than one templated file. Its outputs also go under
+`target/proteus-runs/`.
 
 Building all binaries together ensures `proteus-batch` can find the matching
 `proteus-run` sibling it supervises. Batch children are always single-threaded.
