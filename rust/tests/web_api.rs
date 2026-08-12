@@ -396,7 +396,7 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     .resolve()
     .expect("config should resolve");
     controller
-        .create(config)
+        .create(config.clone())
         .await
         .expect("simulation should be created");
 
@@ -458,6 +458,19 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     assert_eq!(reset["event_totals"]["births"], 0);
     assert_eq!(reset["event_totals"]["deaths"], 0);
     assert_eq!(reset["event_totals"]["mutations"], 0);
+
+    controller.destroy().await.expect("destroy should succeed");
+    controller
+        .create(config)
+        .await
+        .expect("replacement simulation should be created");
+    let replacement = controller
+        .metrics()
+        .await
+        .expect("replacement metrics should be available");
+    assert_eq!(replacement.epoch, 2);
+    assert_eq!(replacement.tick, 0);
+    assert_eq!(replacement.event_totals, Default::default());
 
     controller.destroy().await.expect("destroy should succeed");
     server.handle.abort();

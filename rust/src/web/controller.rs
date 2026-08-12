@@ -398,6 +398,7 @@ fn worker_loop(
     destroy_tx: broadcast::Sender<()>,
 ) {
     let mut simulation = None::<ManagedSimulation>;
+    let mut last_metrics_epoch = None::<u64>;
 
     loop {
         if matches!(
@@ -408,6 +409,7 @@ fn worker_loop(
                 Ok(command) => handle_command(
                     command,
                     &mut simulation,
+                    &mut last_metrics_epoch,
                     &frame_tx,
                     &metrics_tx,
                     &destroy_tx,
@@ -426,6 +428,7 @@ fn worker_loop(
             handle_command(
                 command,
                 &mut simulation,
+                &mut last_metrics_epoch,
                 &frame_tx,
                 &metrics_tx,
                 &destroy_tx,
@@ -438,6 +441,7 @@ fn worker_loop(
 fn handle_command(
     command: Command,
     simulation: &mut Option<ManagedSimulation>,
+    last_metrics_epoch: &mut Option<u64>,
     frame_tx: &watch::Sender<Option<FramePayload>>,
     metrics_tx: &watch::Sender<Option<MetricsPayload>>,
     destroy_tx: &broadcast::Sender<()>,
@@ -450,11 +454,14 @@ fn handle_command(
             let response = if simulation.is_some() {
                 Err(ControllerError::SimAlreadyExists)
             } else {
-                match ManagedSimulation::new(config, 0) {
-                    Ok(sim) => {
+                match next_metrics_epoch(*last_metrics_epoch)
+                    .and_then(|epoch| ManagedSimulation::new(config, epoch).map(|sim| (epoch, sim)))
+                {
+                    Ok((epoch, sim)) => {
                         let response = sim.create_response();
                         sim.publish(frame_tx, metrics_tx);
                         *simulation = Some(sim);
+                        *last_metrics_epoch = Some(epoch);
                         Ok(response)
                     }
                     Err(err) => Err(err),
@@ -542,18 +549,14 @@ fn handle_command(
             let _ = response_tx.send(result);
         }
         Command::Reset(response_tx) => {
-            let result = match simulation.take() {
-                Some(existing) => existing
-                    .metrics_epoch
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        ControllerError::Internal("metrics epoch overflowed u64".to_owned())
-                    })
-                    .and_then(|epoch| ManagedSimulation::new(existing.config.clone(), epoch))
-                    .map(|sim| {
+            let result = match simulation.as_ref().map(|existing| existing.config.clone()) {
+                Some(config) => next_metrics_epoch(*last_metrics_epoch)
+                    .and_then(|epoch| ManagedSimulation::new(config, epoch).map(|sim| (epoch, sim)))
+                    .map(|(epoch, sim)| {
                         let response = sim.status_response();
                         sim.publish(frame_tx, metrics_tx);
                         *simulation = Some(sim);
+                        *last_metrics_epoch = Some(epoch);
                         response
                     }),
                 None => Err(ControllerError::NoSim),
@@ -606,6 +609,16 @@ fn handle_command(
                 .and_then(|sim| inspect_region_cells(sim, x, y, w, h));
             let _ = response_tx.send(result);
         }
+    }
+}
+
+/// Allocates the next metrics history generation for this controller process.
+fn next_metrics_epoch(last_metrics_epoch: Option<u64>) -> Result<u64, ControllerError> {
+    match last_metrics_epoch {
+        None => Ok(0),
+        Some(epoch) => epoch
+            .checked_add(1)
+            .ok_or_else(|| ControllerError::Internal("metrics epoch overflowed u64".to_owned())),
     }
 }
 

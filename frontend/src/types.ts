@@ -157,9 +157,9 @@ export interface MetricsBufferSnapshot {
   inert_count: Float64Array;
   total_energy: Float64Array;
   total_mass: Float64Array;
-  births: Float64Array;
-  deaths: Float64Array;
-  mutations: Float64Array;
+  births_per_tick: Float64Array;
+  deaths_per_tick: Float64Array;
+  mutations_per_tick: Float64Array;
   mean_program_size: Float64Array;
   max_program_size: Float64Array;
   unique_genomes: Float64Array;

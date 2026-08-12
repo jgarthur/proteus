@@ -143,7 +143,7 @@ The latest binary frame and metrics rolling buffer are stored in `useRef` (not r
 2. **Subscribe frames**: Send `{"subscribe": "frames", "max_fps": 30}` after connection opens, if a simulation exists.
 3. **Subscribe metrics**: Send `{"subscribe": "metrics", "every_n_ticks": 1}` after connection opens.
 4. **Receive**: Binary messages are grid frames (parse header + CellView array). JSON messages with `"type": "metrics"` are metrics updates. JSON messages with `"type": "error"` are logged to console.
-5. **Reconnect**: On close or error, attempt reconnection with exponential backoff (1s, 2s, 4s, 8s, max 30s). Re-subscribe on reconnect. Subscriptions are stateless per API-SPEC §16 Q4. The first received metrics snapshot establishes or updates the cumulative-event baseline; a changed epoch, regressed tick, or regressed total clears the old chart series before rebaselining.
+5. **Reconnect**: On close or error, attempt reconnection with exponential backoff (1s, 2s, 4s, 8s, max 30s). Re-subscribe on reconnect. Subscriptions are stateless per API-SPEC §16 Q4. The first received metrics snapshot establishes or updates the cumulative-event baseline. An older tick in the same epoch is discarded; a changed epoch or regressed total clears the old chart series before rebaselining.
 6. **Teardown**: Close WebSocket on app unmount.
 
 ### Binary frame parsing
@@ -361,7 +361,7 @@ Metrics history is stored in typed arrays (one `Float64Array` per series) with a
 
 The x-axis is `tick` (not wall-clock time) so charts remain meaningful across pauses.
 
-For birth, death, and mutation series, the first metrics snapshot is a baseline and displays a zero rate. Each later snapshot in the same epoch stores `(new_total - old_total) / (new_tick - old_tick)`. Duplicate snapshots replace the point without changing its rate. An epoch change or a regression in tick or totals clears the rolling buffer and establishes a new baseline. This handles reset, reconnect, and backend restart discontinuities without manufacturing an event spike.
+For birth, death, and mutation series, the first metrics snapshot is a baseline and displays a zero rate. Each later snapshot in the same epoch stores `(new_total - old_total) / (new_tick - old_tick)`. Duplicate snapshots replace the point without changing its rate. Older ticks in the same epoch are discarded so a stale REST response cannot overwrite a newer WebSocket observation. An epoch change or a regression in totals clears the rolling buffer and establishes a new baseline. This handles reset, reconnect, and backend restart discontinuities without manufacturing an event spike.
 
 The frontend uses JavaScript `number` values for API `u64` fields and therefore assumes values remain at or below `Number.MAX_SAFE_INTEGER`, as constrained by API-SPEC §10.
 

@@ -351,7 +351,7 @@ Server pushes JSON:
 
 | Field | Type | Purpose | Stability |
 |-------|------|---------|-----------|
-| `epoch` | u64 | Metrics history generation; increments on reset | stable |
+| `epoch` | u64 | Metrics history generation; increments for each successful reset or new simulation in this server process | stable |
 | `tick` | u64 | Current tick number | stable |
 | `population` | u32 | Total programs (live + inert) | stable |
 | `live_count` | u32 | Live programs | stable |
@@ -375,7 +375,9 @@ Server pushes JSON:
 
 The top-level `births`, `boot_births`, `spawn_births`, `deaths`, and `mutations` fields remain counts for the single delivered tick. `event_totals` count every completed tick since the start of the current epoch, independent of observation cadence. Programs placed by `seed_programs` during creation or reset are bootstrap state and are not births. The invariant `births = boot_births + spawn_births` holds for both the per-tick and cumulative fields.
 
-To derive an event rate between two snapshots in the same epoch, clients divide the difference between cumulative totals by the difference in ticks. The first snapshot establishes a baseline. Clients must discard that baseline and begin a new series if `epoch` changes, the tick regresses, or any cumulative total regresses.
+To derive an event rate between two snapshots in the same epoch, clients divide the difference between cumulative totals by the difference in ticks. The first snapshot establishes a baseline. Clients discard out-of-order snapshots whose tick is older than the current baseline. They discard the baseline and begin a new series if `epoch` changes or any cumulative total regresses.
+
+Epochs begin at 0 and increase monotonically for the lifetime of the server process. Both reset and destroy followed by create allocate a new epoch. Restarting the server process may restart the sequence at 0, so clients still treat any epoch change as a history boundary rather than comparing its absolute value across connections.
 
 All `u64` values are encoded as JSON numbers. JavaScript clients can represent them exactly only through `2^53 - 1` (`Number.MAX_SAFE_INTEGER`); clients requiring longer exact histories must reject values above that limit until the API adopts a string or binary integer representation.
 

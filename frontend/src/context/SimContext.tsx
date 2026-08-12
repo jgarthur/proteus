@@ -237,8 +237,10 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
   const seedMetricsSnapshot = useCallback(async () => {
     try {
       const snapshot = await fetchMetrics();
+      if (!metricsBufferRef.current.push(snapshot)) {
+        return;
+      }
       setLatestMetrics(snapshot);
-      metricsBufferRef.current.push(snapshot);
       setMetricsVersion((value) => value + 1);
       dispatch({ type: 'SET_TICK', value: snapshot.tick });
     } catch {
@@ -428,8 +430,10 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
       try {
         const parsed = JSON.parse(event.data) as MetricsMessage | { type: 'error'; message: string };
         if (parsed.type === 'metrics') {
+          if (!metricsBufferRef.current.push(parsed)) {
+            return;
+          }
           setLatestMetrics(parsed);
-          metricsBufferRef.current.push(parsed);
           setMetricsVersion((value) => value + 1);
           dispatch({ type: 'SET_TICK', value: parsed.tick });
         } else if (parsed.type === 'error') {
