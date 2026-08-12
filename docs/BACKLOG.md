@@ -8,18 +8,6 @@ Items are referenced by name from `STATUS.md` at the repo root. Use the exact it
 
 ## Items
 
-### MOVE-ELIGIBILITY: Make tick-start eligibility follow a moving program
-
-Context: `SPEC.md` line 252 scopes end-of-tick eligibility to *programs* ("the set of programs that are live at tick start ... eligible to ... pay maintenance this tick, age at end of tick, and mutate at end of tick"). The engine previously stored that set only as position-indexed `Vec<bool>` masks over cells (`live_set` / `existed_set`), which was equivalent only while programs stayed put. `apply_move_commit` relocated a program to a cell whose masks described that cell's previous occupant (empty), so a successfully moved program skipped maintenance, aging, and mutation for that tick. This was confirmed by `rust/tests/move_eligibility.rs`: a moved program was charged 0 maintenance quanta against 2 for an identical stationary program, its age did not increment, and it did not mutate.
-
-This is pre-existing and independent of the Rayon work: the masks were position-indexed before the parallel paths were introduced.
-
-The fix could not simply delete `existed_set` and rely on `tick.is_newborn`. `apply_append_create_commit` creates an inert program in a previously empty cell without setting `is_newborn`, so the old `existed_set` check was also what prevented charging maintenance on the tick it was appended. The replacement therefore needed explicit existence and liveness flags that travel with the program.
-
-References: `rust/tests/move_eligibility.rs`, `rust/src/simulation.rs` (`prepare_tick`), `rust/src/pass2.rs` (`apply_move_commit`, `apply_append_create_commit`), `rust/src/pass3.rs` (`resolve_maintenance`, `resolve_age_update`, `mutate_end_of_tick`), `docs/SPEC.md` lines 252, 324, 326, 483
-
-Resolution: tick-start existence and liveness are now recorded on each program's `TickState`, so successful movement carries eligibility to the target cell. The direct movement assertions run normally in both feature configurations, an append-created inert regression preserves the creation-tick maintenance exemption, and the serial/Rayon parity harness includes a successful-movement fixture.
-
 ### RAYON-BASELINE: Decide whether Rayon should replace the separate serial iteration paths
 
 Context: the current backend keeps a feature-gated non-Rayon path alongside the Rayon path for the newly parallelized per-cell loops. Revisit whether that duplication is worth keeping, or whether the crate should standardize on the Rayon iterator path and rely on a 1-thread pool when effectively running serially.
@@ -37,7 +25,12 @@ Problem: the current API config can seed resources only on occupied program cell
 ### CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
 
 Context: `created` / `running` / `paused` remain a web-layer concern; this follow-up is about controller structure, not moving lifecycle into the engine core.
-References: `docs/API-SPEC.md`, `rust/src/web/types.rs`, `rust/src/web/controller.rs`
+
+Also define WebSocket destroy ordering for throttled frames. A frame queued in `FrameSubscription::pending` can race with the destroy notification when both the frame timer and `destroy_rx` are ready. Do not assume `tokio::select! { biased; ... }` alone establishes the externally visible guarantee; specify the boundary and clear or suppress pending delivery as needed.
+
+Acceptance test: queue a frame behind the FPS throttle, destroy the simulation while that frame is pending, and assert that the socket closes without sending a binary frame after destroy is acknowledged.
+
+References: `docs/API-SPEC.md`, `rust/src/web/types.rs`, `rust/src/web/controller.rs`, `rust/src/web/ws.rs`
 
 ### SNAPSHOT-BOUNDARY: Engine snapshot boundary and web-layer snapshot store
 

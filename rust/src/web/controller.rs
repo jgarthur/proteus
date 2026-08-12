@@ -88,16 +88,6 @@ impl SimulationController {
         self.destroy_tx.subscribe()
     }
 
-    /// Returns the most recently published frame, if any.
-    pub fn current_frame(&self) -> Option<FramePayload> {
-        self.frame_rx.borrow().clone()
-    }
-
-    /// Returns the most recently published metrics snapshot, if any.
-    pub fn current_metrics(&self) -> Option<MetricsPayload> {
-        self.metrics_rx.borrow().clone()
-    }
-
     /// Creates a new managed simulation from the supplied API config.
     pub async fn create(
         &self,

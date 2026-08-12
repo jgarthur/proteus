@@ -33,6 +33,8 @@ pub async fn handle_socket(mut socket: WebSocket, controller: SimulationControll
     let mut metrics_subscription = None::<MetricsSubscription>;
 
     loop {
+        // FIXME(CONTROLLER-LIFECYCLE): Define and test destroy ordering so a pending
+        // throttled frame cannot be sent after destroy is acknowledged.
         tokio::select! {
             destroy = destroy_rx.recv() => {
                 match destroy {
