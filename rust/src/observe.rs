@@ -7,10 +7,48 @@ use crate::model::{Cell, Program};
 use crate::opcode::Opcode;
 use crate::simulation::TickReport;
 
+/// Accumulates event counts across every completed tick in one observation epoch.
+#[cfg_attr(feature = "web", derive(serde::Serialize))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EventTotals {
+    pub births: u64,
+    pub boot_births: u64,
+    pub spawn_births: u64,
+    pub deaths: u64,
+    pub mutations: u64,
+}
+
+impl EventTotals {
+    /// Records exactly one completed tick's event deltas.
+    pub fn record(&mut self, report: TickReport) {
+        self.births = self
+            .births
+            .checked_add(u64::from(report.births))
+            .expect("cumulative birth count should fit in u64");
+        self.boot_births = self
+            .boot_births
+            .checked_add(u64::from(report.boot_births))
+            .expect("cumulative boot-birth count should fit in u64");
+        self.spawn_births = self
+            .spawn_births
+            .checked_add(u64::from(report.spawn_births))
+            .expect("cumulative spawn-birth count should fit in u64");
+        self.deaths = self
+            .deaths
+            .checked_add(u64::from(report.deaths))
+            .expect("cumulative death count should fit in u64");
+        self.mutations = self
+            .mutations
+            .checked_add(u64::from(report.mutations))
+            .expect("cumulative mutation count should fit in u64");
+    }
+}
+
 /// Summarizes the simulation state into observer-facing aggregate metrics.
 #[cfg_attr(feature = "web", derive(serde::Serialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetricsSnapshot {
+    pub epoch: u64,
     pub tick: u64,
     pub population: u32,
     pub live_count: u32,
@@ -26,6 +64,7 @@ pub struct MetricsSnapshot {
     pub spawn_births: u32,
     pub deaths: u32,
     pub mutations: u32,
+    pub event_totals: EventTotals,
 }
 
 /// Describes one cell in a human-readable inspection response.
@@ -63,8 +102,14 @@ pub struct ProgramInspection {
     pub abandonment_timer: Option<u32>,
 }
 
-/// Computes one metrics snapshot from the current grid and tick report.
-pub fn collect_metrics(grid: &Grid, tick: u64, report: TickReport) -> MetricsSnapshot {
+/// Computes one metrics snapshot from current state, latest events, and cumulative events.
+pub fn collect_metrics(
+    grid: &Grid,
+    epoch: u64,
+    tick: u64,
+    report: TickReport,
+    event_totals: EventTotals,
+) -> MetricsSnapshot {
     let mut live_count = 0_u32;
     let mut inert_count = 0_u32;
     let mut total_energy = 0_u64;
@@ -101,6 +146,7 @@ pub fn collect_metrics(grid: &Grid, tick: u64, report: TickReport) -> MetricsSna
     };
 
     MetricsSnapshot {
+        epoch,
         tick,
         population: live_count + inert_count,
         live_count,
@@ -118,6 +164,7 @@ pub fn collect_metrics(grid: &Grid, tick: u64, report: TickReport) -> MetricsSna
         spawn_births: report.spawn_births,
         deaths: report.deaths,
         mutations: report.mutations,
+        event_totals,
     }
 }
 
@@ -234,7 +281,7 @@ fn program_inspection(program: &Program) -> ProgramInspection {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_metrics, disassemble, encode_grid_frame, inspect_cell};
+    use super::{collect_metrics, disassemble, encode_grid_frame, inspect_cell, EventTotals};
     use crate::model::{Cell, Direction, Program};
     use crate::opcode::op;
     use crate::simulation::TickReport;
@@ -294,6 +341,7 @@ mod tests {
         let grid = Grid::from_cells(2, 1, cells).expect("grid should build");
         let metrics = collect_metrics(
             &grid,
+            4,
             5,
             TickReport {
                 births: 3,
@@ -303,8 +351,16 @@ mod tests {
                 mutations: 3,
                 packet_count: 5,
             },
+            EventTotals {
+                births: 30,
+                boot_births: 20,
+                spawn_births: 10,
+                deaths: 12,
+                mutations: 8,
+            },
         );
 
+        assert_eq!(metrics.epoch, 4);
         assert_eq!(metrics.population, 2);
         assert_eq!(metrics.live_count, 1);
         assert_eq!(metrics.inert_count, 1);
@@ -319,6 +375,39 @@ mod tests {
         assert_eq!(metrics.spawn_births, 1);
         assert_eq!(metrics.deaths, 2);
         assert_eq!(metrics.mutations, 3);
+        assert_eq!(metrics.event_totals.births, 30);
+        assert_eq!(metrics.event_totals.boot_births, 20);
+        assert_eq!(metrics.event_totals.spawn_births, 10);
+        assert_eq!(metrics.event_totals.deaths, 12);
+        assert_eq!(metrics.event_totals.mutations, 8);
+    }
+
+    #[test]
+    fn event_totals_accumulate_every_tick_report() {
+        let mut totals = EventTotals::default();
+        totals.record(TickReport {
+            births: 3,
+            boot_births: 2,
+            spawn_births: 1,
+            deaths: 4,
+            mutations: 5,
+            packet_count: 99,
+        });
+        totals.record(TickReport {
+            births: 7,
+            boot_births: 6,
+            spawn_births: 1,
+            deaths: 8,
+            mutations: 9,
+            packet_count: 1,
+        });
+
+        assert_eq!(totals.births, 10);
+        assert_eq!(totals.boot_births, 8);
+        assert_eq!(totals.spawn_births, 2);
+        assert_eq!(totals.deaths, 12);
+        assert_eq!(totals.mutations, 14);
+        assert_eq!(totals.births, totals.boot_births + totals.spawn_births);
     }
 
     #[test]

@@ -371,6 +371,111 @@ async fn websocket_subscriptions_stream_current_state_and_report_errors() {
     server.handle.abort();
 }
 
+#[tokio::test]
+async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
+    let controller = SimulationController::new();
+    let config = CreateSimulationRequest {
+        width: 1,
+        height: 1,
+        seed: 23,
+        r_energy: Some(0.0),
+        r_mass: Some(100.0),
+        d_energy: Some(1.0),
+        d_mass: Some(1.0),
+        t_cap: None,
+        maintenance_rate: None,
+        maintenance_exponent: None,
+        local_action_exponent: None,
+        n_synth: None,
+        inert_grace_ticks: None,
+        p_spawn: Some(1.0),
+        mutation_base_log2: None,
+        mutation_background_log2: None,
+        seed_programs: Vec::new(),
+    }
+    .resolve()
+    .expect("config should resolve");
+    controller
+        .create(config.clone())
+        .await
+        .expect("simulation should be created");
+
+    let rest_app = router(controller.clone());
+    let server = spawn_server(controller.clone()).await;
+    let url = format!("ws://{}/v1/ws", server.addr);
+    let (mut websocket, _) = connect_async(url).await.expect("websocket should connect");
+    let _hello = next_text_message(&mut websocket).await;
+
+    websocket
+        .send(Message::Text(
+            r#"{"subscribe":"metrics","every_n_ticks":5}"#.into(),
+        ))
+        .await
+        .expect("metrics subscription should send");
+    let initial = next_text_message(&mut websocket).await;
+    assert_eq!(initial["epoch"], 0);
+    assert_eq!(initial["tick"], 0);
+    assert_eq!(initial["event_totals"]["births"], 0);
+
+    controller
+        .step(5)
+        .await
+        .expect("simulation should step five ticks");
+    let sampled = next_metrics_message_at_tick(&mut websocket, 5).await;
+    assert_eq!(sampled["epoch"], 0);
+    assert_eq!(sampled["tick"], 5);
+    assert_eq!(sampled["births"], 0);
+    assert_eq!(sampled["event_totals"]["births"], 1);
+    assert_eq!(sampled["event_totals"]["boot_births"], 0);
+    assert_eq!(sampled["event_totals"]["spawn_births"], 1);
+
+    let latest = controller
+        .metrics()
+        .await
+        .expect("latest metrics should be available");
+    assert_eq!(latest.epoch, 0);
+    assert_eq!(latest.tick, 5);
+    assert_eq!(latest.event_totals.births, 1);
+    assert_eq!(
+        latest.event_totals.births,
+        latest.event_totals.boot_births + latest.event_totals.spawn_births
+    );
+
+    let rest_response = rest_app
+        .oneshot(empty_request(Method::GET, "/v1/sim/metrics"))
+        .await
+        .expect("metrics request should succeed");
+    assert_eq!(rest_response.status(), StatusCode::OK);
+    let rest_metrics = response_json(rest_response).await;
+    assert_eq!(rest_metrics["epoch"], sampled["epoch"]);
+    assert_eq!(rest_metrics["tick"], sampled["tick"]);
+    assert_eq!(rest_metrics["event_totals"], sampled["event_totals"]);
+
+    controller.reset().await.expect("simulation should reset");
+    let reset = next_text_message_of_type(&mut websocket, "metrics").await;
+    assert_eq!(reset["epoch"], 1);
+    assert_eq!(reset["tick"], 0);
+    assert_eq!(reset["event_totals"]["births"], 0);
+    assert_eq!(reset["event_totals"]["deaths"], 0);
+    assert_eq!(reset["event_totals"]["mutations"], 0);
+
+    controller.destroy().await.expect("destroy should succeed");
+    controller
+        .create(config)
+        .await
+        .expect("replacement simulation should be created");
+    let replacement = controller
+        .metrics()
+        .await
+        .expect("replacement metrics should be available");
+    assert_eq!(replacement.epoch, 2);
+    assert_eq!(replacement.tick, 0);
+    assert_eq!(replacement.event_totals, Default::default());
+
+    controller.destroy().await.expect("destroy should succeed");
+    server.handle.abort();
+}
+
 struct SpawnedServer {
     addr: std::net::SocketAddr,
     handle: JoinHandle<()>,
@@ -475,4 +580,20 @@ async fn next_text_message_of_type(
     }
 
     panic!("expected websocket message of type {expected_type}");
+}
+
+async fn next_metrics_message_at_tick(
+    websocket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    expected_tick: u64,
+) -> Value {
+    for _ in 0..3 {
+        let message = next_text_message(websocket).await;
+        if message["type"] == "metrics" && message["tick"] == expected_tick {
+            return message;
+        }
+    }
+
+    panic!("expected metrics websocket message at tick {expected_tick}");
 }

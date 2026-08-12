@@ -51,11 +51,11 @@ const CHARTS: ChartDef[] = [
   },
   {
     id: 'birth-death',
-    title: 'Births / Deaths / Mutations',
+    title: 'Birth / Death / Mutation Rates',
     series: [
-      { key: 'births', label: 'Births', color: '#f7c75d' },
-      { key: 'deaths', label: 'Deaths', color: '#ff8a7a' },
-      { key: 'mutations', label: 'Mutations', color: '#d28cff' },
+      { key: 'births_per_tick', label: 'Births/tick', color: '#f7c75d' },
+      { key: 'deaths_per_tick', label: 'Deaths/tick', color: '#ff8a7a' },
+      { key: 'mutations_per_tick', label: 'Mutations/tick', color: '#d28cff' },
     ],
   },
   {
