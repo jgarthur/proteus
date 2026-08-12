@@ -33,7 +33,6 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] COORDINATE-CONVENTIONS: Standardize frontend coordinates as 0-indexed and display them in `(y, x)` order
 - [ ] NO-SIM-STATUS: Replace the frontend startup `404 /v1/sim` probe with a cleaner no-simulation status path
 - [ ] FRONTEND-STATIC-CHECKS: Add lightweight frontend static checks for stale vars and similar mistakes
-- [ ] METRIC-OVERFLOW: Define graceful terminal behavior if exact cumulative event totals exceed the API's u64 representation
 - [ ] FRONTEND-ARCH-CLEANUP
 - [ ] INSPECTOR-TRACK-PROGRAM: Let the inspector follow a selected program as it moves
 - [ ] SEED-PROGRAM-QOL: Add seed-program library/import-export/disassembly tooling
