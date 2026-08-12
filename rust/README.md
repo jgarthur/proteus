@@ -5,7 +5,7 @@ This folder contains the active Rust backend implementation for Proteus.
 ## Key Folders
 
 - `src/` - Rust library source for the simulator core.
-- `tests/` - Integration tests for engine semantics and the feature-gated web API surface.
+- `tests/` - Integration tests for engine semantics, headless runner behavior, and the feature-gated web API surface.
 - `examples/` - Standalone binaries used by checks that cannot run inside a single test binary. See `examples/parity_digest.rs`.
 - `scripts/` - Developer and CI check scripts. See `scripts/check-rayon-parity.sh`.
 
@@ -21,8 +21,28 @@ This folder contains the active Rust backend implementation for Proteus.
 - The default crate build is the simulator library.
 - `src/observe.rs` contains read-only projections and binary/frame encoding used by external observers.
 - `src/web/` contains the feature-gated REST/WebSocket API and single-simulation controller. Enable it with `--features web`.
+- `src/bootstrap.rs` provides the shared deterministic program and environment initialization used by web and headless execution.
+- `src/runner/` contains strict manifests, provenance, output, and supervision for headless execution.
 - The web surface also serves `/debug/smoke`, a deliberately small visual diagnostic for first-run verification before the full frontend exists.
 - `src/bin/proteus-server.rs` provides a small server entrypoint when the `web` feature is enabled.
+- `src/bin/proteus-run.rs` executes one manifest; `src/bin/proteus-batch.rs` supervises a bounded list of those runs.
+
+## Running Headless Jobs
+
+Use a schema `0.1.0` manifest as defined in `docs/RUNNER-SPEC.md`:
+
+```bash
+cargo run --bin proteus-run -- --manifest ../manifests/run.json
+cargo build --bins
+./target/debug/proteus-batch --manifest ../manifests/batch.json
+```
+
+Building all binaries together ensures `proteus-batch` can find the matching
+`proteus-run` sibling it supervises. Batch children are always single-threaded.
+A Rayon-enabled direct run can use `--threads N`; `--build-info` prints the
+machine-readable runner build identity. Interrupted or otherwise incomplete
+batches resume whole runs with `--retry-incomplete`, archiving the prior attempt
+before restarting it.
 
 ## Running The Smoke Test
 

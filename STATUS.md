@@ -17,13 +17,13 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [x] CONFIG-RATES: Rework ambient config fields to use Poisson arrival rates and steady-state background initialization while keeping decay fields as binomial per-quantum probabilities
 - [x] MOVE-ELIGIBILITY: Make tick-start eligibility follow a moving program
 - [x] METRIC-CUMULATIVE-EVENTS: Add per-simulation metrics epochs and cumulative birth, death, and mutation totals so sampled observation remains lossless
+- [x] HEADLESS-RUNNER: Implement deterministic single-run and fixed-batch execution from `docs/RUNNER-SPEC.md`
+- [x] SEED-ENVIRONMENT: Support seed-neighborhood resource preload
+- [x] SEED-BOOTSTRAP: Extract seed-program bootstrap module
 
 ## Next
 
-- [ ] HEADLESS-RUNNER: Implement deterministic single-run and fixed-batch execution from `docs/RUNNER-SPEC.md`
 - [ ] Design 1–2 minimal self-replicating seed programs
-- [ ] SEED-ENVIRONMENT: Support seed-neighborhood resource preload
-- [ ] SEED-BOOTSTRAP: Extract seed-program bootstrap module
 - [ ] CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
 - [ ] SNAPSHOT-BOUNDARY: Engine snapshot boundary and web-layer snapshot store
 - [x] METRIC-PACKET-ENERGY: Add packet-energy metric

@@ -8,8 +8,8 @@ use crate::opcode::Opcode;
 use crate::simulation::TickReport;
 
 /// Accumulates event counts across every completed tick in one observation epoch.
-#[cfg_attr(feature = "web", derive(serde::Serialize))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EventTotals {
     pub births: u64,
     pub boot_births: u64,
@@ -45,8 +45,8 @@ impl EventTotals {
 }
 
 /// Summarizes the simulation state into observer-facing aggregate metrics.
-#[cfg_attr(feature = "web", derive(serde::Serialize))]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MetricsSnapshot {
     pub epoch: u64,
     pub tick: u64,
@@ -68,8 +68,7 @@ pub struct MetricsSnapshot {
 }
 
 /// Describes one cell in a human-readable inspection response.
-#[cfg_attr(feature = "web", derive(serde::Serialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct CellInspection {
     pub index: usize,
     pub x: u32,
@@ -82,8 +81,7 @@ pub struct CellInspection {
 }
 
 /// Describes one program in a human-readable inspection response.
-#[cfg_attr(feature = "web", derive(serde::Serialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct ProgramInspection {
     pub code: Vec<u8>,
     pub disassembly: Vec<String>,

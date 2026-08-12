@@ -2,7 +2,7 @@
 
 **Status**: Provisional — subject to change as the engine implementation matures.
 
-**Spec version**: 0.2.2
+**Spec version**: 0.2.3
 
 **Simulator version**: Targets Proteus v0.2.1
 
@@ -58,7 +58,7 @@ The API is independent of any specific frontend implementation.
 
 All REST endpoints are prefixed with `/v1`.
 
-All responses include the header `X-Proteus-API-Version: 0.2.2`.
+All responses include the header `X-Proteus-API-Version: 0.2.3`.
 
 Breaking changes increment the major URL version (`/v2`). Additive changes (new optional fields, new endpoints) do not.
 
@@ -209,6 +209,7 @@ Optional initial-state fields:
 | Field | Type | Description |
 |-------|------|-------------|
 | `seed_programs` | array | Programs to place at simulation start (see below) |
+| `seed_environment` | array | Exact cell-resource preloads to apply at simulation start (see below) |
 
 ### Seed program entry
 
@@ -232,6 +233,33 @@ Optional initial-state fields:
 
 The program is placed as live with `IP = 0`, an empty stack, and default registers. As in the
 master simulation spec, default `Dir` and `ID` initialization is randomized at program creation.
+
+### Seed environment entry
+
+```json
+{
+  "x": 9,
+  "y": 10,
+  "free_energy": 20,
+  "free_mass": 12,
+  "bg_radiation": 0,
+  "bg_mass": 0
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `x` | u32 | Cell x coordinate |
+| `y` | u32 | Cell y coordinate |
+| `free_energy` | u32 | Exact initial free-energy pool |
+| `free_mass` | u32 | Exact initial free-mass pool |
+| `bg_radiation` | u32 | Exact initial background-radiation pool |
+| `bg_mass` | u32 | Exact initial background-mass pool |
+
+Environment entries are applied before seed programs. When both arrays target
+the same cell, the program entry replaces `free_energy` and `free_mass`; the
+environment entry's `bg_radiation` and `bg_mass` remain. Duplicate coordinates
+within either array are invalid. Array order has no semantic effect.
 
 ### Read config
 

@@ -99,6 +99,15 @@ export interface SeedProgram {
   free_mass: number;
 }
 
+export interface SeedEnvironment {
+  x: number;
+  y: number;
+  free_energy: number;
+  free_mass: number;
+  bg_radiation: number;
+  bg_mass: number;
+}
+
 export interface SimConfig {
   width: number;
   height: number;
@@ -117,6 +126,7 @@ export interface SimConfig {
   mutation_base_log2: number;
   mutation_background_log2: number;
   seed_programs: SeedProgram[];
+  seed_environment: SeedEnvironment[];
 }
 
 export interface CellProgram {

@@ -3,13 +3,16 @@
 use std::error::Error;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// Tracks the spec version this backend is aligned to.
 pub const SPEC_VERSION: &str = "0.2.1";
 /// Stores the maximum allowed program length from the spec.
 pub const PROGRAM_SIZE_CAP: u16 = 0x7fff;
 
 /// Holds the tunable parameters that shape one simulation run.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SimConfig {
     pub width: u32,
     pub height: u32,

@@ -1,8 +1,8 @@
 # Proteus Headless Runner Specification
 
-**Status**: MVP contract ready for implementation; not yet implemented.
+**Status**: Implemented MVP contract.
 
-**Targets**: Proteus v0.2.1 engine, API metrics schema v0.2.2.
+**Targets**: Proteus v0.2.1 engine, API metrics schema v0.2.3.
 
 ---
 
@@ -257,10 +257,10 @@ For schema `0.1.0`, the digest projection contains, in order:
 
 1. `runner_schema_version`
 2. the complete `simulation` object in the field order shown in §6
-3. `bootstrap.programs`, sorted by `(y, x)`
-4. `bootstrap.environment`, sorted by `(y, x)`
-5. `limits`
-6. `observation`
+3. one `bootstrap` object containing `programs`, sorted by `(y, x)`, followed by
+   `environment`, sorted by `(y, x)`
+4. `limits`
+5. `observation`
 
 `run_id` and `output_directory` are excluded because identity and storage do not
 change simulation or observation results. The canonical projection is compact
@@ -297,22 +297,26 @@ it at build time, not by inspecting a possibly unrelated checkout at launch:
 - source digest, always present and independent of Git metadata
 - Cargo profile, enabled Cargo features, target triple, and Rust compiler version
 
-`source_digest` is SHA-256 over a canonical build-source inventory rooted at the
-Rust crate. The inventory contains `Cargo.toml`, `Cargo.lock`, `build.rs` when
-present, and every non-hidden regular file below `src/`. Paths are UTF-8,
-relative to the crate, `/`-separated, and sorted bytewise. For each file, hash
-the path length as an unsigned 64-bit big-endian integer, the path bytes, the
-content length in the same encoding, then the raw content bytes. Render the
-result as `sha256:<lowercase hex>`. A selected non-regular file or non-UTF-8 path
-is a build error. This gives Git-less builds a meaningful identity instead of
-letting two `null` Git records compare equal.
+`source_digest` is SHA-256 over a canonical headless-build source inventory
+rooted at the Rust crate. The inventory contains `Cargo.toml`, `Cargo.lock`,
+`build.rs` when present, and every non-hidden regular file below `src/` except
+`src/web/` and `src/bin/proteus-server.rs`. Paths are UTF-8, relative to the
+crate, `/`-separated, and sorted bytewise. For each file, hash the path length as
+an unsigned 64-bit big-endian integer, the path bytes, the content length in the
+same encoding, then the raw content bytes. Render the result as
+`sha256:<lowercase hex>`. A selected non-regular file or non-UTF-8 path is a
+build error. This gives Git-less builds a meaningful identity without making a
+web-only asset such as `src/web/smoke_test.html` invalidate headless resume.
+The build script must emit `cargo:rerun-if-changed` for every selected file and
+inventory directory so incremental builds cannot retain a stale digest.
 
 Launch and completion provenance collectively contain runtime facts: resolved
 executable path, start and finish UTC timestamps, monotonic wall-clock duration,
 and engine thread count. They also record `execution_digest`, the SHA-256 digest
 of the exact `proteus-run` executable bytes rendered as `sha256:<lowercase hex>`.
-This deliberately conservative identity prevents resume from mixing output from
-different runner/engine binaries, including uncommitted dirty builds.
+It is forensic provenance, not the resume compatibility key. Failure to resolve
+or read `current_exe()` is a direct-run output failure and a batch preflight
+failure; `execution_digest` is never `null`.
 
 The run artifact set therefore records:
 
@@ -331,9 +335,9 @@ The run artifact set therefore records:
 
 Same-version replay requires identical simulation inputs, bootstrap inputs, seed,
 and execution semantics. Determinism across different engine commits or runner
-schema versions is not promised. Thread count is excluded from the input and
-execution digests: serial/Rayon parity is an engine invariant, and the effective
-count remains recorded in provenance.
+schema versions is not promised. Thread count is excluded from the input digest
+and build compatibility comparison: serial/Rayon parity is an engine invariant,
+and the effective count remains recorded in provenance.
 
 All output timestamps use RFC 3339 UTC strings with a `Z` suffix. Durations are
 unsigned integer milliseconds measured with a monotonic clock. Feature lists are
@@ -354,6 +358,10 @@ while simulation.tick() < limits.ticks:
     if tick matches observation cadence:
         collect current-state metrics
         write metrics record
+
+if final tick was not written at cadence:
+    collect current-state metrics using the final TickReport
+    write metrics record
 ```
 
 Starting from tick 0, `limits.ticks = N` means exactly `N` calls to
@@ -362,7 +370,7 @@ means the post-tick counter value, not an additional tick to execute.
 
 Every simulation tick executes even when no metrics row is written. An observation cadence of 50 means the runner records ticks 0, 50, 100, and so on; it does not skip simulation work.
 
-Metrics retain the API v0.2.2 distinction:
+Metrics retain the API v0.2.3 distinction:
 
 - gauges such as population, resources, packet energy, and program sizes describe the sampled tick
 - top-level birth, death, and mutation fields describe the most recently completed tick
@@ -408,7 +416,7 @@ Each JSONL line uses a runner envelope rather than a bare API object:
 }
 ```
 
-`metrics` is the API v0.2.2 `MetricsSnapshot` object verbatim, including every
+`metrics` is the API v0.2.3 `MetricsSnapshot` object verbatim, including every
 field in that schema. The runner envelope makes lines safe to concatenate across
 runs without requiring their directory context. The runner has one metrics
 epoch, numbered 0. At tick 0, all top-level per-tick event fields and cumulative
@@ -452,7 +460,7 @@ Schema `0.1.0` has these exact top-level fields:
 | `execution_digest` | SHA-256 digest of the exact `proteus-run` executable |
 | `input` | Object containing normalized `simulation`, sorted `bootstrap`, `limits`, `observation`, and resolved `output_directory` |
 | `execution` | Object containing `bootstrap_rng_version`, hexadecimal-string `bootstrap_rng_salt`, and `engine_threads` |
-| `build` | Object containing `engine_crate_version`, `simulator_spec_version`, nullable `git_commit`, nullable `source_dirty`, non-null `source_digest`, `cargo_profile`, sorted `cargo_features`, `target_triple`, and `rustc_version` |
+| `build` | Rebuild-stable object containing `engine_crate_version`, `simulator_spec_version`, nullable `git_commit`, nullable `source_dirty`, non-null `source_digest`, `cargo_profile`, sorted `cargo_features`, `target_triple`, and `rustc_version` |
 | `launch` | Object containing resolved `executable`, resolved `source_manifest`, and `started_at` |
 
 `bootstrap_rng_version` is `seed-program-v1` and `bootstrap_rng_salt` is
@@ -487,12 +495,13 @@ Its exact fields are:
 | `run_id` | String |
 | `input_digest` | String |
 | `execution_digest` | String |
+| `build` | Exact build object copied from `manifest.json` |
 | `final_tick` | `u64`, equal to `limits.ticks` |
 | `termination_reason` | String, `tick_limit_reached` |
 | `started_at` | RFC 3339 UTC string recorded by the child before world initialization |
 | `finished_at` | RFC 3339 UTC string |
 | `wall_duration_ms` | `u64` monotonic child duration |
-| `final_metrics` | Complete API v0.2.2 `MetricsSnapshot` at `final_tick` |
+| `final_metrics` | Complete API v0.2.3 `MetricsSnapshot` at `final_tick` |
 
 `final_metrics.event_totals` is the authoritative cumulative-event value in the
 summary; it is not duplicated in a second top-level field.
@@ -631,7 +640,7 @@ A completion record contains a boolean `success` and one supervisor category:
 `invalid_child_output`, or `supervisor_interrupted`. Raw platform exit status or
 signal information is retained separately from this portable category. A child
 is successful only when it exits 0 and leaves a valid `summary.json` whose run
-ID, input digest, execution digest, final tick, and termination reason match the
+ID, input digest, build object, final tick, and termination reason match the
 requested run. An exit-0 child with a missing or invalid summary is
 `invalid_child_output`.
 
@@ -643,6 +652,7 @@ The exact completion fields are:
 | `run_id` | String |
 | `input_digest` | String |
 | `execution_digest` | String |
+| `build` | Exact child build object |
 | `success` | Boolean |
 | `category` | One portable category listed above |
 | `child_exit_code` | Signed integer or `null` when unavailable |
@@ -661,13 +671,15 @@ The supervisor, not the child, owns this record. A killed or out-of-memory child
 On every batch invocation:
 
 1. A run is complete only when a valid `success: true` supervisor completion
-   record exists and its run ID, input digest, and execution digest match the
-   requested manifest and current child binary.
+   record exists and its run ID, input digest, and build object match the
+   requested manifest and current child build. `execution_digest` is recorded
+   but is deliberately ignored for resume so rebuilding identical sources does
+   not invalidate completed work.
 2. Matching completed runs are skipped, including when `--retry-incomplete` is
    present.
 3. A missing directory is a new run and is launched without a retry flag.
 4. An existing runner-owned directory with a missing/failed completion or a
-   run-ID, input-digest, or execution-digest mismatch is incomplete. Without
+   run-ID, input-digest, or build mismatch is incomplete. Without
    `--retry-incomplete`, it is not modified or launched, and the batch exits
    nonzero.
 5. A directory is runner-owned for retry only when it contains a valid runner
@@ -720,7 +732,8 @@ The smallest corrected MVP is:
 8. `proteus-batch` supervising `N` single-threaded subprocesses from
    file-referenced manifests.
 9. Supervisor-owned atomic completion records.
-10. Job-level resume by run ID, canonical input digest, and execution digest.
+10. Job-level resume by run ID, canonical input digest, and rebuild-stable build
+    object.
 
 Defer memory limits, wall-clock limits, batch per-child thread controls,
 automatic CPU topology management, in-run checkpoints, optimizer integration,
@@ -746,7 +759,8 @@ and scientific stopping rules.
 - `jobs` is never exceeded.
 - A child panic/nonzero exit produces a supervisor-authored failure completion record.
 - A killed child cannot be mistaken for success because it happened to leave a summary file.
-- Resume skips only successful completions matching run ID, input digest, and the current child execution digest.
+- Resume skips only successful completions matching run ID, input digest, and the current child build object.
+- Rebuilding identical sources may change `execution_digest` without invalidating resume.
 - Incomplete retry archives the entire old directory before launching and never reruns matching success.
 - Retry refuses to move an existing directory without a valid runner ownership marker.
 - Batch-relative manifest paths and run-relative output paths resolve as specified.

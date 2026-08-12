@@ -6,19 +6,16 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
-use crate::model::{Direction, Program};
 use crate::observe::{
     collect_metrics, encode_grid_frame, inspect_cell, inspect_region, CellInspection, EventTotals,
     MetricsSnapshot,
 };
-use crate::random::cell_rng;
-use crate::{Simulation, SimulationError, TickReport};
+use crate::{apply_bootstrap, Simulation, SimulationError, TickReport};
 
 use super::types::{
     CreateSimulationResponse, SimulationConfig, SimulationLifecycle, SimulationStatusResponse,
 };
 
-const SEED_PROGRAM_SALT: u64 = 0x0d7e_8ef0_4268_33c1;
 const TPS_WINDOW: Duration = Duration::from_millis(250);
 
 /// Carries one binary grid frame through the watch channel.
@@ -274,7 +271,8 @@ impl ManagedSimulation {
 
         let mut simulation =
             Simulation::new(config.to_engine_config()).map_err(simulation_error)?;
-        apply_seed_programs(&mut simulation, &config).map_err(ControllerError::InvalidConfig)?;
+        apply_bootstrap(&mut simulation, &config.bootstrap_config())
+            .map_err(|error| ControllerError::InvalidConfig(error.to_string()))?;
 
         let event_totals = EventTotals::default();
         let latest_metrics = collect_metrics(
@@ -677,31 +675,6 @@ fn inspect_region_cells(
     }
 
     Ok(inspect_region(simulation.simulation.grid(), x, y, w, h))
-}
-
-/// Seeds the initial programs requested by the API config into the grid.
-fn apply_seed_programs(
-    simulation: &mut Simulation,
-    config: &SimulationConfig,
-) -> Result<(), String> {
-    for seed_program in &config.seed_programs {
-        let index = simulation.grid().index(seed_program.x, seed_program.y);
-        let mut rng = cell_rng(config.seed ^ SEED_PROGRAM_SALT, 0, index as u64);
-        let dir = Direction::ALL[(rng.next_u32() % Direction::ALL.len() as u32) as usize];
-        let id = rng.next_u32() as u8;
-
-        let program =
-            Program::new_live(seed_program.code.clone(), dir, id).map_err(|err| err.to_string())?;
-        let cell = simulation
-            .grid_mut()
-            .get_mut(index)
-            .expect("seeded cell should exist");
-        cell.program = Some(program);
-        cell.free_energy = seed_program.free_energy;
-        cell.free_mass = seed_program.free_mass;
-    }
-
-    Ok(())
 }
 
 /// Converts engine construction failures into controller-layer errors.
