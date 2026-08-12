@@ -61,6 +61,14 @@ fn build_info_is_machine_readable_and_creates_no_artifacts() {
             .count(),
         0
     );
+
+    let invalid = Command::new(run_binary())
+        .args(["--build-info", "--threads", "2"])
+        .output()
+        .expect("invalid build-info invocation should launch");
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&invalid.stderr)
+        .contains("--build-info cannot be combined with other arguments"));
 }
 
 #[test]
@@ -166,6 +174,33 @@ fn invalid_manifest_and_archive_collision_fail_before_output_creation() {
 }
 
 #[test]
+fn duplicate_ids_and_ancestor_outputs_fail_before_launch() {
+    let duplicate_sandbox = Sandbox::new("duplicate-id");
+    let duplicate_a = duplicate_sandbox.path().join("a.json");
+    let duplicate_b = duplicate_sandbox.path().join("b.json");
+    write_json(&duplicate_a, &run_manifest("same", "runs/a", 1, 1));
+    write_json(&duplicate_b, &run_manifest("same", "runs/b", 1, 1));
+    let duplicate_batch = duplicate_sandbox.path().join("batch.json");
+    write_batch(&duplicate_batch, 2, &["a.json", "b.json"]);
+
+    let duplicate_output = batch_command(&duplicate_batch, false);
+    assert_eq!(duplicate_output.status.code(), Some(2));
+    assert!(!duplicate_sandbox.path().join("runs").exists());
+
+    let overlap_sandbox = Sandbox::new("overlap");
+    let overlap_a = overlap_sandbox.path().join("a.json");
+    let overlap_b = overlap_sandbox.path().join("b.json");
+    write_json(&overlap_a, &run_manifest("a", "runs/a", 1, 1));
+    write_json(&overlap_b, &run_manifest("b", "runs/a/descendant", 1, 1));
+    let overlap_batch = overlap_sandbox.path().join("batch.json");
+    write_batch(&overlap_batch, 2, &["a.json", "b.json"]);
+
+    let overlap_output = batch_command(&overlap_batch, false);
+    assert_eq!(overlap_output.status.code(), Some(2));
+    assert!(!overlap_sandbox.path().join("runs").exists());
+}
+
+#[test]
 fn batch_resume_ignores_rebuild_hash_but_retries_build_mismatch() {
     let sandbox = Sandbox::new("resume");
     let run_path = sandbox.path().join("run.json");
@@ -218,6 +253,38 @@ fn batch_resume_ignores_rebuild_hash_but_retries_build_mismatch() {
 }
 
 #[test]
+fn relocated_completed_output_remains_complete_without_rewriting_provenance() {
+    let sandbox = Sandbox::new("relocated");
+    let run_path = sandbox.path().join("run.json");
+    let batch_path = sandbox.path().join("batch.json");
+    write_json(
+        &run_path,
+        &run_manifest("relocated-run", "runs/original", 2, 1),
+    );
+    write_batch(&batch_path, 1, &["run.json"]);
+    assert_success(&batch_command(&batch_path, false));
+
+    let original = sandbox.path().join("runs/original");
+    let relocated = sandbox.path().join("runs/relocated");
+    let original_completion = fs::read(original.join("completion.json")).unwrap();
+    fs::rename(&original, &relocated).expect("output tree should relocate atomically");
+    write_json(
+        &run_path,
+        &run_manifest("relocated-run", "runs/relocated", 2, 1),
+    );
+
+    assert_success(&batch_command(&batch_path, false));
+    assert_eq!(
+        fs::read(relocated.join("completion.json")).unwrap(),
+        original_completion
+    );
+    assert!(!sandbox.path().join("runs/relocated.attempt-0001").exists());
+
+    let record: RunManifestRecord = read_json(&relocated.join("manifest.json"));
+    assert!(record.input.output_directory.ends_with("/runs/original"));
+}
+
+#[test]
 fn retry_refuses_foreign_directory_before_launching_any_run() {
     let sandbox = Sandbox::new("unsafe-output");
     let unsafe_path = sandbox.path().join("unsafe.json");
@@ -255,23 +322,24 @@ fn retry_refuses_foreign_directory_before_launching_any_run() {
 
 #[cfg(unix)]
 #[test]
-fn interrupting_batch_reaps_the_child_and_records_supervisor_interruption() {
-    let sandbox = Sandbox::new("interrupt");
-    let run_path = sandbox.path().join("run.json");
+fn interrupt_respects_jobs_reaps_children_and_leaves_readable_metrics() {
+    let sandbox = Sandbox::new("interrupt-concurrency");
     let batch_path = sandbox.path().join("batch.json");
-    write_json(
-        &run_path,
-        &run_manifest("interrupted-run", "runs/interrupted", 1_000_000_000, 10_000),
-    );
-    write_json(
+    for index in 0..4 {
+        write_json(
+            &sandbox.path().join(format!("run-{index}.json")),
+            &run_manifest(
+                &format!("interrupt-{index}"),
+                &format!("runs/run-{index}"),
+                1_000_000_000,
+                10_000,
+            ),
+        );
+    }
+    write_batch(
         &batch_path,
-        &BatchManifest {
-            runner_schema_version: RUNNER_SCHEMA_VERSION.to_owned(),
-            jobs: 1,
-            runs: vec![BatchRunReference {
-                manifest: "run.json".to_owned(),
-            }],
-        },
+        2,
+        &["run-0.json", "run-1.json", "run-2.json", "run-3.json"],
     );
 
     let batch = Command::new(batch_binary())
@@ -279,43 +347,52 @@ fn interrupting_batch_reaps_the_child_and_records_supervisor_interruption() {
         .output_spawn()
         .expect("proteus-batch should launch");
     let batch_pid = batch.id();
-    let output_directory = sandbox.path().join("runs/interrupted");
+    let first_output = sandbox.path().join("runs/run-0");
+    let second_output = sandbox.path().join("runs/run-1");
     for _ in 0..500 {
-        if output_directory.join("manifest.json").exists() {
+        if complete_metrics_count(&first_output.join("metrics.jsonl")).is_some()
+            && complete_metrics_count(&second_output.join("metrics.jsonl")).is_some()
+        {
             break;
         }
         thread::sleep(Duration::from_millis(10));
     }
-    if !output_directory.join("manifest.json").exists() {
-        let _ = Command::new("kill")
-            .args(["-INT", &batch_pid.to_string()])
-            .status();
+    if complete_metrics_count(&first_output.join("metrics.jsonl")).is_none()
+        || complete_metrics_count(&second_output.join("metrics.jsonl")).is_none()
+    {
+        let _ = signal_process(batch_pid, nix::sys::signal::Signal::SIGINT);
         let output = batch
             .wait_with_output()
             .expect("timed-out batch should exit after SIGINT");
         panic!(
-            "batch did not reserve the run within five seconds; stderr: {}",
+            "batch did not launch two children within five seconds; stderr: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
 
-    let signal_status = Command::new("kill")
-        .args(["-INT", &batch_pid.to_string()])
-        .status()
-        .expect("SIGINT command should launch");
-    assert!(signal_status.success());
+    thread::sleep(Duration::from_millis(100));
+    assert!(first_output.exists());
+    assert!(second_output.exists());
+    assert!(!sandbox.path().join("runs/run-2").exists());
+    assert!(!sandbox.path().join("runs/run-3").exists());
+
+    signal_process(batch_pid, nix::sys::signal::Signal::SIGINT)
+        .expect("SIGINT should reach supervisor");
     let output = batch
         .wait_with_output()
         .expect("interrupted batch should exit");
     assert_eq!(output.status.code(), Some(130));
 
-    let completion: CompletionRecord = read_json(&output_directory.join("completion.json"));
-    assert!(!completion.success);
-    assert_eq!(
-        completion.category,
-        proteus::runner::CompletionCategory::SupervisorInterrupted
-    );
-    assert!(!completion.valid_summary);
+    for output_directory in [&first_output, &second_output] {
+        let completion: CompletionRecord = read_json(&output_directory.join("completion.json"));
+        assert!(!completion.success);
+        assert_eq!(
+            completion.category,
+            proteus::runner::CompletionCategory::SupervisorInterrupted
+        );
+        assert!(!completion.valid_summary);
+        assert!(complete_metrics_count(&output_directory.join("metrics.jsonl")).unwrap() >= 1);
+    }
 }
 
 #[cfg(feature = "rayon")]
@@ -418,6 +495,22 @@ fn batch_command(manifest: &Path, retry_incomplete: bool) -> Output {
     command.output().expect("proteus-batch should launch")
 }
 
+fn write_batch(path: &Path, jobs: u32, manifests: &[&str]) {
+    write_json(
+        path,
+        &BatchManifest {
+            runner_schema_version: RUNNER_SCHEMA_VERSION.to_owned(),
+            jobs,
+            runs: manifests
+                .iter()
+                .map(|manifest| BatchRunReference {
+                    manifest: (*manifest).to_owned(),
+                })
+                .collect(),
+        },
+    );
+}
+
 fn run_binary() -> &'static str {
     env!("CARGO_BIN_EXE_proteus-run")
 }
@@ -465,4 +558,25 @@ impl OutputSpawn for Command {
 
         self.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
     }
+}
+
+#[cfg(unix)]
+fn signal_process(pid: u32, signal: nix::sys::signal::Signal) -> nix::Result<()> {
+    use nix::sys::signal::kill;
+    use nix::unistd::Pid;
+
+    kill(Pid::from_raw(i32::try_from(pid).unwrap()), signal)
+}
+
+#[cfg(unix)]
+fn complete_metrics_count(path: &Path) -> Option<usize> {
+    let bytes = fs::read(path).ok()?;
+    let final_newline = bytes.iter().rposition(|byte| *byte == b'\n')?;
+    let complete = std::str::from_utf8(&bytes[..=final_newline]).ok()?;
+    let mut count = 0;
+    for line in complete.lines() {
+        serde_json::from_str::<MetricsEnvelope>(line).ok()?;
+        count += 1;
+    }
+    (count > 0).then_some(count)
 }

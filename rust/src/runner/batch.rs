@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 
 use super::{
     artifact_paths, build_provenance, canonical_file, load_batch_manifest, load_run_manifest,
-    path_string, read_json, run_manifest_record, timestamp_now, write_json_atomic, ArtifactPaths,
-    BuildInfo, CompletionCategory, CompletionRecord, ResolvedRun, RunManifestRecord, RunSummary,
-    RunnerError, RUNNER_SCHEMA_VERSION,
+    read_json, run_manifest_record, timestamp_now, write_json_atomic, ArtifactPaths, BuildInfo,
+    CompletionCategory, CompletionRecord, ResolvedRun, RunManifestRecord, RunSummary, RunnerError,
+    RUNNER_SCHEMA_VERSION,
 };
 
 const INTERRUPT_GRACE: Duration = Duration::from_secs(5);
@@ -331,11 +331,9 @@ fn existing_state(run: &ResolvedRun, child_info: &BuildInfo) -> Result<ExistingS
         Ok(record) => record,
         Err(error) => return Ok(ExistingState::Unsafe(error.to_string())),
     };
-    if record.runner_schema_version != RUNNER_SCHEMA_VERSION
-        || record.input.output_directory != path_string(&run.output_directory)?
-    {
+    if record.runner_schema_version != RUNNER_SCHEMA_VERSION {
         return Ok(ExistingState::Unsafe(
-            "existing directory does not contain a matching runner ownership marker".to_owned(),
+            "existing directory has an unsupported runner ownership marker".to_owned(),
         ));
     }
     let completion_path = run.output_directory.join("completion.json");
@@ -356,7 +354,6 @@ fn existing_state(run: &ResolvedRun, child_info: &BuildInfo) -> Result<ExistingS
         && record.input_digest == completion.input_digest
         && record.execution_digest == completion.execution_digest
         && record.build == completion.build
-        && completion.artifacts == artifact_paths(&run.output_directory)?
     {
         Ok(ExistingState::Complete)
     } else {
@@ -419,7 +416,7 @@ fn launch_child(
                 .expect("validated manifest path should be UTF-8"),
             "--threads",
             "1",
-            "--supervised",
+            "--internal-supervised",
         ])
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
@@ -504,10 +501,10 @@ fn finish_child(
             && summary.final_tick == child.run.manifest.limits.ticks
             && summary.termination_reason == "tick_limit_reached"
     });
-    let (category, success) = if child.interrupted {
-        (CompletionCategory::SupervisorInterrupted, false)
-    } else if status.success() && valid_summary {
+    let (category, success) = if status.success() && valid_summary {
         (CompletionCategory::Succeeded, true)
+    } else if child.interrupted {
+        (CompletionCategory::SupervisorInterrupted, false)
     } else if status.success() {
         (CompletionCategory::InvalidChildOutput, false)
     } else if status.code().is_none() {
@@ -579,10 +576,11 @@ fn exit_signal(_status: &ExitStatus) -> Option<String> {
 fn request_termination(child: &mut Child) {
     #[cfg(unix)]
     {
-        let status = Command::new("kill")
-            .args(["-TERM", &child.id().to_string()])
-            .status();
-        if !status.is_ok_and(|status| status.success()) {
+        use nix::sys::signal::{kill, Signal};
+        use nix::unistd::Pid;
+
+        let pid = i32::try_from(child.id()).map(Pid::from_raw);
+        if !pid.is_ok_and(|pid| kill(pid, Signal::SIGTERM).is_ok()) {
             let _ = child.kill();
         }
     }
@@ -594,8 +592,20 @@ fn request_termination(child: &mut Child) {
 
 #[cfg(test)]
 mod tests {
-    use super::path_in_archive_namespace;
-    use std::path::Path;
+    use super::{artifact_paths, finish_child, path_in_archive_namespace, RunningChild};
+    use crate::observe::{EventTotals, MetricsSnapshot};
+    use crate::runner::{
+        current_build_info, CompletionCategory, CompletionRecord, ObservationConfig, ResolvedRun,
+        RunLimits, RunManifest, RunSummary, RUNNER_SCHEMA_VERSION,
+    };
+    use crate::{BootstrapConfig, SimConfig};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn retry_archive_namespace_includes_descendants() {
@@ -616,5 +626,170 @@ mod tests {
             output,
             Path::new("/tmp/runs/y.attempt-0001")
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn valid_success_wins_when_interrupt_precedes_reaping() {
+        let fixture = ChildFixture::new("interrupt-race", true);
+        let (child, status) = fixture.finished_child("exit 0", true);
+
+        assert!(finish_child(child, status, &fixture.build_info).unwrap());
+        let completion = fixture.completion();
+        assert!(completion.success);
+        assert_eq!(completion.category, CompletionCategory::Succeeded);
+        assert_eq!(completion.child_exit_code, Some(0));
+        assert!(completion.valid_summary);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn killed_child_cannot_promote_a_preexisting_valid_summary() {
+        let fixture = ChildFixture::new("killed-stale-summary", true);
+        let mut child = fixture.running_child("exec sleep 60", false);
+        child.child.kill().expect("child should accept force kill");
+        let status = child.child.wait().expect("child should be reaped");
+
+        assert!(!finish_child(child, status, &fixture.build_info).unwrap());
+        let completion = fixture.completion();
+        assert!(!completion.success);
+        assert_eq!(completion.category, CompletionCategory::Signaled);
+        assert!(completion.valid_summary);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn nonzero_child_gets_supervisor_failure_completion() {
+        let fixture = ChildFixture::new("nonzero", false);
+        let (child, status) = fixture.finished_child("exit 7", false);
+
+        assert!(!finish_child(child, status, &fixture.build_info).unwrap());
+        let completion = fixture.completion();
+        assert!(!completion.success);
+        assert_eq!(completion.category, CompletionCategory::ChildFailed);
+        assert_eq!(completion.child_exit_code, Some(7));
+        assert!(!completion.valid_summary);
+    }
+
+    #[cfg(unix)]
+    struct ChildFixture {
+        root: PathBuf,
+        run: ResolvedRun,
+        build_info: crate::runner::BuildInfo,
+    }
+
+    #[cfg(unix)]
+    impl ChildFixture {
+        fn new(label: &str, write_summary: bool) -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "proteus-finish-child-{label}-{}-{}",
+                std::process::id(),
+                TEST_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).expect("fixture directory should be unique");
+            let build_info = current_build_info().expect("test build info should resolve");
+            let run = ResolvedRun {
+                manifest: RunManifest {
+                    runner_schema_version: RUNNER_SCHEMA_VERSION.to_owned(),
+                    run_id: label.to_owned(),
+                    simulation: SimConfig::default(),
+                    bootstrap: BootstrapConfig::default(),
+                    limits: RunLimits { ticks: 1 },
+                    observation: ObservationConfig { every_n_ticks: 1 },
+                    output_directory: root.to_string_lossy().into_owned(),
+                },
+                source_manifest: root.join("input.json"),
+                output_directory: root.clone(),
+                input_digest: "sha256:test-input".to_owned(),
+            };
+            if write_summary {
+                let summary = RunSummary {
+                    runner_schema_version: RUNNER_SCHEMA_VERSION.to_owned(),
+                    run_id: run.manifest.run_id.clone(),
+                    input_digest: run.input_digest.clone(),
+                    execution_digest: build_info.execution_digest.clone(),
+                    build: build_info.build.clone(),
+                    final_tick: 1,
+                    termination_reason: "tick_limit_reached".to_owned(),
+                    started_at: "2026-01-01T00:00:00.000Z".to_owned(),
+                    finished_at: "2026-01-01T00:00:01.000Z".to_owned(),
+                    wall_duration_ms: 1_000,
+                    final_metrics: empty_metrics(1),
+                };
+                fs::write(
+                    root.join("summary.json"),
+                    serde_json::to_vec(&summary).unwrap(),
+                )
+                .expect("summary should write");
+            }
+            Self {
+                root,
+                run,
+                build_info,
+            }
+        }
+
+        fn running_child(&self, command: &str, interrupted: bool) -> RunningChild {
+            let child = Command::new("/bin/sh")
+                .args(["-c", command])
+                .spawn()
+                .expect("fixture child should launch");
+            RunningChild {
+                run: self.run.clone(),
+                child,
+                started_at: "2026-01-01T00:00:00.000Z".to_owned(),
+                started: Instant::now(),
+                artifacts: artifact_paths(&self.root).unwrap(),
+                interrupted,
+            }
+        }
+
+        fn finished_child(
+            &self,
+            command: &str,
+            interrupted: bool,
+        ) -> (RunningChild, std::process::ExitStatus) {
+            let mut child = self.running_child(command, interrupted);
+            let status = child.child.wait().expect("fixture child should exit");
+            (child, status)
+        }
+
+        fn completion(&self) -> CompletionRecord {
+            serde_json::from_slice(
+                &fs::read(self.root.join("completion.json"))
+                    .expect("completion record should exist"),
+            )
+            .expect("completion record should parse")
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ChildFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[cfg(unix)]
+    fn empty_metrics(tick: u64) -> MetricsSnapshot {
+        MetricsSnapshot {
+            epoch: 0,
+            tick,
+            population: 0,
+            live_count: 0,
+            inert_count: 0,
+            total_energy: 0,
+            packet_energy: 0,
+            total_mass: 0,
+            mean_program_size: 0.0,
+            max_program_size: 0,
+            unique_genomes: 0,
+            births: 0,
+            boot_births: 0,
+            spawn_births: 0,
+            deaths: 0,
+            mutations: 0,
+            event_totals: EventTotals::default(),
+        }
     }
 }

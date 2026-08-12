@@ -247,7 +247,9 @@ validation succeeds. In supervised mode, `proteus-batch` reserves the fresh
 directory and commits its output `manifest.json` and log files before launch;
 the child accepts and verifies that supervisor-owned reservation but rejects any
 unexpected runner artifacts. The supervisor/child reservation mechanism is
-internal, not a third public execution mode.
+internal, not a third public execution mode. The implementation uses the
+undocumented `--internal-supervised` transport flag; it is not a supported
+user-facing invocation and succeeds only against a matching fresh reservation.
 
 ## 7. Run Identity and Provenance
 
@@ -556,7 +558,10 @@ writes `supervisor_interrupted` completion records. A second signal skips the
 grace period but the supervisor still makes a best effort to reap children and
 write records. Platform-specific signal or termination details are recorded in
 the completion record. The supervisor must not deliberately leave child
-processes running after it exits.
+processes running after it exits. A child that exited 0 and committed a valid
+summary before it was reaped remains `succeeded` even when the supervisor
+observed the interrupt first; completion records report the process outcome,
+not the order in which polling and signal delivery happened.
 
 The runner reports operational facts; it does not label a run scientifically as successful, extinct, frozen, or emergent.
 
@@ -622,7 +627,10 @@ namespace, and rejects a batch/run manifest located inside such a namespace.
 For example, `runs/x` and `runs/x.attempt-0001` cannot appear in the same batch.
 This check occurs on the resolved paths after symlink handling.
 
-Any preflight error prevents all launches and creates no output directories.
+Any preflight error, including an unsafe foreign or malformed output collision,
+prevents all launches and creates no output directories. Unsafe collisions are
+batch-level failures rather than per-run failures because partial launch after
+failed ownership validation would violate the all-or-nothing preflight boundary.
 After successful preflight, the supervisor creates missing output parents as
 needed and reserves each run directory immediately before its launch.
 
@@ -665,6 +673,7 @@ The exact completion fields are:
 
 Artifact paths name the expected locations and may point to absent files after a
 failure; `valid_summary` distinguishes a validated summary from a mere path.
+They are launch-time provenance and are not rewritten if an output tree moves.
 
 The supervisor, not the child, owns this record. A killed or out-of-memory child cannot reliably describe its own termination.
 
@@ -674,7 +683,9 @@ On every batch invocation:
    record exists and its run ID, input digest, and build object match the
    requested manifest and current child build. `execution_digest` is recorded
    but is deliberately ignored for resume so rebuilding identical sources does
-   not invalidate completed work.
+   not invalidate completed work. The absolute output and artifact paths stored
+   in the old records are also ignored: relocating a complete output tree does
+   not change its scientific or build identity.
 2. Matching completed runs are skipped, including when `--retry-incomplete` is
    present.
 3. A missing directory is a new run and is launched without a retry flag.
@@ -683,9 +694,11 @@ On every batch invocation:
    `--retry-incomplete`, it is not modified or launched, and the batch exits
    nonzero.
 5. A directory is runner-owned for retry only when it contains a valid runner
-   output `manifest.json`. An existing directory without that marker is never
-   moved or adopted, even with `--retry-incomplete`; the batch reports an unsafe
-   output collision and exits nonzero for that run.
+   output `manifest.json` for the current runner schema. Its stored absolute
+   paths describe where the attempt was launched and need not equal the current
+   location. An existing directory without a valid marker is never moved or
+   adopted, even with `--retry-incomplete`; the batch reports an unsafe output
+   collision and aborts preflight without launching any run.
 6. With `--retry-incomplete`, the supervisor atomically renames a runner-owned
    incomplete directory to the first unused sibling
    `<output-name>.attempt-N`, using the archive namespace defined in §11 and
@@ -761,6 +774,7 @@ and scientific stopping rules.
 - A killed child cannot be mistaken for success because it happened to leave a summary file.
 - Resume skips only successful completions matching run ID, input digest, and the current child build object.
 - Rebuilding identical sources may change `execution_digest` without invalidating resume.
+- Relocating a completed output tree does not invalidate resume or rewrite its historical paths.
 - Incomplete retry archives the entire old directory before launching and never reruns matching success.
 - Retry refuses to move an existing directory without a valid runner ownership marker.
 - Batch-relative manifest paths and run-relative output paths resolve as specified.

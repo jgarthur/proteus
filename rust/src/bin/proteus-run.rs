@@ -17,7 +17,13 @@ fn main() -> ExitCode {
 }
 
 fn dispatch(arguments: Vec<String>) -> Result<(), (ErrorKind, String)> {
-    if arguments == ["--build-info"] {
+    if arguments.iter().any(|argument| argument == "--build-info") {
+        if arguments != ["--build-info"] {
+            return Err((
+                ErrorKind::InvalidInput,
+                "--build-info cannot be combined with other arguments".to_owned(),
+            ));
+        }
         let info = current_build_info().map_err(|error| (error.kind(), error.to_string()))?;
         serde_json::to_writer(std::io::stdout(), &info)
             .map_err(|error| (ErrorKind::Operational, error.to_string()))?;
@@ -58,11 +64,11 @@ fn dispatch(arguments: Vec<String>) -> Result<(), (ErrorKind, String)> {
                     )
                 })?;
             }
-            "--supervised" => {
+            "--internal-supervised" => {
                 if supervised {
                     return Err((
                         ErrorKind::InvalidInput,
-                        "--supervised may be specified only once".to_owned(),
+                        "--internal-supervised may be specified only once".to_owned(),
                     ));
                 }
                 supervised = true;

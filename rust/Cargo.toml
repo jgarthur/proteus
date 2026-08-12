@@ -36,6 +36,9 @@ ctrlc = { version = "3", features = ["termination"] }
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"], optional = true }
 tower-http = { version = "0.6", features = ["cors", "set-header"], optional = true }
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["signal"] }
+
 [build-dependencies]
 sha2 = "0.10"
 

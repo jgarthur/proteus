@@ -530,6 +530,7 @@ dependencies = [
  "fastrand",
  "futures-util",
  "http-body-util",
+ "nix",
  "rand_core",
  "rand_distr",
  "rand_xoshiro",
