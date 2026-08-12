@@ -14,6 +14,7 @@ This folder contains the active Rust backend implementation for Proteus.
 - `Cargo.toml` - Rust package manifest for the active backend crate.
 - `AGENTS.md` - Local instructions for work in this folder.
 - `README.md` - Orientation for the active Rust backend surface.
+- `example-run.json` - Small runnable headless manifest matching the frontend starter's simulation and bootstrap values.
 - `src/web/smoke_test.html` - Minimal browser-based smoke-test viewer served by the backend at `/debug/smoke`; keep it aligned with the current REST/WS observer surface.
 
 ## Current Crate Shape
@@ -29,12 +30,23 @@ This folder contains the active Rust backend implementation for Proteus.
 
 ## Running Headless Jobs
 
-Use a schema `0.1.0` manifest as defined in `docs/RUNNER-SPEC.md`:
+The included `example-run.json` is a schema `0.1.0` manifest whose simulation
+and bootstrap values match the frontend starter. From `rust/`, run it with:
 
 ```bash
-cargo run --bin proteus-run -- --manifest ../manifests/run.json
+cargo run --bin proteus-run -- --manifest example-run.json
+```
+
+It writes its artifacts under the ignored `target/proteus-runs/` directory.
+Direct runs require a fresh `output_directory`, so change that field before
+reusing the example for another run. See the complete input and output contract
+in [`docs/RUNNER-SPEC.md`](../docs/RUNNER-SPEC.md).
+
+To run a batch manifest you have created:
+
+```bash
 cargo build --bins
-./target/debug/proteus-batch --manifest ../manifests/batch.json
+./target/debug/proteus-batch --manifest /path/to/batch.json
 ```
 
 Building all binaries together ensures `proteus-batch` can find the matching
@@ -44,24 +56,27 @@ machine-readable runner build identity. Interrupted or otherwise incomplete
 batches resume whole runs with `--retry-incomplete`, archiving the prior attempt
 before restarting it.
 
-## Running The Smoke Test
+## Running the Web Backend
 
 From `rust/`:
 
 ```bash
-cargo run --features web --bin proteus-server
+cargo run --bin proteus-server --features web
 ```
+
+This starts the full REST and WebSocket backend at `http://127.0.0.1:3000` for
+the React frontend and other API clients. It also serves a standalone diagnostic
+viewer at `http://127.0.0.1:3000/debug/smoke`; the smoke page is optional and is
+not a separate server.
 
 The crate's default `dev` profile is intentionally tuned for runtime speed
 (`opt-level = 3`, thin LTO, `codegen-units = 1`), so plain `cargo run` is the
 fast path for local simulator work.
 
-Then open `http://127.0.0.1:3000/debug/smoke`.
-
 To bind a different address/port:
 
 ```bash
-cargo run --features web --bin proteus-server -- 127.0.0.1:4000
+cargo run --bin proteus-server --features web -- 127.0.0.1:4000
 ```
 
 ## Optional Parallelism
