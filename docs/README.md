@@ -13,7 +13,7 @@ This folder contains the Proteus specification and related working documentation
 - `BACKEND-TESTING.md` - Testing strategy covering test infrastructure, property-based testing, fuzzing, multi-tick scenarios, pass-boundary verification, parallelism correctness, and edge cases.
 - `API-SPEC.md` - Provisional external API specification for the frontend/backend interaction contract. REST + WebSocket hybrid.
 - `FRONTEND-SPEC.md` - Provisional frontend design specification. Technology stack, architecture, grid visualization, controls, metrics, and layout for the web-based simulation viewer.
-- `RUNNER-SPEC.md` - Provisional contract for deterministic single-run and fixed-batch headless execution, including manifests, outputs, supervision, and resume semantics.
+- `RUNNER-SPEC.md` - Implementation-ready MVP contract for deterministic single-run and fixed-batch headless execution, including strict manifests, outputs, supervision, and resume semantics.
 
 ## Key Folders
 

@@ -1,6 +1,6 @@
-# Proteus Headless Runner Specification (Provisional)
+# Proteus Headless Runner Specification
 
-**Status**: Provisional design proposal; not yet implemented.
+**Status**: MVP contract ready for implementation; not yet implemented.
 
 **Targets**: Proteus v0.2.1 engine, API metrics schema v0.2.2.
 
@@ -88,6 +88,53 @@ The shared bootstrap model owns:
 - the exact bootstrap RNG salt and derivation
 - explicit environmental preloads, including resource-rich neighboring empty cells
 
+The MVP bootstrap JSON has this shape:
+
+```json
+{
+  "programs": [
+    {
+      "x": 32,
+      "y": 24,
+      "code": [80, 100],
+      "free_energy": 20,
+      "free_mass": 12
+    }
+  ],
+  "environment": [
+    {
+      "x": 31,
+      "y": 24,
+      "free_energy": 20,
+      "free_mass": 12,
+      "bg_radiation": 0,
+      "bg_mass": 0
+    }
+  ]
+}
+```
+
+All fields in both entry types are required. Coordinates are 0-indexed `(x, y)`
+API coordinates and must be in bounds. Program code is an array of bytes, must
+be nonempty, and must not exceed `PROGRAM_SIZE_CAP`. Duplicate program
+coordinates and duplicate environment coordinates are rejected.
+
+An environment entry sets all four resource pools on its cell. Environment and
+program entries may address the same cell: the environment entry first sets all
+four pools, then program placement replaces `free_energy` and `free_mass` with
+the program's attached values while retaining the preloaded background pools.
+This follows the initialization order below and permits an exact preload on a
+seed cell without adding bootstrap-only program fields.
+
+Bootstrap RNG semantics are versioned as `seed-program-v1`. Preserve the
+existing web-controller derivation when extracting it: for row-major
+`cell_index`, construct
+`cell_rng(simulation.seed ^ 0x0d7e_8ef0_4268_33c1, 0, cell_index)`, draw `Dir`
+first as `next_u32() % 4`, then draw `ID` as `next_u32() as u8`. Because each
+program uses a cell-derived RNG, manifest array order has no effect on the
+initialized world. The version and salt are execution provenance, not
+caller-configurable manifest fields.
+
 Initialization order is fixed:
 
 1. Construct the grid and stationary Poisson background from `SimConfig`.
@@ -104,7 +151,13 @@ This boundary corresponds to `SEED-BOOTSTRAP` and `SEED-ENVIRONMENT` in `BACKLOG
 
 ## 6. Single-Run Input Contract
 
-The precise serialization format remains provisional; JSON is the recommended MVP format because it is unambiguous and easy for external tools to generate. A single-run manifest contains only exact values:
+The MVP input format is UTF-8 JSON. `proteus-run` accepts exactly one manifest
+path as `proteus-run --manifest <path>`. JSON objects are strict: unknown fields,
+missing fields, duplicate object keys, non-finite numbers, and values outside the
+corresponding Rust integer range are errors. No manifest field receives an
+implicit default. `runner_schema_version` must equal `0.1.0`.
+
+A single-run manifest contains only exact values:
 
 ```json
 {
@@ -129,8 +182,25 @@ The precise serialization format remains provisional; JSON is the recommended MV
     "mutation_background_log2": 8
   },
   "bootstrap": {
-    "programs": [],
-    "environment": []
+    "programs": [
+      {
+        "x": 32,
+        "y": 24,
+        "code": [80, 100],
+        "free_energy": 20,
+        "free_mass": 12
+      }
+    ],
+    "environment": [
+      {
+        "x": 31,
+        "y": 24,
+        "free_energy": 20,
+        "free_mass": 12,
+        "bg_radiation": 0,
+        "bg_mass": 0
+      }
+    ]
   },
   "limits": {
     "ticks": 10000
@@ -154,24 +224,73 @@ Required semantic fields are:
 | `observation.every_n_ticks` | Metrics sampling cadence; must be greater than zero |
 | `output_directory` | Exclusive output location for this run |
 
-The manifest contains no parameter ranges, replicate counts, or conditional promotion rules. A caller that wants 100 configurations supplies 100 exact manifests.
+`run_id` must match `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. A relative
+`output_directory` is resolved relative to the single-run manifest's parent
+directory, not the process working directory. The normalized output record uses
+the resolved absolute path. All input and resolved paths must be valid UTF-8 in
+runner schema `0.1.0`.
+
+The `simulation` object contains every field of `SimConfig` with exactly the
+names shown above. It is validated by `SimConfig::validate()` after JSON type
+validation. `limits.ticks` and `observation.every_n_ticks` are `u64` values
+greater than zero. The manifest contains no parameter ranges, replicate counts,
+or conditional promotion rules. A caller that wants 100 configurations supplies
+100 exact manifests.
+
+Direct `proteus-run` execution requires `output_directory` not to exist and
+creates it exclusively. It never deletes, truncates, or adopts an existing run
+directory. Missing parent directories are created as needed only after input
+validation succeeds. In supervised mode, `proteus-batch` reserves the fresh
+directory and commits its output `manifest.json` and log files before launch;
+the child accepts and verifies that supervisor-owned reservation but rejects any
+unexpected runner artifacts. The supervisor/child reservation mechanism is
+internal, not a third public execution mode.
 
 ## 7. Run Identity and Provenance
 
 `run_id` is the external human-readable identity. The runner also computes a canonical input digest from the normalized manifest fields that affect simulation or observation.
 
-Each run records:
+For schema `0.1.0`, the digest projection contains, in order:
+
+1. `runner_schema_version`
+2. the complete `simulation` object in the field order shown in §6
+3. `bootstrap.programs`, sorted by `(y, x)`
+4. `bootstrap.environment`, sorted by `(y, x)`
+5. `limits`
+6. `observation`
+
+`run_id` and `output_directory` are excluded because identity and storage do not
+change simulation or observation results. The runner serializes this typed
+projection as compact JSON using `serde_json`: struct field order is fixed as
+above, integers use decimal JSON representation, and finite `f64` values use
+`serde_json`'s shortest round-tripping representation. It then computes SHA-256
+over those exact UTF-8 bytes and renders `sha256:<lowercase hex>`. Array sorting
+means reordering independent bootstrap entries does not change the digest. A
+negative floating-point zero is normalized to positive zero before serialization.
+A change to this canonical serialization requires a new runner schema version.
+Callers should normally treat the digest as an opaque runner-produced value.
+
+Build provenance describes the executable that performs the simulation. Capture
+it at build time, not by inspecting a possibly unrelated checkout at launch:
+
+- engine crate version and simulator spec version
+- Git commit, or `null` when unavailable
+- whether the source worktree was dirty at build time, or `null` when unavailable
+- Cargo profile, enabled Cargo features, target triple, and Rust compiler version
+
+Launch and completion provenance collectively contain runtime facts: resolved
+executable path, start and finish UTC timestamps, monotonic wall-clock duration,
+and engine thread count. The MVP serial runner records one engine thread.
+
+The run artifact set therefore records:
 
 - runner schema version
 - engine crate and simulator version
-- Git commit when available
-- whether the source worktree was dirty when built or launched
-- enabled Cargo features
+- build and launch provenance as defined above
 - complete expanded input manifest
 - canonical input digest
 - world RNG seed
 - bootstrap RNG salt/version
-- effective Rayon thread count, if Rayon is active
 - start and finish timestamps
 - wall-clock duration
 - final tick
@@ -179,11 +298,18 @@ Each run records:
 
 Same-version replay requires identical simulation inputs, bootstrap inputs, seed, and execution semantics. Determinism across different engine commits or runner schema versions is not promised.
 
+All output timestamps use RFC 3339 UTC strings with a `Z` suffix. Durations are
+unsigned integer milliseconds measured with a monotonic clock. Feature lists are
+sorted lexicographically. Paths in output records are resolved absolute UTF-8
+paths.
+
 ## 8. Tick and Observation Semantics
 
 The child tick loop has one event-recording funnel:
 
 ```text
+write metrics record for tick 0 with a zero TickReport
+
 report = simulation.run_tick_report()
 event_totals.record(report)
 
@@ -204,41 +330,151 @@ Cumulative totals prevent sampled observations from losing events between rows. 
 
 O(grid) aggregate metrics are computed only at observation cadence and for the final summary. The runner must not scan the grid on every tick merely to support a coarser output cadence.
 
+Each JSONL line uses a runner envelope rather than a bare API object:
+
+```json
+{
+  "runner_schema_version": "0.1.0",
+  "run_id": "example-run-0001",
+  "input_digest": "sha256:...",
+  "metrics": {
+    "epoch": 0,
+    "tick": 0,
+    "population": 1,
+    "live_count": 1,
+    "inert_count": 0,
+    "total_energy": 20,
+    "packet_energy": 0,
+    "total_mass": 12,
+    "mean_program_size": 2.0,
+    "max_program_size": 2,
+    "unique_genomes": 1,
+    "births": 0,
+    "boot_births": 0,
+    "spawn_births": 0,
+    "deaths": 0,
+    "mutations": 0,
+    "event_totals": {
+      "births": 0,
+      "boot_births": 0,
+      "spawn_births": 0,
+      "deaths": 0,
+      "mutations": 0
+    }
+  }
+}
+```
+
+`metrics` is the API v0.2.2 `MetricsSnapshot` object verbatim, including every
+field in that schema. The runner envelope makes lines safe to concatenate across
+runs without requiring their directory context. The runner has one metrics
+epoch, numbered 0. At tick 0, all top-level per-tick event fields and cumulative
+event totals are zero.
+
 ## 9. Single-Run Outputs
 
-One run directory contains:
+One supervised run directory contains:
 
 ```text
-<run_id>/
+<output_directory>/
 ├── manifest.json
-├── metrics.jsonl
-├── summary.json
-├── completion.json
-├── stdout.log
-└── stderr.log
+├── metrics.jsonl       # after the child starts
+├── summary.json        # successful child only
+├── completion.json     # proteus-batch only
+├── stdout.log          # proteus-batch only
+└── stderr.log          # proteus-batch only
 ```
+
+A direct `proteus-run` directory contains only `manifest.json`,
+`metrics.jsonl`, and, after success, `summary.json`. It has no authoritative
+completion record or supervisor-captured logs.
 
 ### `manifest.json`
 
-An immutable copy of the normalized input plus provenance known before execution. It is written before the first tick.
+An immutable output record containing the normalized single-run manifest,
+canonical input digest, bootstrap RNG version, and build/launch provenance known
+before execution. It is written before tick 0. In direct mode the child writes
+it; in batch mode the supervisor writes it while reserving the directory and the
+child verifies it before executing. This makes the directory recognizably
+runner-owned even if the child cannot launch. This output record is distinct from
+the strict input schema and is not itself accepted as a run manifest.
+
+Schema `0.1.0` has these exact top-level fields:
+
+| Field | Type and contents |
+|---|---|
+| `runner_schema_version` | String, `0.1.0` |
+| `run_id` | String copied from input |
+| `input_digest` | Canonical `sha256:<hex>` digest |
+| `input` | Object containing normalized `simulation`, sorted `bootstrap`, `limits`, `observation`, and resolved `output_directory` |
+| `execution` | Object containing `bootstrap_rng_version`, hexadecimal-string `bootstrap_rng_salt`, and `engine_threads` |
+| `build` | Object containing `engine_crate_version`, `simulator_spec_version`, nullable `git_commit`, nullable `source_dirty`, `cargo_profile`, sorted `cargo_features`, `target_triple`, and `rustc_version` |
+| `launch` | Object containing resolved `executable`, resolved `source_manifest`, and `started_at` |
+
+`bootstrap_rng_version` is `seed-program-v1` and `bootstrap_rng_salt` is
+`0x0d7e8ef0426833c1` for this schema. `engine_threads` is `1` in the MVP.
 
 ### `metrics.jsonl`
 
 Append-only sampled metrics, one JSON object per line. JSONL is the MVP format because it preserves the nested cumulative-event object and remains streamable after partial failure.
 
-The first row represents tick 0. A final row is written at the actual final tick if cadence would otherwise omit it.
+The first row represents tick 0. A final row is written at the actual final tick
+if cadence would otherwise omit it. Each complete line is flushed to the
+operating system before the next tick begins; the runner does not `fsync` every
+sample. A crash may therefore lose recently flushed data or leave one partial
+final line, but all preceding complete lines remain valid JSON records. Readers
+must ignore an incomplete final line.
 
 ### `summary.json`
 
-Written by `proteus-run` only after normal completion. It contains final tick, final gauges, cumulative event totals, duration, and the child's self-reported termination reason. It is useful output but is not the batch supervisor's authoritative evidence that the process completed.
+Written by `proteus-run` only after normal completion. It contains runner schema
+version, run ID, input digest, final tick, final metrics, cumulative event totals,
+duration, and the child's self-reported `tick_limit_reached` termination reason.
+It is useful output but is not the batch supervisor's authoritative evidence that
+the process completed.
+
+Its exact fields are:
+
+| Field | Type and contents |
+|---|---|
+| `runner_schema_version` | String, `0.1.0` |
+| `run_id` | String |
+| `input_digest` | String |
+| `final_tick` | `u64`, equal to `limits.ticks` |
+| `termination_reason` | String, `tick_limit_reached` |
+| `started_at` | RFC 3339 UTC string recorded by the child before world initialization |
+| `finished_at` | RFC 3339 UTC string |
+| `wall_duration_ms` | `u64` monotonic child duration |
+| `final_metrics` | Complete API v0.2.2 `MetricsSnapshot` at `final_tick` |
+
+`final_metrics.event_totals` is the authoritative cumulative-event value in the
+summary; it is not duplicated in a second top-level field.
 
 ### `completion.json`
 
-Written only by `proteus-batch`, after the supervisor observes the child exit. The supervisor writes a temporary file, flushes it, and atomically renames it into place. A run launched without `proteus-batch` has no supervisor completion record.
+Written only by `proteus-batch`, after the supervisor observes the child attempt
+finish or fail to launch. A run launched without `proteus-batch` has no
+supervisor completion record.
 
 ### Logs
 
 The supervisor captures child stdout and stderr per run. Log files must not be treated as the machine-readable result contract.
+
+### Durability boundary
+
+`manifest.json`, `summary.json`, and `completion.json` use the same commit
+protocol: write a temporary file in the destination directory, write the entire
+JSON value, flush and `sync_all` the file, atomically rename it to the final name,
+then sync the parent directory where the platform supports directory syncing.
+`metrics.jsonl` is flushed per row and is flushed and `sync_all`ed before
+`summary.json` is committed. Failure of a required write, file sync, or rename is
+an output failure. Directory-sync support is best-effort on platforms that do
+not expose it.
+
+These guarantees target ordinary local filesystems with same-directory atomic
+rename. The MVP does not claim crash-atomic behavior on network or userspace
+filesystems that do not honor those primitives. Logs have no durability promise
+beyond normal file I/O.
 
 Snapshots and full-grid artifacts are deferred. They may be added after `SNAPSHOT-BOUNDARY` establishes a stable engine snapshot format.
 
@@ -252,16 +488,40 @@ It may also end abnormally because of:
 
 - invalid manifest or bootstrap
 - output I/O failure
-- engine/controller panic
+- engine panic
 - nonzero process exit
 - signal or operating-system termination
 - supervisor interruption
+
+`proteus-batch` handles its normal interrupt/termination signals. On the first
+signal it stops launching jobs, requests termination of every running child,
+waits up to five seconds, force-terminates remaining children, reaps them, and
+writes `supervisor_interrupted` completion records. A second signal skips the
+grace period but the supervisor still makes a best effort to reap children and
+write records. Platform-specific signal or termination details are recorded in
+the completion record. The supervisor must not deliberately leave child
+processes running after it exits.
 
 The runner reports operational facts; it does not label a run scientifically as successful, extinct, frozen, or emergent.
 
 Wall-clock limits, memory limits, extinction stops, saturation stops, and bloat stops are deferred. When added, operational resource limits must be recorded as `resource_exhausted` or another explicit operational reason—not as biological extinction.
 
 ## 11. Batch Input and Scheduling
+
+The MVP batch format is UTF-8 JSON with the same strict-object rules as §6.
+`proteus-batch` accepts `proteus-batch --manifest <path>` and an optional
+`--retry-incomplete` flag. Batch manifests reference one file per run; embedded
+run definitions are not supported in schema `0.1.0`.
+
+The supervisor resolves `proteus-run` next to its own executable, using the
+platform executable suffix where applicable. A custom child binary path is not
+part of the MVP. Before preflight mutates any output path, the supervisor invokes
+`proteus-run --build-info`. That mode prints one compact JSON object containing
+`runner_schema_version`, the exact `build` object defined in §9, and
+`engine_threads`, then exits. It cannot be combined with `--manifest`, performs
+no simulation, and creates no run output. The supervisor requires schema
+`0.1.0`, exact equality with its own build object, and `engine_threads: 1`;
+otherwise batch preflight fails.
 
 The batch manifest is an exact list of single-run manifests plus a concurrency limit:
 
@@ -276,62 +536,117 @@ The batch manifest is an exact list of single-run manifests plus a concurrency l
 }
 ```
 
+`runner_schema_version` must equal `0.1.0`, `jobs` is a `u32` greater than zero,
+and `runs` must be nonempty. Each `manifest` path is nonempty and is resolved
+relative to the batch manifest's parent directory. Each run's relative
+`output_directory` remains relative to that run manifest, as defined in §6.
+
 MVP exposes only run-level `jobs`. It builds `proteus-run` against the existing serial engine path, does not expose `threads_per_job`, and does not attempt automatic CPU topology management. Rayon integration and per-child thread scheduling are deferred. Independent-run parallelism is the MVP strategy for ensembles.
 
-The supervisor validates all run IDs and output directories before launching the first child. Duplicate identities or overlapping output directories are errors.
+Before launching the first child, the supervisor parses and validates every run
+manifest, computes every digest, and resolves every output path. Duplicate run
+IDs are errors. Output directories are errors when their resolved paths are
+equal or one is an ancestor of another. Resolve paths against a canonicalized
+nearest existing ancestor so symlink aliases cannot bypass the overlap check.
+An output path must not resolve to a filesystem root, and it must not equal or
+contain the batch manifest or any referenced run manifest.
+Any preflight error prevents all launches and creates no output directories.
+After successful preflight, the supervisor creates missing output parents as
+needed and reserves each run directory immediately before its launch.
 
 Scheduling order has no simulation semantics. Each child is deterministic from its own inputs and cannot share mutable simulation state with another child.
 
 ## 12. Completion Records and Resume
 
-`proteus-batch` writes one authoritative `completion.json` per run after observing the child process exit. A separate append-only batch index may be added for convenient analysis, but it is not authoritative for resume.
+`proteus-batch` writes one authoritative `completion.json` per attempted run
+after observing the child process exit, a launch failure, or supervisor-initiated
+termination. A separate append-only batch index may be added for convenient
+analysis, but it is not authoritative for resume.
 
-A completion record contains at least:
+A completion record contains a boolean `success` and one supervisor category:
+`succeeded`, `child_failed`, `signaled`, `launch_failed`,
+`invalid_child_output`, or `supervisor_interrupted`. Raw platform exit status or
+signal information is retained separately from this portable category. A child
+is successful only when it exits 0 and leaves a valid `summary.json` whose run
+ID, digest, final tick, and termination reason match the requested run. An exit-0
+child with a missing or invalid summary is `invalid_child_output`.
 
-- `run_id`
-- canonical input digest
-- child exit status or signal
-- supervisor-observed termination category
-- whether a valid child summary was present
-- start and finish timestamps
-- wall-clock duration
-- paths to manifest, metrics, summary, stdout, and stderr
+The exact completion fields are:
+
+| Field | Type and contents |
+|---|---|
+| `runner_schema_version` | String, `0.1.0` |
+| `run_id` | String |
+| `input_digest` | String |
+| `success` | Boolean |
+| `category` | One portable category listed above |
+| `child_exit_code` | Signed integer or `null` when unavailable |
+| `child_signal` | Platform signal/termination string or `null` |
+| `valid_summary` | Boolean |
+| `started_at` | Supervisor child-launch-attempt timestamp |
+| `finished_at` | Supervisor completion timestamp |
+| `wall_duration_ms` | `u64` monotonic supervisor-observed duration |
+| `artifacts` | Object containing absolute `manifest`, `metrics`, `summary`, `stdout`, and `stderr` paths |
+
+Artifact paths name the expected locations and may point to absent files after a
+failure; `valid_summary` distinguishes a validated summary from a mere path.
 
 The supervisor, not the child, owns this record. A killed or out-of-memory child cannot reliably describe its own termination.
 
-On resume:
+On every batch invocation:
 
-1. A run is complete only when a successful supervisor completion record exists and its input digest matches the requested manifest.
-2. Matching completed runs are skipped.
-3. Missing, failed, or digest-mismatched runs are not silently accepted as complete.
-4. The default retry policy is explicit rather than automatic: rerun only when requested by the caller.
-5. Partial output from a retried run is preserved or moved aside; it is never confused with the new attempt.
+1. A run is complete only when a valid `success: true` supervisor completion
+   record exists and both its run ID and digest match the requested manifest.
+2. Matching completed runs are skipped, including when `--retry-incomplete` is
+   present.
+3. A missing directory is a new run and is launched without a retry flag.
+4. An existing runner-owned directory with a missing/failed completion or a
+   run-ID/digest mismatch is incomplete. Without `--retry-incomplete`, it is not
+   modified or launched, and the batch exits nonzero.
+5. A directory is runner-owned for retry only when it contains a valid runner
+   output `manifest.json`. An existing directory without that marker is never
+   moved or adopted, even with `--retry-incomplete`; the batch reports an unsafe
+   output collision and exits nonzero for that run.
+6. With `--retry-incomplete`, the supervisor atomically renames a runner-owned
+   incomplete directory to the first unused sibling
+   `<output_directory>.attempt-NNNN`, starting at `0001`. It then reserves a new
+   output directory and launches the requested run. No files are copied forward.
+
+Direct `proteus-run` has no retry flag and never archives output. This keeps
+resume and retry policy under the supervisor that owns authoritative completion.
+The batch does not provide an MVP option to rerun a matching successful job.
 
 MVP resume occurs only between whole runs. Resuming within a partially completed simulation is deferred with snapshot support.
 
 ## 13. Exit Status
 
-Recommended process-level behavior:
+Process-level behavior:
 
-- `proteus-run` exits 0 only after reaching its tick limit and durably writing its final outputs.
-- `proteus-run` exits nonzero for invalid input, engine failure, or output failure.
-- `proteus-batch` exits 0 only if every requested run is already complete or completes successfully during this invocation.
-- `proteus-batch` exits nonzero if any requested run fails, cannot launch, or remains incomplete.
+- `0`: all requested work completed successfully. For a batch, matching runs
+  skipped as already complete count as successful.
+- `1`: an engine, child, launch, output, or incomplete-run failure occurred.
+- `2`: CLI usage, manifest parsing, manifest validation, or batch preflight
+  failed before simulation work began.
+- `130`: `proteus-batch` was interrupted and performed supervised shutdown.
 
-Exact numeric exit codes are an implementation detail until the CLI contract is finalized.
+Raw child exit codes and signals are recorded in `completion.json`; they are not
+remapped to this four-code supervisor interface.
 
 ## 14. MVP Delivery Boundary
 
 The smallest corrected MVP is:
 
 1. Shared bootstrap module with neighborhood preload support.
-2. `proteus-run` wrapping `Simulation::run_tick_report()`.
-3. Tick-limit termination only.
-4. Sampled JSONL metrics using cumulative event counters.
-5. Immutable manifest and final summary.
-6. `proteus-batch` supervising `N` single-threaded subprocesses.
-7. Supervisor-owned atomic completion records.
-8. Job-level resume by run ID plus canonical input digest.
+2. Shared manifest and observation serialization that is usable without enabling
+   the web feature.
+3. `proteus-run` wrapping `Simulation::run_tick_report()`.
+4. Tick-limit termination only.
+5. Sampled JSONL metrics using cumulative event counters.
+6. Immutable manifest and final summary.
+7. `proteus-batch` supervising `N` single-threaded subprocesses from
+   file-referenced manifests.
+8. Supervisor-owned atomic completion records.
+9. Job-level resume by run ID plus canonical input digest.
 
 Defer memory limits, wall-clock limits, Rayon/thread controls, in-run checkpoints, optimizer integration, and scientific stopping rules.
 
@@ -340,6 +655,9 @@ Defer memory limits, wall-clock limits, Rayon/thread controls, in-run checkpoint
 - A headless run and direct engine run produce the same final state for identical inputs.
 - Web and headless bootstrap produce identical tick-0 worlds.
 - Bootstrap programs do not count as births.
+- Bootstrap array order does not change the tick-0 world or input digest.
+- Environment preload/program overlap follows the documented resource override order.
+- Unknown, missing, duplicate, out-of-range, and non-finite manifest values are rejected.
 - Observation cadences 1 and 100 produce identical final cumulative event totals.
 - Observation cadence does not change final simulation state.
 - The final metrics row is emitted when the tick limit is off cadence.
@@ -348,16 +666,19 @@ Defer memory limits, wall-clock limits, Rayon/thread controls, in-run checkpoint
 - A child panic/nonzero exit produces a supervisor-authored failure completion record.
 - A killed child cannot be mistaken for success because it happened to leave a summary file.
 - Resume skips only matching successful input digests.
+- Incomplete retry archives the entire old directory before launching and never reruns matching success.
+- Retry refuses to move an existing directory without a valid runner ownership marker.
+- Batch-relative manifest paths and run-relative output paths resolve as specified.
+- Interrupting the supervisor terminates and reaps its children and writes interruption records.
 - Interrupted JSONL output remains readable through its last complete line.
 
-## 16. Open Implementation Questions
+## 16. Deferred Contract Extensions
 
-These questions are inside the runner boundary and should be settled before implementation:
+The MVP decisions above are closed for runner schema `0.1.0`. Later schema
+versions may add embedded batch runs, an explicit successful-run replacement
+mode, additional termination limits, or another metrics encoding. They must not
+silently change schema `0.1.0` normalization, digest, bootstrap, retry, or output
+semantics.
 
-1. Should manifests embed run definitions or reference one file per run? The MVP may support both only if normalization produces one canonical form.
-2. Should provenance be captured at build time, launch time, or both when a binary is run from a dirty checkout?
-3. What durability guarantees beyond write-temp, flush, and atomic rename are required on each supported filesystem?
-4. How should partial output directories be named and retained across explicit retries?
-5. Should `metrics.jsonl` use the API metrics object verbatim or a runner envelope with schema/provenance fields?
-
-Questions about which configurations to try, how to score outcomes, or how to optimize emergence are not runner design questions and do not belong in this document.
+Questions about which configurations to try, how to score outcomes, or how to
+optimize emergence remain outside the runner boundary.
