@@ -17,6 +17,7 @@ use super::{
 pub struct RunOptions {
     pub manifest_path: PathBuf,
     pub threads: u32,
+    pub verbosity: u8,
     pub supervised: bool,
 }
 
@@ -24,6 +25,11 @@ pub struct RunOptions {
 pub fn run_main(options: RunOptions) -> Result<(), RunnerError> {
     if options.threads == 0 {
         return Err(RunnerError::invalid("--threads must be greater than zero"));
+    }
+    if options.verbosity > 1 {
+        return Err(RunnerError::invalid(
+            "--verbosity/-v requires either 0 or 1",
+        ));
     }
     configure_threads(options.threads)?;
     let run = super::load_run_manifest(&options.manifest_path)?;
@@ -39,6 +45,19 @@ pub fn run_main(options: RunOptions) -> Result<(), RunnerError> {
     } else {
         reserve_direct_output(&run, &build_info, &executable, &started_at, options.threads)?
     };
+    if options.verbosity > 0 {
+        eprintln!(
+            "proteus-run: starting run {} (ticks={}, observe_every={}, threads={})",
+            run.manifest.run_id,
+            run.manifest.limits.ticks,
+            run.manifest.observation.every_n_ticks,
+            options.threads
+        );
+        eprintln!(
+            "proteus-run: output directory: {}",
+            run.output_directory.display()
+        );
+    }
 
     let metrics_path = run.output_directory.join("metrics.jsonl");
     let mut metrics_file = create_new_file(&metrics_path)?;
@@ -114,6 +133,12 @@ pub fn run_main(options: RunOptions) -> Result<(), RunnerError> {
     };
     write_json_atomic(&run.output_directory.join("summary.json"), &summary)?;
     sync_directory(&run.output_directory);
+    if options.verbosity > 0 {
+        eprintln!(
+            "proteus-run: completed run {} (final_tick={}, duration_ms={})",
+            summary.run_id, summary.final_tick, summary.wall_duration_ms
+        );
+    }
     Ok(())
 }
 

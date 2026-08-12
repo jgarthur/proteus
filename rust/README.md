@@ -39,6 +39,9 @@ cargo run --bin proteus-run -- --manifest example-run.json
 ```
 
 It writes its artifacts under the ignored `target/proteus-runs/` directory.
+By default, `proteus-run` reports the run ID, resolved output directory, tick
+target, thread count, and completion status on stderr. Pass `--verbosity 0` or
+`-v 0` to suppress successful-run status; errors are always reported.
 Direct runs require a fresh `output_directory`, so change that field before
 reusing the example for another run. See the complete input and output contract
 in [`docs/RUNNER-SPEC.md`](../docs/RUNNER-SPEC.md).
@@ -48,12 +51,16 @@ launches up to four single-threaded child processes at once:
 
 ```bash
 cargo build --bins
-./target/debug/proteus-batch --manifest example-batch/batch.json
+cargo run --bin proteus-batch -- --manifest example-batch/batch.json
 ```
 
 Batch manifests reference one exact run manifest per child, so the example is a
 small flat directory rather than one templated file. Its outputs also go under
-`target/proteus-runs/`.
+`target/proteus-runs/`. `proteus-batch` reports preflight, launches, output
+directories, and outcomes on stderr. Child status is kept in each run's
+`stderr.log`, rather than interleaved on the terminal. Pass `--verbosity 0` or
+`-v 0` to suppress normal supervisor status and normal child log status; errors
+and interrupts are always reported.
 
 Building all binaries together ensures `proteus-batch` can find the matching
 `proteus-run` sibling it supervises. Batch children are always single-threaded.

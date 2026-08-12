@@ -22,6 +22,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(20);
 pub struct BatchOptions {
     pub manifest_path: PathBuf,
     pub retry_incomplete: bool,
+    pub verbosity: u8,
 }
 
 /// Semantic batch result mapped to the process exit contract.
@@ -67,6 +68,11 @@ enum ExistingState {
 
 /// Supervises a fixed batch of child processes with bounded concurrency.
 pub fn batch_main(options: BatchOptions) -> Result<BatchOutcome, RunnerError> {
+    if options.verbosity > 1 {
+        return Err(RunnerError::invalid(
+            "--verbosity/-v requires either 0 or 1",
+        ));
+    }
     let (batch, batch_path) = load_batch_manifest(&options.manifest_path)?;
     let child_path = locate_child_executable()?;
     let child_info = inspect_child(&child_path)?;
@@ -95,16 +101,35 @@ pub fn batch_main(options: BatchOptions) -> Result<BatchOutcome, RunnerError> {
         runs.push(load_run_manifest(&path)?);
     }
     validate_batch_paths(&batch_path, &runs)?;
+    let total_runs = runs.len();
+    if options.verbosity > 0 {
+        eprintln!(
+            "proteus-batch: preparing {} (runs={}, jobs={})",
+            batch_path.display(),
+            total_runs,
+            batch.jobs
+        );
+    }
 
     let mut pending = VecDeque::new();
     let mut had_failure = false;
+    let mut skipped = 0_usize;
     for run in runs {
         match existing_state(&run, &child_info)? {
             ExistingState::New => pending.push_back(PendingRun {
                 run,
                 archive_existing: false,
             }),
-            ExistingState::Complete => {}
+            ExistingState::Complete => {
+                skipped += 1;
+                if options.verbosity > 0 {
+                    eprintln!(
+                        "proteus-batch: skipping run {} (output directory: {})",
+                        run.manifest.run_id,
+                        run.output_directory.display()
+                    );
+                }
+            }
             ExistingState::Incomplete if options.retry_incomplete => {
                 pending.push_back(PendingRun {
                     run,
@@ -113,7 +138,7 @@ pub fn batch_main(options: BatchOptions) -> Result<BatchOutcome, RunnerError> {
             }
             ExistingState::Incomplete => {
                 eprintln!(
-                    "run {} is incomplete; use --retry-incomplete to archive and restart it",
+                    "proteus-batch: run {} is incomplete; use --retry-incomplete to archive and restart it",
                     run.manifest.run_id
                 );
                 had_failure = true;
@@ -125,6 +150,13 @@ pub fn batch_main(options: BatchOptions) -> Result<BatchOutcome, RunnerError> {
                 )));
             }
         }
+    }
+    if options.verbosity > 0 {
+        eprintln!(
+            "proteus-batch: preflight complete (pending={}, skipped={})",
+            pending.len(),
+            skipped
+        );
     }
 
     let signal_count = Arc::new(AtomicUsize::new(0));
@@ -143,6 +175,7 @@ pub fn batch_main(options: BatchOptions) -> Result<BatchOutcome, RunnerError> {
         let observed_signals = signal_count.load(Ordering::SeqCst);
         if observed_signals > 0 && interrupted_at.is_none() {
             interrupted_at = Some(Instant::now());
+            eprintln!("proteus-batch: interrupt received; stopping active runs");
             for child in &mut running {
                 child.interrupted = true;
                 request_termination(&mut child.child);
@@ -154,8 +187,17 @@ pub fn batch_main(options: BatchOptions) -> Result<BatchOutcome, RunnerError> {
                 let Some(pending_run) = pending.pop_front() else {
                     break;
                 };
-                match launch_child(pending_run, &child_path, &child_info)? {
-                    Some(child) => running.push(child),
+                match launch_child(pending_run, &child_path, &child_info, options.verbosity)? {
+                    Some(child) => {
+                        if options.verbosity > 0 {
+                            eprintln!(
+                                "proteus-batch: launched run {} (output directory: {})",
+                                child.run.manifest.run_id,
+                                child.run.output_directory.display()
+                            );
+                        }
+                        running.push(child);
+                    }
                     None => had_failure = true,
                 }
             }
@@ -180,7 +222,14 @@ pub fn batch_main(options: BatchOptions) -> Result<BatchOutcome, RunnerError> {
             })?;
             if let Some(status) = status {
                 let finished = running.swap_remove(index);
+                let run_id = finished.run.manifest.run_id.clone();
                 let success = finish_child(finished, status, &child_info)?;
+                if options.verbosity > 0 || !success {
+                    eprintln!(
+                        "proteus-batch: run {run_id} {}",
+                        if success { "succeeded" } else { "failed" }
+                    );
+                }
                 had_failure |= !success;
                 made_progress = true;
             } else {
@@ -196,13 +245,24 @@ pub fn batch_main(options: BatchOptions) -> Result<BatchOutcome, RunnerError> {
         }
     }
 
-    if interrupted_at.is_some() {
-        Ok(BatchOutcome::Interrupted)
+    let outcome = if interrupted_at.is_some() {
+        BatchOutcome::Interrupted
     } else if had_failure || !pending.is_empty() {
-        Ok(BatchOutcome::Failed)
+        BatchOutcome::Failed
     } else {
-        Ok(BatchOutcome::Success)
+        BatchOutcome::Success
+    };
+    if options.verbosity > 0 || outcome != BatchOutcome::Success {
+        eprintln!(
+            "proteus-batch: batch {}",
+            match outcome {
+                BatchOutcome::Success => "completed successfully",
+                BatchOutcome::Failed => "finished with failures",
+                BatchOutcome::Interrupted => "was interrupted",
+            }
+        );
     }
+    Ok(outcome)
 }
 
 fn locate_child_executable() -> Result<PathBuf, RunnerError> {
@@ -365,6 +425,7 @@ fn launch_child(
     pending: PendingRun,
     child_path: &Path,
     child_info: &BuildInfo,
+    verbosity: u8,
 ) -> Result<Option<RunningChild>, RunnerError> {
     let run = pending.run;
     if pending.archive_existing {
@@ -417,7 +478,9 @@ fn launch_child(
             "--threads",
             "1",
             "--internal-supervised",
+            "--verbosity",
         ])
+        .arg(verbosity.to_string())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
         .spawn()
@@ -444,7 +507,10 @@ fn launch_child(
                 artifacts,
             )?;
             write_json_atomic(&run.output_directory.join("completion.json"), &completion)?;
-            eprintln!("failed to launch run {}: {error}", run.manifest.run_id);
+            eprintln!(
+                "proteus-batch: failed to launch run {}: {error}",
+                run.manifest.run_id
+            );
             Ok(None)
         }
     }

@@ -85,6 +85,15 @@ fn direct_run_writes_tick_zero_cadence_and_forced_final_row() {
 
     let output_directory = sandbox.path().join("outputs/direct");
     let record: RunManifestRecord = read_json(&output_directory.join("manifest.json"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.stdout.is_empty());
+    assert!(stderr
+        .contains("proteus-run: starting run direct-run (ticks=3, observe_every=2, threads=1)"));
+    assert!(stderr.contains(&format!(
+        "proteus-run: output directory: {}",
+        record.input.output_directory
+    )));
+    assert!(stderr.contains("proteus-run: completed run direct-run (final_tick=3, duration_ms="));
     let summary: RunSummary = read_json(&output_directory.join("summary.json"));
     let rows = read_metrics(&output_directory.join("metrics.jsonl"));
 
@@ -99,6 +108,42 @@ fn direct_run_writes_tick_zero_cadence_and_forced_final_row() {
     assert_eq!(summary.final_metrics.population, 1);
     assert_eq!(summary.final_metrics.event_totals.births, 0);
     assert!(!output_directory.join("completion.json").exists());
+}
+
+#[test]
+fn verbosity_zero_is_silent_for_both_flag_spellings_but_not_for_errors() {
+    let sandbox = Sandbox::new("verbosity");
+    let long_path = sandbox.path().join("long.json");
+    let short_path = sandbox.path().join("short.json");
+    write_json(
+        &long_path,
+        &run_manifest("quiet-long", "outputs/long", 1, 1),
+    );
+    write_json(
+        &short_path,
+        &run_manifest("quiet-short", "outputs/short", 1, 1),
+    );
+
+    let long = run_command_with_verbosity(&long_path, "--verbosity", "0");
+    assert_success(&long);
+    assert!(long.stdout.is_empty());
+    assert!(long.stderr.is_empty());
+
+    let short = run_command_with_verbosity(&short_path, "-v", "0");
+    assert_success(&short);
+    assert!(short.stdout.is_empty());
+    assert!(short.stderr.is_empty());
+
+    let quiet_error = run_command_with_verbosity(&short_path, "-v", "0");
+    assert_eq!(quiet_error.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&quiet_error.stderr)
+        .contains("output directory must not already exist"));
+
+    let invalid = run_command_with_verbosity(&short_path, "-v", "2");
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&invalid.stderr).contains("--verbosity/-v requires either 0 or 1")
+    );
 }
 
 #[test]
@@ -198,6 +243,56 @@ fn duplicate_ids_and_ancestor_outputs_fail_before_launch() {
     let overlap_output = batch_command(&overlap_batch, false);
     assert_eq!(overlap_output.status.code(), Some(2));
     assert!(!overlap_sandbox.path().join("runs").exists());
+}
+
+#[test]
+fn batch_verbosity_controls_supervisor_status_and_child_logs() {
+    let default_sandbox = Sandbox::new("batch-verbosity-default");
+    let default_run = default_sandbox.path().join("run.json");
+    let default_batch = default_sandbox.path().join("batch.json");
+    write_json(
+        &default_run,
+        &run_manifest("default-status", "runs/default", 1, 1),
+    );
+    write_batch(&default_batch, 1, &["run.json"]);
+
+    let default_output = batch_command(&default_batch, false);
+    assert_success(&default_output);
+    assert!(default_output.stdout.is_empty());
+    let default_stderr = String::from_utf8_lossy(&default_output.stderr);
+    assert!(default_stderr.contains("proteus-batch: preparing "));
+    assert!(default_stderr.contains("proteus-batch: preflight complete (pending=1, skipped=0)"));
+    assert!(default_stderr.contains("proteus-batch: launched run default-status"));
+    assert!(default_stderr.contains("proteus-batch: run default-status succeeded"));
+    assert!(default_stderr.contains("proteus-batch: batch completed successfully"));
+    let child_stderr =
+        fs::read_to_string(default_sandbox.path().join("runs/default/stderr.log")).unwrap();
+    assert!(child_stderr.contains("proteus-run: starting run default-status"));
+    assert!(child_stderr.contains("proteus-run: completed run default-status"));
+
+    let quiet_sandbox = Sandbox::new("batch-verbosity-quiet");
+    let quiet_run = quiet_sandbox.path().join("run.json");
+    let quiet_batch = quiet_sandbox.path().join("batch.json");
+    write_json(
+        &quiet_run,
+        &run_manifest("quiet-status", "runs/quiet", 1, 1),
+    );
+    write_batch(&quiet_batch, 1, &["run.json"]);
+
+    let quiet_output = batch_command_with_verbosity(&quiet_batch, "-v", "0");
+    assert_success(&quiet_output);
+    assert!(quiet_output.stdout.is_empty());
+    assert!(quiet_output.stderr.is_empty());
+    assert_eq!(
+        fs::read_to_string(quiet_sandbox.path().join("runs/quiet/stderr.log")).unwrap(),
+        ""
+    );
+
+    let invalid = batch_command_with_verbosity(&quiet_batch, "--verbosity", "2");
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&invalid.stderr).contains("--verbosity/-v requires either 0 or 1")
+    );
 }
 
 #[test]
@@ -486,6 +581,13 @@ fn run_command(manifest: &Path, threads: u32) -> Output {
         .expect("proteus-run should launch")
 }
 
+fn run_command_with_verbosity(manifest: &Path, flag: &str, verbosity: &str) -> Output {
+    Command::new(run_binary())
+        .args(["--manifest", manifest.to_str().unwrap(), flag, verbosity])
+        .output()
+        .expect("proteus-run should launch")
+}
+
 fn batch_command(manifest: &Path, retry_incomplete: bool) -> Output {
     let mut command = Command::new(batch_binary());
     command.args(["--manifest", manifest.to_str().unwrap()]);
@@ -493,6 +595,13 @@ fn batch_command(manifest: &Path, retry_incomplete: bool) -> Output {
         command.arg("--retry-incomplete");
     }
     command.output().expect("proteus-batch should launch")
+}
+
+fn batch_command_with_verbosity(manifest: &Path, flag: &str, verbosity: &str) -> Output {
+    Command::new(batch_binary())
+        .args(["--manifest", manifest.to_str().unwrap(), flag, verbosity])
+        .output()
+        .expect("proteus-batch should launch")
 }
 
 fn write_batch(path: &Path, jobs: u32, manifests: &[&str]) {

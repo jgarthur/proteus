@@ -151,11 +151,14 @@ This boundary corresponds to `SEED-BOOTSTRAP` and `SEED-ENVIRONMENT` in `BACKLOG
 
 ## 6. Single-Run Input Contract
 
-The MVP input format is UTF-8 JSON. `proteus-run` accepts
-`proteus-run --manifest <path> [--threads <N>]`. `N` must be greater than zero
-and defaults to 1. A value above 1 requires a Rayon-enabled build; otherwise it
-is a validation error. Thread count is an operational execution setting, not a
-simulation input. JSON objects are strict: unknown fields, missing fields,
+The MVP input format is UTF-8 JSON. `proteus-run` accepts `proteus-run
+--manifest <path> [--threads <N>] [--verbosity <0|1>]`; `-v` is an alias for
+`--verbosity`. Thread count must be greater than zero and defaults to 1. A value
+above 1 requires a Rayon-enabled build; otherwise it is a validation error.
+Verbosity defaults to 1 and writes basic start, resolved-output, and completion
+status to stderr. Verbosity 0 suppresses successful-run status but never errors.
+Thread count and verbosity are operational execution settings, not simulation
+inputs. JSON objects are strict: unknown fields, missing fields,
 duplicate object keys, non-finite numbers, and values outside the corresponding
 Rust integer range are errors. No manifest field receives an implicit default.
 `runner_schema_version` must equal `0.1.0`.
@@ -516,7 +519,11 @@ supervisor completion record.
 
 ### Logs
 
-The supervisor captures child stdout and stderr per run. Log files must not be treated as the machine-readable result contract.
+The supervisor captures child stdout and stderr per run, so child status does
+not interleave on the supervisor's terminal. The default child stderr includes
+the basic `proteus-run` status described in §6; batch verbosity 0 suppresses
+that normal child status. Log files must not be treated as the machine-readable
+result contract.
 
 ### Durability boundary
 
@@ -571,8 +578,12 @@ Wall-clock limits, memory limits, extinction stops, saturation stops, and bloat 
 
 The MVP batch format is UTF-8 JSON with the same strict-object rules as §6.
 `proteus-batch` accepts `proteus-batch --manifest <path>` and an optional
-`--retry-incomplete` flag. Batch manifests reference one file per run; embedded
-run definitions are not supported in schema `0.1.0`.
+`--retry-incomplete` flag. It also accepts the same `--verbosity <0|1>` and `-v`
+alias as `proteus-run`. The default reports batch preflight, skips, launches,
+resolved output directories, and outcomes to stderr. Verbosity 0 suppresses
+normal supervisor status and is propagated to every child; failures and
+interrupts are still reported. Batch manifests reference one file per run;
+embedded run definitions are not supported in schema `0.1.0`.
 
 The supervisor resolves `proteus-run` next to its own executable, using the
 platform executable suffix where applicable. A custom child binary path is not

@@ -3,6 +3,8 @@ use std::process::ExitCode;
 
 use proteus::runner::{current_build_info, run_main, ErrorKind, RunOptions};
 
+const USAGE: &str = "usage: proteus-run --manifest <path> [--threads <N>] [--verbosity <0|1>]";
+
 fn main() -> ExitCode {
     match dispatch(std::env::args().skip(1).collect()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -34,6 +36,8 @@ fn dispatch(arguments: Vec<String>) -> Result<(), (ErrorKind, String)> {
     let mut manifest_path = None;
     let mut threads = 1_u32;
     let mut threads_seen = false;
+    let mut verbosity = 1_u8;
+    let mut verbosity_seen = false;
     let mut supervised = false;
     let mut index = 0;
     while index < arguments.len() {
@@ -41,10 +45,7 @@ fn dispatch(arguments: Vec<String>) -> Result<(), (ErrorKind, String)> {
             "--manifest" => {
                 index += 1;
                 if manifest_path.is_some() || index >= arguments.len() {
-                    return Err((
-                        ErrorKind::InvalidInput,
-                        "usage: proteus-run --manifest <path> [--threads <N>]".to_owned(),
-                    ));
+                    return Err((ErrorKind::InvalidInput, USAGE.to_owned()));
                 }
                 manifest_path = Some(PathBuf::from(&arguments[index]));
             }
@@ -64,6 +65,28 @@ fn dispatch(arguments: Vec<String>) -> Result<(), (ErrorKind, String)> {
                     )
                 })?;
             }
+            "--verbosity" | "-v" => {
+                index += 1;
+                if verbosity_seen || index >= arguments.len() {
+                    return Err((
+                        ErrorKind::InvalidInput,
+                        "--verbosity/-v requires either 0 or 1".to_owned(),
+                    ));
+                }
+                verbosity_seen = true;
+                verbosity = arguments[index].parse().map_err(|_| {
+                    (
+                        ErrorKind::InvalidInput,
+                        "--verbosity/-v requires either 0 or 1".to_owned(),
+                    )
+                })?;
+                if verbosity > 1 {
+                    return Err((
+                        ErrorKind::InvalidInput,
+                        "--verbosity/-v requires either 0 or 1".to_owned(),
+                    ));
+                }
+            }
             "--internal-supervised" => {
                 if supervised {
                     return Err((
@@ -82,15 +105,11 @@ fn dispatch(arguments: Vec<String>) -> Result<(), (ErrorKind, String)> {
         }
         index += 1;
     }
-    let manifest_path = manifest_path.ok_or_else(|| {
-        (
-            ErrorKind::InvalidInput,
-            "usage: proteus-run --manifest <path> [--threads <N>]".to_owned(),
-        )
-    })?;
+    let manifest_path = manifest_path.ok_or_else(|| (ErrorKind::InvalidInput, USAGE.to_owned()))?;
     run_main(RunOptions {
         manifest_path,
         threads,
+        verbosity,
         supervised,
     })
     .map_err(|error| (error.kind(), error.to_string()))
