@@ -18,10 +18,15 @@ References: `docs/RUNNER-SPEC.md`, `SEED-BOOTSTRAP`, `SEED-ENVIRONMENT`, `SNAPSH
 Decision (2026-08-12): keep the feature-gated direct serial paths. A one-thread Rayon pool was 3-15% slower than the direct serial build across the six final benchmark fixtures, while four threads provided substantial gains. This item is closed; retain the context here so the duplication remains an explicit measured choice.
 References: `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/simulation.rs`, `.github/workflows/rust.yml`, `docs/analysis/2026-08-12_rayon-optimization-results.md`
 
-### RAYON-HOTSPOTS: Investigate remaining ambient and Pass 1 costs
+### DYADIC-SAMPLERS: Exact power-of-two probability samplers and Poisson inversion
 
-Context: after the clone-free Pass 2 and fused Rayon Pass 3 work, the supplied web ecology at 80% occupancy spends about 46% of four-thread tick time in ambient processing and 29% in Pass 1. A line sample points primarily to binomial/Poisson sampling (including `log_gamma` and power operations) and opcode decoding rather than Rayon launch overhead. Investigate algorithm-equivalent improvements without changing RNG draw streams or deterministic semantics. Parallel absorption, Pass 2 scratch reuse, and further traversal fusion should be considered only if a fresh profile attributes material time to them.
-References: `docs/analysis/2026-08-12_rayon-optimization-results.md`, `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/random.rs`
+Context: the dense line profile shows ambient/tail time dominated by per-draw `rand_distr` binomial/Poisson construction (`powf`/`exp`/`log_gamma`). All hot probabilities are (or become, via an approved spec adjustment to the `d_energy`/`d_mass` defaults) exactly `2^-k`, so Bernoulli/binomial collapse to exact integer bit operations and Poisson moves to inversion with a hoisted `exp(-λ)`. Includes a stream-preserving `powf(x, 1.0)` fast-path phase that can land first and alone. The main phase deliberately changes RNG draw streams: bump versions, regenerate sampled golden literals, keep structural invariant tests unmodified, and make the (deliberately undrafted) spec edit for the dyadic constraint with a SPEC-CHANGELOG entry. Full implementable detail, including sampler pseudocode, config validation, call-site map, and migration steps, is in the plan doc.
+References: `docs/analysis/2026-08-13_dyadic-sampler-plan.md`, `docs/analysis/2026-08-13_performance-roadmap.md`, `rust/src/random.rs`, `rust/src/pass3.rs`, `rust/src/config.rs`
+
+### RAYON-HOTSPOTS: Remaining performance tiers after the sampler work
+
+Context: the recorded roadmap covers what is left once DYADIC-SAMPLERS lands: a digest-identical SoA hot-field split of the grid sweeps (2a), inline program storage behind data-justified code+stack spec caps (2b, prerequisite: a program-size and stack-depth histogram metric from a dense run — capping the stack alone buys nothing), and the open Pass 1 dispatch investigation. Re-profile after each step; parallel absorption, Pass 2 scratch reuse, and further traversal fusion remain profile-gated.
+References: `docs/analysis/2026-08-13_performance-roadmap.md`, `docs/analysis/2026-08-12_rayon-optimization-results.md`, `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/grid.rs`, `rust/src/model.rs`
 
 ### SEED-BOOTSTRAP: Extract seed-program bootstrap module
 

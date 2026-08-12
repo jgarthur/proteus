@@ -14,3 +14,5 @@ Use this folder for context only. `SPEC.md` and `SPEC-COMPANION.md` remain the s
 - `2026-08-11_rayon-performance-profile.md` records phase-level Rayon profiling and the A/B experiments behind the RAYON-PERFORMANCE backlog item.
 - `2026-08-12_rayon-optimization-plan.md` is the executed step-by-step implementation plan for RAYON-PERFORMANCE.
 - `2026-08-12_rayon-optimization-results.md` records the implementation, fixture and instruction-coverage audit, exact growing-web-scenario benchmarks, deep parity results, and line-profile findings.
+- `2026-08-13_dyadic-sampler-plan.md` is the implementable hand-off plan for DYADIC-SAMPLERS: exact `2^-k` Bernoulli/binomial bit samplers, Poisson inversion, config validation, call-site map, and migration steps.
+- `2026-08-13_performance-roadmap.md` records the tiered performance strategy after RAYON-PERFORMANCE: sampler work, SoA hot-field split, inline program storage behind data-justified caps, Pass 1 dispatch, and expected ceilings.
