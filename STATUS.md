@@ -30,6 +30,7 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [x] METRIC-BIRTH-TYPES: Add boot_births and spawn_births metrics
 - [ ] SPEED-CONTROL: Replace the frontend-side target-TPS stepping shim with real backend speed control and re-align the frontend with the spec
 - [ ] FRONTEND-DEFAULTS: Reconcile local testing defaults and seed-program bootstrap hacks with the spec-backed frontend defaults
+- [ ] CONFIG-SCENARIO: Share one engine-owned scenario type between the web layer and the runner
 - [ ] FRONTEND-CONFIG-TOOLS: Reconcile local config save/load debugging helpers with the frontend spec
 - [ ] COORDINATE-CONVENTIONS: Standardize frontend coordinates as 0-indexed and display them in `(y, x)` order
 - [ ] NO-SIM-STATUS: Replace the frontend startup `404 /v1/sim` probe with a cleaner no-simulation status path
