@@ -2,7 +2,7 @@
 
 **Status**: Provisional — subject to change as the engine implementation matures.
 
-**Spec version**: 0.2.3
+**Spec version**: 0.2.4
 
 **Simulator version**: Targets Proteus v0.2.1
 
@@ -58,9 +58,13 @@ The API is independent of any specific frontend implementation.
 
 All REST endpoints are prefixed with `/v1`.
 
-All responses include the header `X-Proteus-API-Version: 0.2.3`.
+All responses include the header `X-Proteus-API-Version: 0.2.4`.
 
-Breaking changes increment the major URL version (`/v2`). Additive changes (new optional fields, new endpoints) do not.
+Additive changes — new optional fields, new endpoints — do not change the URL version or require a spec-version bump.
+
+While this spec is **Provisional** (any `0.x` spec version), breaking changes stay under `/v1` and are signalled by the spec version in `X-Proteus-API-Version`. A client that pins behaviour should compare that header rather than assume `/v1` is stable. This is the deliberate consequence of the status declared at the top of this document: the contract is still being shaped, and minting a URL version for each correction would leave a trail of near-identical prefixes before the design has settled.
+
+Once the spec is declared stable, this relaxation ends: breaking changes then increment the major URL version (`/v2`), and the `0.x` allowance no longer applies.
 
 WebSocket messages include an `api_version` field in the initial handshake.
 

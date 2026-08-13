@@ -7,7 +7,8 @@ use axum::http::{Method, Request, StatusCode};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use proteus::web::{
-    router, CreateSimulationRequest, SimulationController, API_VERSION, API_VERSION_HEADER,
+    router, CreateSimulationRequest, SimulationController, SimulationLifecycle, API_VERSION,
+    API_VERSION_HEADER,
 };
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -455,6 +456,62 @@ async fn websocket_subscriptions_stream_current_state_and_report_errors() {
     }
 
     server.handle.abort();
+}
+
+#[tokio::test]
+async fn a_redundant_resume_leaves_the_tick_rate_measurement_alone() {
+    let controller = SimulationController::new();
+    let config = CreateSimulationRequest {
+        width: 2,
+        height: 1,
+        seed: 3,
+        r_energy: Some(0.0),
+        r_mass: Some(0.0),
+        d_energy: None,
+        d_mass: None,
+        t_cap: None,
+        maintenance_rate: None,
+        maintenance_exponent: None,
+        local_action_exponent: None,
+        n_synth: None,
+        inert_grace_ticks: None,
+        p_spawn: None,
+        mutation_base_log2: None,
+        mutation_background_log2: None,
+        seed_programs: Vec::new(),
+        seed_environment: Vec::new(),
+    }
+    .resolve()
+    .expect("config should resolve");
+    controller
+        .create(config)
+        .await
+        .expect("simulation should be created");
+    controller.start().await.expect("start should succeed");
+
+    // Outlast the 250 ms rolling window so the controller has published a real
+    // tick rate to disturb.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let running = controller
+        .status()
+        .await
+        .expect("status should be available");
+    assert!(
+        running.ticks_per_second > 0.0,
+        "a running simulation should report a measured tick rate, got {}",
+        running.ticks_per_second
+    );
+
+    // Resume converges rather than erroring, so it must also be unobservable:
+    // the simulation ticked straight through this call, and reporting 0.0 would
+    // leak the redundant control into the client's view of the tick rate.
+    let resumed = controller.resume().await.expect("resume should converge");
+    assert_eq!(resumed.status, SimulationLifecycle::Running);
+    assert!(
+        resumed.ticks_per_second > 0.0,
+        "a redundant resume should not reset the tick rate, got {}",
+        resumed.ticks_per_second
+    );
 }
 
 #[tokio::test]

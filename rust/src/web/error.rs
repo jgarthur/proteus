@@ -62,8 +62,8 @@ impl From<ControllerError> for ApiError {
             ControllerError::SimAlreadyStarted => Self {
                 status: StatusCode::CONFLICT,
                 code: "SIM_ALREADY_STARTED",
-                message: "The simulation has already started. POST /v1/sim/resume to leave the \
-                          paused state."
+                message: "The simulation has already started. Use POST /v1/sim/resume or \
+                          /v1/sim/pause to set the run state, or reset it first."
                     .to_owned(),
             },
             ControllerError::InvalidConfig(message) => Self {

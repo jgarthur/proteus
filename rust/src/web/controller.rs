@@ -388,12 +388,20 @@ impl ManagedSimulation {
 
     /// Applies one validated lifecycle transition and resets stale TPS state.
     ///
-    /// The reset is unconditional. A transition that lands on the state it
-    /// started from cannot have ticked in between, so re-anchoring the window
-    /// there is a no-op that costs less than reasoning about when to skip it.
+    /// The rolling window is re-anchored only when the tick cadence actually
+    /// changes. A convergent control that lands on the state it started from
+    /// leaves ticking exactly as it was, so a redundant `pause` or `resume`
+    /// must not disturb the measurement -- a running simulation ticks straight
+    /// through one, and zeroing `ticks_per_second` there would make the
+    /// redundant call observable. `Step` is the exception: it ticks
+    /// synchronously from a settled state and wants a fresh window even though
+    /// it lands back on `Paused`.
     fn transition(&mut self, action: LifecycleAction) -> Result<(), ControllerError> {
-        self.lifecycle = action.next(self.lifecycle)?;
-        self.reset_tps();
+        let next = action.next(self.lifecycle)?;
+        if next != self.lifecycle || action == LifecycleAction::Step {
+            self.lifecycle = next;
+            self.reset_tps();
+        }
         Ok(())
     }
 
