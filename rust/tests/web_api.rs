@@ -394,6 +394,78 @@ async fn websocket_subscriptions_stream_current_state_and_report_errors() {
 }
 
 #[tokio::test]
+async fn websocket_destroy_discards_a_throttled_pending_frame() {
+    let controller = SimulationController::new();
+    let config = CreateSimulationRequest {
+        width: 1,
+        height: 1,
+        seed: 17,
+        r_energy: Some(0.0),
+        r_mass: Some(0.0),
+        d_energy: None,
+        d_mass: None,
+        t_cap: None,
+        maintenance_rate: None,
+        maintenance_exponent: None,
+        local_action_exponent: None,
+        n_synth: None,
+        inert_grace_ticks: None,
+        p_spawn: None,
+        mutation_base_log2: None,
+        mutation_background_log2: None,
+        seed_programs: vec![serde_json::from_value(json!({
+            "x": 0,
+            "y": 0,
+            "code": [80],
+            "free_energy": 5,
+            "free_mass": 1
+        }))
+        .expect("seed program should deserialize")],
+        seed_environment: Vec::new(),
+    }
+    .resolve()
+    .expect("config should resolve");
+    controller
+        .create(config)
+        .await
+        .expect("simulation should be created");
+
+    let server = spawn_server(controller.clone()).await;
+    let url = format!("ws://{}/v1/ws", server.addr);
+    let (mut websocket, _) = connect_async(url).await.expect("websocket should connect");
+    let _hello = next_text_message(&mut websocket).await;
+
+    websocket
+        .send(Message::Text(
+            r#"{"subscribe":"frames","max_fps":1}"#.into(),
+        ))
+        .await
+        .expect("frame subscription should send");
+    let initial_frame = next_binary_message(&mut websocket).await;
+    assert_eq!(&initial_frame[0..8], &0_u64.to_le_bytes());
+
+    controller
+        .step(1)
+        .await
+        .expect("simulation should publish a second frame");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    controller.destroy().await.expect("destroy should succeed");
+    let close = tokio::time::timeout(Duration::from_secs(1), websocket.next())
+        .await
+        .expect("close event should arrive");
+    match close {
+        Some(Ok(Message::Close(_))) | None => {}
+        Some(Ok(Message::Binary(_))) => {
+            panic!("pending binary frame was delivered across destroy acknowledgement")
+        }
+        other => panic!("expected websocket close, got {other:?}"),
+    }
+
+    server.handle.abort();
+}
+
+#[tokio::test]
 async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     let controller = SimulationController::new();
     let config = CreateSimulationRequest {
@@ -475,7 +547,7 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     assert_eq!(rest_metrics["event_totals"], sampled["event_totals"]);
 
     controller.reset().await.expect("simulation should reset");
-    let reset = next_text_message_of_type(&mut websocket, "metrics").await;
+    let reset = next_metrics_message_at_epoch(&mut websocket, 1).await;
     assert_eq!(reset["epoch"], 1);
     assert_eq!(reset["tick"], 0);
     assert_eq!(reset["event_totals"]["births"], 0);
@@ -619,4 +691,38 @@ async fn next_metrics_message_at_tick(
     }
 
     panic!("expected metrics websocket message at tick {expected_tick}");
+}
+
+/// Waits for the first metrics message belonging to `expected_epoch`.
+///
+/// A reset does not retract metrics already published for the previous epoch, so
+/// a message from the outgoing epoch can still be in flight when `reset` returns.
+/// Those are valid output and are skipped; overshooting the epoch is not.
+async fn next_metrics_message_at_epoch(
+    websocket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    expected_epoch: u64,
+) -> Value {
+    for _ in 0..4 {
+        let message = next_text_message(websocket).await;
+        if message["type"] != "metrics" {
+            continue;
+        }
+
+        let epoch = message["epoch"]
+            .as_u64()
+            .expect("metrics messages should carry a numeric epoch");
+        if epoch < expected_epoch {
+            continue;
+        }
+
+        assert_eq!(
+            epoch, expected_epoch,
+            "metrics epoch overshot {expected_epoch}"
+        );
+        return message;
+    }
+
+    panic!("expected metrics websocket message at epoch {expected_epoch}");
 }

@@ -200,7 +200,7 @@ impl SimulationController {
 }
 
 /// Describes the controller-layer failures exposed to the API.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ControllerError {
     NoSim,
     SimAlreadyExists,
@@ -248,6 +248,35 @@ enum Command {
         h: u32,
         response_tx: oneshot::Sender<Result<Vec<CellInspection>, ControllerError>>,
     },
+}
+
+/// Names the state-machine transitions driven by control commands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LifecycleAction {
+    Start,
+    Pause,
+    Resume,
+    Step,
+}
+
+impl LifecycleAction {
+    /// Resolves one transition without mutating the managed simulation.
+    fn next(self, current: SimulationLifecycle) -> Result<SimulationLifecycle, ControllerError> {
+        match (self, current) {
+            (Self::Start, SimulationLifecycle::Created) => Ok(SimulationLifecycle::Running),
+            (Self::Start, _) => Err(ControllerError::SimNotCreated),
+            (Self::Pause, SimulationLifecycle::Running | SimulationLifecycle::Paused) => {
+                Ok(SimulationLifecycle::Paused)
+            }
+            (Self::Pause, SimulationLifecycle::Created) => Err(ControllerError::SimNotRunning),
+            (Self::Resume, SimulationLifecycle::Paused) => Ok(SimulationLifecycle::Running),
+            (Self::Resume, _) => Err(ControllerError::SimNotPaused),
+            (Self::Step, SimulationLifecycle::Created | SimulationLifecycle::Paused) => {
+                Ok(SimulationLifecycle::Paused)
+            }
+            (Self::Step, SimulationLifecycle::Running) => Err(ControllerError::SimNotPaused),
+        }
+    }
 }
 
 /// Stores the live simulation plus its latest observer-facing projections.
@@ -344,6 +373,16 @@ impl ManagedSimulation {
         self.ticks_per_second = 0.0;
         self.tps_window_start = Instant::now();
         self.tps_window_tick = self.simulation.tick();
+    }
+
+    /// Applies one validated lifecycle transition and resets stale TPS state.
+    fn transition(&mut self, action: LifecycleAction) -> Result<(), ControllerError> {
+        let next = action.next(self.lifecycle)?;
+        if next != self.lifecycle || action == LifecycleAction::Step {
+            self.lifecycle = next;
+            self.reset_tps();
+        }
+        Ok(())
     }
 
     /// Recomputes the latest metrics snapshot and frame after a tick.
@@ -484,45 +523,24 @@ fn handle_command(
             );
         }
         Command::Start(response_tx) => {
-            let result = match simulation.as_mut() {
-                Some(sim) if sim.lifecycle == SimulationLifecycle::Created => {
-                    sim.lifecycle = SimulationLifecycle::Running;
-                    sim.reset_tps();
-                    Ok(sim.status_response())
-                }
-                Some(sim) if sim.lifecycle == SimulationLifecycle::Running => {
-                    Err(ControllerError::SimNotCreated)
-                }
-                Some(_) => Err(ControllerError::SimNotCreated),
-                None => Err(ControllerError::NoSim),
-            };
+            let result = with_simulation_mut(simulation, |sim| {
+                sim.transition(LifecycleAction::Start)?;
+                Ok(sim.status_response())
+            });
             let _ = response_tx.send(result);
         }
         Command::Pause(response_tx) => {
-            let result = match simulation.as_mut() {
-                Some(sim) if sim.lifecycle == SimulationLifecycle::Running => {
-                    sim.lifecycle = SimulationLifecycle::Paused;
-                    sim.reset_tps();
-                    Ok(sim.status_response())
-                }
-                Some(sim) if sim.lifecycle == SimulationLifecycle::Paused => {
-                    Ok(sim.status_response())
-                }
-                Some(_) => Err(ControllerError::SimNotRunning),
-                None => Err(ControllerError::NoSim),
-            };
+            let result = with_simulation_mut(simulation, |sim| {
+                sim.transition(LifecycleAction::Pause)?;
+                Ok(sim.status_response())
+            });
             let _ = response_tx.send(result);
         }
         Command::Resume(response_tx) => {
-            let result = match simulation.as_mut() {
-                Some(sim) if sim.lifecycle == SimulationLifecycle::Paused => {
-                    sim.lifecycle = SimulationLifecycle::Running;
-                    sim.reset_tps();
-                    Ok(sim.status_response())
-                }
-                Some(_) => Err(ControllerError::SimNotPaused),
-                None => Err(ControllerError::NoSim),
-            };
+            let result = with_simulation_mut(simulation, |sim| {
+                sim.transition(LifecycleAction::Resume)?;
+                Ok(sim.status_response())
+            });
             let _ = response_tx.send(result);
         }
         Command::Step { count, response_tx } => {
@@ -530,18 +548,12 @@ fn handle_command(
                 Some(_) if count == 0 => Err(ControllerError::BadRequest(
                     "step count must be greater than zero".to_owned(),
                 )),
-                Some(sim)
-                    if sim.lifecycle == SimulationLifecycle::Paused
-                        || sim.lifecycle == SimulationLifecycle::Created =>
-                {
-                    sim.reset_tps();
+                Some(sim) => sim.transition(LifecycleAction::Step).map(|()| {
                     for _ in 0..count {
                         sim.tick_once(frame_tx, metrics_tx);
                     }
-                    sim.lifecycle = SimulationLifecycle::Paused;
-                    Ok(sim.status_response())
-                }
-                Some(_) => Err(ControllerError::SimNotPaused),
+                    sim.status_response()
+                }),
                 None => Err(ControllerError::NoSim),
             };
             let _ = response_tx.send(result);
@@ -562,14 +574,7 @@ fn handle_command(
             let _ = response_tx.send(result);
         }
         Command::Destroy(response_tx) => {
-            let result = if simulation.take().is_some() {
-                let _ = frame_tx.send(None);
-                let _ = metrics_tx.send(None);
-                let _ = destroy_tx.send(());
-                Ok(())
-            } else {
-                Err(ControllerError::NoSim)
-            };
+            let result = destroy_simulation(simulation, frame_tx, metrics_tx, destroy_tx);
             let _ = response_tx.send(result);
         }
         Command::Metrics(response_tx) => {
@@ -608,6 +613,31 @@ fn handle_command(
             let _ = response_tx.send(result);
         }
     }
+}
+
+/// Applies an operation to the current simulation or reports the empty state.
+fn with_simulation_mut<T>(
+    simulation: &mut Option<ManagedSimulation>,
+    operation: impl FnOnce(&mut ManagedSimulation) -> Result<T, ControllerError>,
+) -> Result<T, ControllerError> {
+    operation(simulation.as_mut().ok_or(ControllerError::NoSim)?)
+}
+
+/// Clears observer state and notifies sockets before destroy is acknowledged.
+fn destroy_simulation(
+    simulation: &mut Option<ManagedSimulation>,
+    frame_tx: &watch::Sender<Option<FramePayload>>,
+    metrics_tx: &watch::Sender<Option<MetricsPayload>>,
+    destroy_tx: &broadcast::Sender<()>,
+) -> Result<(), ControllerError> {
+    simulation.take().ok_or(ControllerError::NoSim)?;
+
+    // This ordering is the public destroy boundary: latest-value streams are
+    // cleared and socket handlers are notified before DELETE receives success.
+    let _ = frame_tx.send(None);
+    let _ = metrics_tx.send(None);
+    let _ = destroy_tx.send(());
+    Ok(())
 }
 
 /// Allocates the next metrics history generation for this controller process.
@@ -682,5 +712,99 @@ fn simulation_error(error: SimulationError) -> ControllerError {
     match error {
         SimulationError::InvalidConfig(err) => ControllerError::InvalidConfig(err.to_string()),
         other => ControllerError::Internal(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::{broadcast, watch};
+
+    use super::{destroy_simulation, ControllerError, LifecycleAction, ManagedSimulation};
+    use crate::web::types::{CreateSimulationRequest, SimulationConfig};
+    use crate::web::SimulationLifecycle;
+
+    fn test_config() -> SimulationConfig {
+        CreateSimulationRequest {
+            width: 1,
+            height: 1,
+            seed: 7,
+            r_energy: None,
+            r_mass: None,
+            d_energy: None,
+            d_mass: None,
+            t_cap: None,
+            maintenance_rate: None,
+            maintenance_exponent: None,
+            local_action_exponent: None,
+            n_synth: None,
+            inert_grace_ticks: None,
+            p_spawn: None,
+            mutation_base_log2: None,
+            mutation_background_log2: None,
+            seed_programs: Vec::new(),
+            seed_environment: Vec::new(),
+        }
+        .resolve()
+        .expect("test config should resolve")
+    }
+
+    #[test]
+    fn destroy_clears_the_observer_streams_and_notifies_sockets() {
+        let (frame_tx, frame_rx) = watch::channel(None);
+        let (metrics_tx, metrics_rx) = watch::channel(None);
+        let (destroy_tx, mut destroy_rx) = broadcast::channel(4);
+
+        let mut simulation = None;
+        assert_eq!(
+            destroy_simulation(&mut simulation, &frame_tx, &metrics_tx, &destroy_tx),
+            Err(ControllerError::NoSim)
+        );
+
+        let managed =
+            ManagedSimulation::new(test_config(), 1).expect("simulation should be created");
+        managed.publish(&frame_tx, &metrics_tx);
+        assert!(frame_rx.borrow().is_some());
+        assert!(metrics_rx.borrow().is_some());
+        simulation = Some(managed);
+
+        destroy_simulation(&mut simulation, &frame_tx, &metrics_tx, &destroy_tx)
+            .expect("destroy should succeed");
+
+        // Sockets resolve a throttled frame out of this stream at its send
+        // deadline, so clearing it here is what makes destroy observable to a
+        // client that is still waiting behind its FPS throttle.
+        assert!(simulation.is_none());
+        assert!(frame_rx.borrow().is_none());
+        assert!(metrics_rx.borrow().is_none());
+        assert!(destroy_rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn lifecycle_transition_table_is_explicit() {
+        use LifecycleAction::{Pause, Resume, Start, Step};
+        use SimulationLifecycle::{Created, Paused, Running};
+
+        let cases = [
+            (Start, Created, Ok(Running)),
+            (Start, Running, Err(ControllerError::SimNotCreated)),
+            (Start, Paused, Err(ControllerError::SimNotCreated)),
+            (Pause, Created, Err(ControllerError::SimNotRunning)),
+            (Pause, Running, Ok(Paused)),
+            (Pause, Paused, Ok(Paused)),
+            (Resume, Created, Err(ControllerError::SimNotPaused)),
+            (Resume, Running, Err(ControllerError::SimNotPaused)),
+            (Resume, Paused, Ok(Running)),
+            (Step, Created, Ok(Paused)),
+            (Step, Running, Err(ControllerError::SimNotPaused)),
+            (Step, Paused, Ok(Paused)),
+        ];
+
+        for (action, current, expected) in cases {
+            assert_eq!(
+                action.next(current),
+                expected,
+                "{action:?} from {current:?}"
+            );
+        }
     }
 }

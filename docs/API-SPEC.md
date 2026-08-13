@@ -177,6 +177,10 @@ DELETE /v1/sim
 
 Stops the simulation and releases all resources. Returns `204 No Content`. Any connected WebSocket clients receive a close frame.
 
+Destroy establishes an observer boundary before the `204` response is acknowledged: the controller clears the latest frame and metrics values first, and only then publishes the destroy notification. WebSocket handlers hold no copy of a throttled frame — they resolve the frame owed at an FPS-throttle deadline from the live stream when that deadline expires — so a frame still queued behind the throttle at destroy resolves to nothing and is dropped rather than sent.
+
+This covers queued frames, not frames already being transmitted. A binary frame whose socket write began just before destroy was published may still complete, and a client can observe it after the `204`.
+
 Returns `404` if no simulation exists.
 
 ---
