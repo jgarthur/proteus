@@ -149,6 +149,50 @@ async fn rest_lifecycle_flow_and_inspection_work() {
     let pause_again_json = response_json(pause_again_response).await;
     assert_eq!(pause_again_json["status"], "paused");
 
+    // Once started, pause and resume name a desired end state and converge on
+    // it, so a client may re-issue either one from a stale view of the lifecycle.
+    let redundant_pause = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/pause"))
+        .await
+        .expect("pausing an already-paused simulation should succeed");
+    assert_eq!(redundant_pause.status(), StatusCode::OK);
+    assert_eq!(response_json(redundant_pause).await["status"], "paused");
+
+    let resume_once = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/resume"))
+        .await
+        .expect("resume request should succeed");
+    assert_eq!(response_json(resume_once).await["status"], "running");
+
+    let redundant_resume = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/resume"))
+        .await
+        .expect("resuming an already-running simulation should succeed");
+    assert_eq!(redundant_resume.status(), StatusCode::OK);
+    assert_eq!(response_json(redundant_resume).await["status"], "running");
+
+    // Start is not convergent: it boots out of `created` and nothing else.
+    let restart = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/start"))
+        .await
+        .expect("restarting a running simulation should return an error response");
+    assert_eq!(restart.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response_json(restart).await["error"]["code"],
+        "SIM_ALREADY_STARTED"
+    );
+
+    let settle = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/pause"))
+        .await
+        .expect("pause request should succeed");
+    assert_eq!(response_json(settle).await["status"], "paused");
+
     let reset_response = app
         .clone()
         .oneshot(empty_request(Method::POST, "/v1/sim/reset"))
@@ -249,12 +293,32 @@ async fn rest_errors_use_expected_status_codes_and_payloads() {
     let region_json = response_json(region_too_large).await;
     assert_eq!(region_json["error"]["code"], "REGION_TOO_LARGE");
 
-    let step_wrong_state = app
+    // `created` sits outside the convergent pair: the simulation has never run,
+    // so neither control can name a state for it to settle into.
+    for control in ["pause", "resume"] {
+        let from_created = app
+            .clone()
+            .oneshot(empty_request(Method::POST, &format!("/v1/sim/{control}")))
+            .await
+            .expect("request should return an error response");
+        assert_eq!(
+            from_created.status(),
+            StatusCode::CONFLICT,
+            "{control} from created"
+        );
+        assert_eq!(
+            response_json(from_created).await["error"]["code"],
+            "SIM_NOT_STARTED",
+            "{control} from created"
+        );
+    }
+
+    let start_from_created = app
         .clone()
         .oneshot(empty_request(Method::POST, "/v1/sim/start"))
         .await
-        .expect("request should return an error response");
-    assert_eq!(step_wrong_state.status(), StatusCode::OK);
+        .expect("starting from created should succeed");
+    assert_eq!(start_from_created.status(), StatusCode::OK);
 
     let step_while_running = app
         .clone()

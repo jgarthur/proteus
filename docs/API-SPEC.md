@@ -285,7 +285,9 @@ All control endpoints return `404` if no simulation exists.
 POST /v1/sim/start
 ```
 
-Begin ticking from the `created` state. Returns `200 OK` with the current status. Fails with `409` if already running.
+Begin ticking from the `created` state. Returns `200 OK` with the current status.
+
+Start does not converge on the running state: it boots a simulation that has never run, so it fails with `409 SIM_ALREADY_STARTED` from both `running` and `paused`. Use `POST /v1/sim/resume` to leave the paused state. This keeps a client that believes it holds a fresh simulation from silently continuing one with history.
 
 ### Pause
 
@@ -295,13 +297,23 @@ POST /v1/sim/pause
 
 Pause the tick loop after the current tick completes. Returns `200 OK` with the current status. Idempotent if already paused.
 
+Fails with `409 SIM_NOT_STARTED` from the `created` state.
+
 ### Resume
 
 ```
 POST /v1/sim/resume
 ```
 
-Resume from paused state. Returns `200 OK`. Fails with `409` if not paused.
+Resume the tick loop. Returns `200 OK` with the current status. Idempotent if already running.
+
+Fails with `409 SIM_NOT_STARTED` from the `created` state.
+
+### Control-state convergence
+
+`created` means the simulation has never run. Only `start` and `step` leave it, and `pause` and `resume` both fail with `409 SIM_NOT_STARTED` there.
+
+Once a simulation has started, `pause` and `resume` name a desired end state rather than a transition, and converge on it. Re-issuing either one succeeds and returns the current status, so a client may retry a control after a lost response, or issue one from a possibly-stale view of the lifecycle, without special-casing a conflict. `start` and `step` are not convergent and still report `409` when their preconditions do not hold.
 
 ### Step
 
@@ -309,7 +321,9 @@ Resume from paused state. Returns `200 OK`. Fails with `409` if not paused.
 POST /v1/sim/step?count=1
 ```
 
-Advance exactly `count` ticks (default 1) while not running. This works from both `created` and `paused`. If called from `created`, the simulation transitions to `paused` after the requested ticks complete. Returns `200 OK` with status after stepping. The response is sent after all requested ticks have completed. Fails with `409` if the simulation is running.
+Advance exactly `count` ticks (default 1) while not running. This works from both `created` and `paused`. If called from `created`, the simulation transitions to `paused` after the requested ticks complete. Returns `200 OK` with status after stepping. The response is sent after all requested ticks have completed. Fails with `409 SIM_NOT_PAUSED` if the simulation is running.
+
+`count` must be greater than zero. A zero count is rejected with `400 BAD_REQUEST` in every lifecycle state, including `running` — the request is malformed regardless of state, so it is validated before the lifecycle is. If no simulation exists, `404 NO_SIM` takes precedence over both.
 
 ### Reset
 
@@ -648,9 +662,9 @@ All error responses use a consistent JSON body:
 |------|---------|
 | `NO_SIM` | No simulation exists |
 | `SIM_ALREADY_EXISTS` | Simulation already exists |
-| `SIM_NOT_RUNNING` | Operation requires running state |
-| `SIM_NOT_PAUSED` | Operation requires paused state |
-| `SIM_NOT_CREATED` | Operation requires created state |
+| `SIM_NOT_STARTED` | Control requires a simulation that has left the `created` state |
+| `SIM_NOT_PAUSED` | Stepping requires the tick loop stopped |
+| `SIM_ALREADY_STARTED` | `start` requires the `created` state; use `resume` instead |
 | `INVALID_CONFIG` | Config validation failure |
 | `CELL_OUT_OF_BOUNDS` | Cell index or coordinates exceed grid size |
 | `REGION_TOO_LARGE` | Batch inspection region exceeds limit |

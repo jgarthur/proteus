@@ -204,9 +204,9 @@ impl SimulationController {
 pub enum ControllerError {
     NoSim,
     SimAlreadyExists,
-    SimNotRunning,
+    SimNotStarted,
     SimNotPaused,
-    SimNotCreated,
+    SimAlreadyStarted,
     InvalidConfig(String),
     CellOutOfBounds,
     RegionTooLarge { area: u32 },
@@ -261,16 +261,27 @@ enum LifecycleAction {
 
 impl LifecycleAction {
     /// Resolves one transition without mutating the managed simulation.
+    ///
+    /// `Created` means the simulation has never run, and only `Start` and `Step`
+    /// leave it. Once started, `Pause` and `Resume` name a desired end state and
+    /// converge to it, so re-issuing either one succeeds. `Start` deliberately
+    /// does not converge: it boots out of `Created`, and accepting it later would
+    /// hide a client that believes it holds a fresh simulation.
     fn next(self, current: SimulationLifecycle) -> Result<SimulationLifecycle, ControllerError> {
         match (self, current) {
             (Self::Start, SimulationLifecycle::Created) => Ok(SimulationLifecycle::Running),
-            (Self::Start, _) => Err(ControllerError::SimNotCreated),
+            (Self::Start, SimulationLifecycle::Running | SimulationLifecycle::Paused) => {
+                Err(ControllerError::SimAlreadyStarted)
+            }
             (Self::Pause, SimulationLifecycle::Running | SimulationLifecycle::Paused) => {
                 Ok(SimulationLifecycle::Paused)
             }
-            (Self::Pause, SimulationLifecycle::Created) => Err(ControllerError::SimNotRunning),
-            (Self::Resume, SimulationLifecycle::Paused) => Ok(SimulationLifecycle::Running),
-            (Self::Resume, _) => Err(ControllerError::SimNotPaused),
+            (Self::Resume, SimulationLifecycle::Running | SimulationLifecycle::Paused) => {
+                Ok(SimulationLifecycle::Running)
+            }
+            (Self::Pause | Self::Resume, SimulationLifecycle::Created) => {
+                Err(ControllerError::SimNotStarted)
+            }
             (Self::Step, SimulationLifecycle::Created | SimulationLifecycle::Paused) => {
                 Ok(SimulationLifecycle::Paused)
             }
@@ -376,12 +387,13 @@ impl ManagedSimulation {
     }
 
     /// Applies one validated lifecycle transition and resets stale TPS state.
+    ///
+    /// The reset is unconditional. A transition that lands on the state it
+    /// started from cannot have ticked in between, so re-anchoring the window
+    /// there is a no-op that costs less than reasoning about when to skip it.
     fn transition(&mut self, action: LifecycleAction) -> Result<(), ControllerError> {
-        let next = action.next(self.lifecycle)?;
-        if next != self.lifecycle || action == LifecycleAction::Step {
-            self.lifecycle = next;
-            self.reset_tps();
-        }
+        self.lifecycle = action.next(self.lifecycle)?;
+        self.reset_tps();
         Ok(())
     }
 
@@ -785,16 +797,20 @@ mod tests {
         use SimulationLifecycle::{Created, Paused, Running};
 
         let cases = [
+            // `Created` is the not-yet-started state; only Start and Step leave it.
             (Start, Created, Ok(Running)),
-            (Start, Running, Err(ControllerError::SimNotCreated)),
-            (Start, Paused, Err(ControllerError::SimNotCreated)),
-            (Pause, Created, Err(ControllerError::SimNotRunning)),
+            (Pause, Created, Err(ControllerError::SimNotStarted)),
+            (Resume, Created, Err(ControllerError::SimNotStarted)),
+            (Step, Created, Ok(Paused)),
+            // Once started, Pause and Resume converge on the state they name.
             (Pause, Running, Ok(Paused)),
             (Pause, Paused, Ok(Paused)),
-            (Resume, Created, Err(ControllerError::SimNotPaused)),
-            (Resume, Running, Err(ControllerError::SimNotPaused)),
+            (Resume, Running, Ok(Running)),
             (Resume, Paused, Ok(Running)),
-            (Step, Created, Ok(Paused)),
+            // Start does not converge, so a restarted simulation is still an error.
+            (Start, Running, Err(ControllerError::SimAlreadyStarted)),
+            (Start, Paused, Err(ControllerError::SimAlreadyStarted)),
+            // Stepping needs the tick loop stopped.
             (Step, Running, Err(ControllerError::SimNotPaused)),
             (Step, Paused, Ok(Paused)),
         ];
@@ -805,6 +821,22 @@ mod tests {
                 expected,
                 "{action:?} from {current:?}"
             );
+        }
+    }
+
+    #[test]
+    fn pause_and_resume_are_idempotent_once_the_simulation_has_started() {
+        use LifecycleAction::{Pause, Resume};
+        use SimulationLifecycle::{Paused, Running};
+
+        for (action, settled) in [(Pause, Paused), (Resume, Running)] {
+            let once = action
+                .next(settled)
+                .expect("re-issuing a settled control should succeed");
+            assert_eq!(once, settled, "{action:?} should hold {settled:?}");
+
+            let twice = action.next(once).expect("repeats should keep succeeding");
+            assert_eq!(twice, settled, "{action:?} should stay at {settled:?}");
         }
     }
 }
