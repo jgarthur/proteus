@@ -7,7 +7,8 @@ use axum::http::{Method, Request, StatusCode};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use proteus::web::{
-    router, CreateSimulationRequest, SimulationController, API_VERSION, API_VERSION_HEADER,
+    router, CreateSimulationRequest, SimulationController, SimulationLifecycle, API_VERSION,
+    API_VERSION_HEADER,
 };
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -149,6 +150,50 @@ async fn rest_lifecycle_flow_and_inspection_work() {
     let pause_again_json = response_json(pause_again_response).await;
     assert_eq!(pause_again_json["status"], "paused");
 
+    // Once started, pause and resume name a desired end state and converge on
+    // it, so a client may re-issue either one from a stale view of the lifecycle.
+    let redundant_pause = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/pause"))
+        .await
+        .expect("pausing an already-paused simulation should succeed");
+    assert_eq!(redundant_pause.status(), StatusCode::OK);
+    assert_eq!(response_json(redundant_pause).await["status"], "paused");
+
+    let resume_once = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/resume"))
+        .await
+        .expect("resume request should succeed");
+    assert_eq!(response_json(resume_once).await["status"], "running");
+
+    let redundant_resume = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/resume"))
+        .await
+        .expect("resuming an already-running simulation should succeed");
+    assert_eq!(redundant_resume.status(), StatusCode::OK);
+    assert_eq!(response_json(redundant_resume).await["status"], "running");
+
+    // Start is not convergent: it boots out of `created` and nothing else.
+    let restart = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/start"))
+        .await
+        .expect("restarting a running simulation should return an error response");
+    assert_eq!(restart.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response_json(restart).await["error"]["code"],
+        "SIM_ALREADY_STARTED"
+    );
+
+    let settle = app
+        .clone()
+        .oneshot(empty_request(Method::POST, "/v1/sim/pause"))
+        .await
+        .expect("pause request should succeed");
+    assert_eq!(response_json(settle).await["status"], "paused");
+
     let reset_response = app
         .clone()
         .oneshot(empty_request(Method::POST, "/v1/sim/reset"))
@@ -249,12 +294,32 @@ async fn rest_errors_use_expected_status_codes_and_payloads() {
     let region_json = response_json(region_too_large).await;
     assert_eq!(region_json["error"]["code"], "REGION_TOO_LARGE");
 
-    let step_wrong_state = app
+    // `created` sits outside the convergent pair: the simulation has never run,
+    // so neither control can name a state for it to settle into.
+    for control in ["pause", "resume"] {
+        let from_created = app
+            .clone()
+            .oneshot(empty_request(Method::POST, &format!("/v1/sim/{control}")))
+            .await
+            .expect("request should return an error response");
+        assert_eq!(
+            from_created.status(),
+            StatusCode::CONFLICT,
+            "{control} from created"
+        );
+        assert_eq!(
+            response_json(from_created).await["error"]["code"],
+            "SIM_NOT_STARTED",
+            "{control} from created"
+        );
+    }
+
+    let start_from_created = app
         .clone()
         .oneshot(empty_request(Method::POST, "/v1/sim/start"))
         .await
-        .expect("request should return an error response");
-    assert_eq!(step_wrong_state.status(), StatusCode::OK);
+        .expect("starting from created should succeed");
+    assert_eq!(start_from_created.status(), StatusCode::OK);
 
     let step_while_running = app
         .clone()
@@ -394,6 +459,134 @@ async fn websocket_subscriptions_stream_current_state_and_report_errors() {
 }
 
 #[tokio::test]
+async fn a_redundant_resume_leaves_the_tick_rate_measurement_alone() {
+    let controller = SimulationController::new();
+    let config = CreateSimulationRequest {
+        width: 2,
+        height: 1,
+        seed: 3,
+        r_energy: Some(0.0),
+        r_mass: Some(0.0),
+        d_energy: None,
+        d_mass: None,
+        t_cap: None,
+        maintenance_rate: None,
+        maintenance_exponent: None,
+        local_action_exponent: None,
+        n_synth: None,
+        inert_grace_ticks: None,
+        p_spawn: None,
+        mutation_base_log2: None,
+        mutation_background_log2: None,
+        seed_programs: Vec::new(),
+        seed_environment: Vec::new(),
+    }
+    .resolve()
+    .expect("config should resolve");
+    controller
+        .create(config)
+        .await
+        .expect("simulation should be created");
+    controller.start().await.expect("start should succeed");
+
+    // Outlast the 250 ms rolling window so the controller has published a real
+    // tick rate to disturb.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let running = controller
+        .status()
+        .await
+        .expect("status should be available");
+    assert!(
+        running.ticks_per_second > 0.0,
+        "a running simulation should report a measured tick rate, got {}",
+        running.ticks_per_second
+    );
+
+    // Resume converges rather than erroring, so it must also be unobservable:
+    // the simulation ticked straight through this call, and reporting 0.0 would
+    // leak the redundant control into the client's view of the tick rate.
+    let resumed = controller.resume().await.expect("resume should converge");
+    assert_eq!(resumed.status, SimulationLifecycle::Running);
+    assert!(
+        resumed.ticks_per_second > 0.0,
+        "a redundant resume should not reset the tick rate, got {}",
+        resumed.ticks_per_second
+    );
+}
+
+#[tokio::test]
+async fn websocket_destroy_discards_a_throttled_pending_frame() {
+    let controller = SimulationController::new();
+    let config = CreateSimulationRequest {
+        width: 1,
+        height: 1,
+        seed: 17,
+        r_energy: Some(0.0),
+        r_mass: Some(0.0),
+        d_energy: None,
+        d_mass: None,
+        t_cap: None,
+        maintenance_rate: None,
+        maintenance_exponent: None,
+        local_action_exponent: None,
+        n_synth: None,
+        inert_grace_ticks: None,
+        p_spawn: None,
+        mutation_base_log2: None,
+        mutation_background_log2: None,
+        seed_programs: vec![serde_json::from_value(json!({
+            "x": 0,
+            "y": 0,
+            "code": [80],
+            "free_energy": 5,
+            "free_mass": 1
+        }))
+        .expect("seed program should deserialize")],
+        seed_environment: Vec::new(),
+    }
+    .resolve()
+    .expect("config should resolve");
+    controller
+        .create(config)
+        .await
+        .expect("simulation should be created");
+
+    let server = spawn_server(controller.clone()).await;
+    let url = format!("ws://{}/v1/ws", server.addr);
+    let (mut websocket, _) = connect_async(url).await.expect("websocket should connect");
+    let _hello = next_text_message(&mut websocket).await;
+
+    websocket
+        .send(Message::Text(
+            r#"{"subscribe":"frames","max_fps":1}"#.into(),
+        ))
+        .await
+        .expect("frame subscription should send");
+    let initial_frame = next_binary_message(&mut websocket).await;
+    assert_eq!(&initial_frame[0..8], &0_u64.to_le_bytes());
+
+    controller
+        .step(1)
+        .await
+        .expect("simulation should publish a second frame");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    controller.destroy().await.expect("destroy should succeed");
+    let close = tokio::time::timeout(Duration::from_secs(1), websocket.next())
+        .await
+        .expect("close event should arrive");
+    match close {
+        Some(Ok(Message::Close(_))) | None => {}
+        Some(Ok(Message::Binary(_))) => {
+            panic!("pending binary frame was delivered across destroy acknowledgement")
+        }
+        other => panic!("expected websocket close, got {other:?}"),
+    }
+
+    server.handle.abort();
+}
+
+#[tokio::test]
 async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     let controller = SimulationController::new();
     let config = CreateSimulationRequest {
@@ -475,7 +668,7 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     assert_eq!(rest_metrics["event_totals"], sampled["event_totals"]);
 
     controller.reset().await.expect("simulation should reset");
-    let reset = next_text_message_of_type(&mut websocket, "metrics").await;
+    let reset = next_metrics_message_at_epoch(&mut websocket, 1).await;
     assert_eq!(reset["epoch"], 1);
     assert_eq!(reset["tick"], 0);
     assert_eq!(reset["event_totals"]["births"], 0);
@@ -619,4 +812,38 @@ async fn next_metrics_message_at_tick(
     }
 
     panic!("expected metrics websocket message at tick {expected_tick}");
+}
+
+/// Waits for the first metrics message belonging to `expected_epoch`.
+///
+/// A reset does not retract metrics already published for the previous epoch, so
+/// a message from the outgoing epoch can still be in flight when `reset` returns.
+/// Those are valid output and are skipped; overshooting the epoch is not.
+async fn next_metrics_message_at_epoch(
+    websocket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    expected_epoch: u64,
+) -> Value {
+    for _ in 0..4 {
+        let message = next_text_message(websocket).await;
+        if message["type"] != "metrics" {
+            continue;
+        }
+
+        let epoch = message["epoch"]
+            .as_u64()
+            .expect("metrics messages should carry a numeric epoch");
+        if epoch < expected_epoch {
+            continue;
+        }
+
+        assert_eq!(
+            epoch, expected_epoch,
+            "metrics epoch overshot {expected_epoch}"
+        );
+        return message;
+    }
+
+    panic!("expected metrics websocket message at epoch {expected_epoch}");
 }

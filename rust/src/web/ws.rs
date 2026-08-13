@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use tokio::time::{sleep_until, Instant as TokioInstant, Sleep};
 
 use super::controller::{FramePayload, MetricsPayload, SimulationController};
@@ -33,9 +33,12 @@ pub async fn handle_socket(mut socket: WebSocket, controller: SimulationControll
     let mut metrics_subscription = None::<MetricsSubscription>;
 
     loop {
-        // FIXME(CONTROLLER-LIFECYCLE): Define and test destroy ordering so a pending
-        // throttled frame cannot be sent after destroy is acknowledged.
         tokio::select! {
+            // Closing promptly on destroy, rather than after another frame or
+            // metrics round trip. This ordering is a latency preference only:
+            // the destroy guarantee comes from resolving throttled frames out of
+            // the live stream, which the controller clears before notifying us.
+            biased;
             destroy = destroy_rx.recv() => {
                 match destroy {
                     Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -67,8 +70,7 @@ pub async fn handle_socket(mut socket: WebSocket, controller: SimulationControll
                 }
 
                 if let Some(subscription) = frame_subscription.as_mut() {
-                    let frame = frame_rx.borrow().clone();
-                    if let Some(frame) = frame {
+                    if let Some(frame) = take_due_frame(&mut frame_rx) {
                         if try_send_frame(&mut socket, subscription, frame).await.is_err() {
                             break;
                         }
@@ -93,12 +95,17 @@ pub async fn handle_socket(mut socket: WebSocket, controller: SimulationControll
             }
             _ = frame_timer(frame_subscription.as_mut()), if frame_subscription.as_ref().is_some_and(FrameSubscription::has_timer) => {
                 if let Some(subscription) = frame_subscription.as_mut() {
-                    if let Some(frame) = subscription.pending.take() {
+                    subscription.timer = None;
+                    // Resolve the owed frame from the live stream instead of
+                    // replaying a payload cached when the throttle engaged. The
+                    // controller clears this stream before it publishes destroy,
+                    // so a frame owed by a destroyed simulation reads as `None`
+                    // and is dropped no matter which branch wins this select.
+                    if let Some(frame) = take_due_frame(&mut frame_rx) {
                         if send_frame_now(&mut socket, subscription, frame).await.is_err() {
                             break;
                         }
                     }
-                    subscription.timer = None;
                 }
             }
         }
@@ -214,10 +221,13 @@ fn validate_control(control: WsControlMessage) -> Result<WsAction, String> {
 }
 
 /// Tracks frame-stream throttling state for one client.
+///
+/// Only the send deadline is retained. The frame owed at that deadline is read
+/// back from the watch stream when the timer fires, so a destroy that clears the
+/// stream also cancels the delivery.
 struct FrameSubscription {
     min_interval: Duration,
     last_sent_at: Option<Instant>,
-    pending: Option<FramePayload>,
     timer: Option<Pin<Box<Sleep>>>,
 }
 
@@ -227,7 +237,6 @@ impl FrameSubscription {
         Self {
             min_interval: Duration::from_secs_f64(1.0 / f64::from(max_fps)),
             last_sent_at: None,
-            pending: None,
             timer: None,
         }
     }
@@ -236,6 +245,28 @@ impl FrameSubscription {
     fn has_timer(&self) -> bool {
         self.timer.is_some()
     }
+
+    /// Reports whether the FPS throttle currently permits an immediate send.
+    fn is_due(&self, now: Instant) -> bool {
+        match self.last_sent_at {
+            None => true,
+            Some(last_sent_at) => now.duration_since(last_sent_at) >= self.min_interval,
+        }
+    }
+
+    /// Schedules the next send at the end of the current throttle interval.
+    fn arm_timer(&mut self) {
+        let Some(last_sent_at) = self.last_sent_at else {
+            return;
+        };
+        let deadline = last_sent_at + self.min_interval;
+        self.timer = Some(Box::pin(sleep_until(TokioInstant::from_std(deadline))));
+    }
+}
+
+/// Reads the frame a client is owed, or `None` once destroy cleared the stream.
+fn take_due_frame(frame_rx: &mut watch::Receiver<Option<FramePayload>>) -> Option<FramePayload> {
+    frame_rx.borrow_and_update().clone()
 }
 
 /// Tracks the tick cadence for metrics updates.
@@ -248,25 +279,20 @@ fn should_send_metrics(subscription: &MetricsSubscription, metrics: &MetricsPayl
     metrics.tick.is_multiple_of(subscription.every_n_ticks)
 }
 
-/// Sends a frame immediately or queues it behind the FPS throttle.
+/// Sends a frame immediately, or defers to the end of the throttle interval.
 async fn try_send_frame(
     socket: &mut WebSocket,
     subscription: &mut FrameSubscription,
     frame: FramePayload,
 ) -> Result<(), axum::Error> {
-    let now = Instant::now();
-    match subscription.last_sent_at {
-        None => send_frame_now(socket, subscription, frame).await,
-        Some(last_sent_at) if now.duration_since(last_sent_at) >= subscription.min_interval => {
-            send_frame_now(socket, subscription, frame).await
-        }
-        Some(last_sent_at) => {
-            subscription.pending = Some(frame);
-            let deadline = last_sent_at + subscription.min_interval;
-            subscription.timer = Some(Box::pin(sleep_until(TokioInstant::from_std(deadline))));
-            Ok(())
-        }
+    if subscription.is_due(Instant::now()) {
+        return send_frame_now(socket, subscription, frame).await;
     }
+
+    // Drop this payload and re-read the stream at the deadline. Holding no copy
+    // is what lets destroy cancel the delivery by clearing the stream.
+    subscription.arm_timer();
+    Ok(())
 }
 
 /// Sends one frame payload immediately and updates throttle state.
@@ -312,5 +338,63 @@ async fn frame_timer(subscription: Option<&mut FrameSubscription>) {
         if let Some(timer) = subscription.timer.as_mut() {
             timer.await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use tokio::sync::watch;
+
+    use super::{take_due_frame, FramePayload, FrameSubscription};
+
+    fn frame(tick: u64) -> FramePayload {
+        FramePayload {
+            tick,
+            bytes: Arc::new(vec![0, 1, 2, 3]),
+        }
+    }
+
+    #[test]
+    fn a_due_frame_resolves_to_nothing_once_destroy_clears_the_stream() {
+        let (frame_tx, mut frame_rx) = watch::channel(Some(frame(1)));
+        assert!(take_due_frame(&mut frame_rx).is_some());
+
+        // Destroy clears the frame stream before it notifies sockets. A timer
+        // that fires after that point therefore has no frame left to deliver,
+        // which is what keeps a throttled frame off the wire across destroy.
+        frame_tx
+            .send(None)
+            .expect("frame stream should accept the destroy clear");
+        assert!(take_due_frame(&mut frame_rx).is_none());
+    }
+
+    #[test]
+    fn a_due_frame_resolves_to_the_latest_published_value() {
+        let (frame_tx, mut frame_rx) = watch::channel(Some(frame(1)));
+        frame_tx
+            .send(Some(frame(2)))
+            .expect("frame stream should accept a newer frame");
+
+        let due = take_due_frame(&mut frame_rx).expect("a frame should be owed");
+        assert_eq!(due.tick, 2);
+    }
+
+    #[test]
+    fn the_fps_throttle_defers_until_the_interval_elapses() {
+        let mut subscription = FrameSubscription::new(1);
+        let now = Instant::now();
+
+        assert!(
+            subscription.is_due(now),
+            "the first frame sends immediately"
+        );
+
+        subscription.last_sent_at = Some(now);
+        assert!(!subscription.is_due(now));
+        assert!(!subscription.is_due(now + Duration::from_millis(999)));
+        assert!(subscription.is_due(now + Duration::from_millis(1000)));
     }
 }

@@ -24,8 +24,9 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 ## Next
 
 - [ ] Design 1–2 minimal self-replicating seed programs
-- [ ] CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
+- [x] CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
 - [ ] SNAPSHOT-BOUNDARY: Engine snapshot boundary and web-layer snapshot store
+- [x] METRICS-EPOCH-WAIT: Fixed the ~1% flake in `cumulative_event_totals_survive_sampling_and_reset_epochs`. After `reset()` the test took the next `metrics` message and asserted `epoch == 1`, but an in-flight epoch-0 message can arrive first. The socket behaviour is correct, so the fix is test-only: `next_metrics_message_at_epoch` skips older epochs and rejects an overshoot. Was 3 failures / 250 runs on `main`; now 0 / 400.
 - [x] METRIC-PACKET-ENERGY: Add packet-energy metric
 - [x] METRIC-BIRTH-TYPES: Add boot_births and spawn_births metrics
 - [ ] SPEED-CONTROL: Replace the frontend-side target-TPS stepping shim with real backend speed control and re-align the frontend with the spec

@@ -2,7 +2,7 @@
 
 **Status**: Provisional — subject to change as the engine implementation matures.
 
-**Spec version**: 0.2.3
+**Spec version**: 0.2.4
 
 **Simulator version**: Targets Proteus v0.2.1
 
@@ -58,9 +58,13 @@ The API is independent of any specific frontend implementation.
 
 All REST endpoints are prefixed with `/v1`.
 
-All responses include the header `X-Proteus-API-Version: 0.2.3`.
+All responses include the header `X-Proteus-API-Version: 0.2.4`.
 
-Breaking changes increment the major URL version (`/v2`). Additive changes (new optional fields, new endpoints) do not.
+Additive changes — new optional fields, new endpoints — do not change the URL version or require a spec-version bump.
+
+While this spec is **Provisional** (any `0.x` spec version), breaking changes stay under `/v1` and are signalled by the spec version in `X-Proteus-API-Version`. A client that pins behaviour should compare that header rather than assume `/v1` is stable. This is the deliberate consequence of the status declared at the top of this document: the contract is still being shaped, and minting a URL version for each correction would leave a trail of near-identical prefixes before the design has settled.
+
+Once the spec is declared stable, this relaxation ends: breaking changes then increment the major URL version (`/v2`), and the `0.x` allowance no longer applies.
 
 WebSocket messages include an `api_version` field in the initial handshake.
 
@@ -177,6 +181,10 @@ DELETE /v1/sim
 
 Stops the simulation and releases all resources. Returns `204 No Content`. Any connected WebSocket clients receive a close frame.
 
+Destroy establishes an observer boundary before the `204` response is acknowledged: the controller clears the latest frame and metrics values first, and only then publishes the destroy notification. WebSocket handlers hold no copy of a throttled frame — they resolve the frame owed at an FPS-throttle deadline from the live stream when that deadline expires — so a frame still queued behind the throttle at destroy resolves to nothing and is dropped rather than sent.
+
+This covers queued frames, not frames already being transmitted. A binary frame whose socket write began just before destroy was published may still complete, and a client can observe it after the `204`.
+
 Returns `404` if no simulation exists.
 
 ---
@@ -281,7 +289,9 @@ All control endpoints return `404` if no simulation exists.
 POST /v1/sim/start
 ```
 
-Begin ticking from the `created` state. Returns `200 OK` with the current status. Fails with `409` if already running.
+Begin ticking from the `created` state. Returns `200 OK` with the current status.
+
+Start does not converge on the running state: it boots a simulation that has never run, so it fails with `409 SIM_ALREADY_STARTED` from both `running` and `paused`. Use `POST /v1/sim/resume` to leave the paused state. This keeps a client that believes it holds a fresh simulation from silently continuing one with history.
 
 ### Pause
 
@@ -291,13 +301,23 @@ POST /v1/sim/pause
 
 Pause the tick loop after the current tick completes. Returns `200 OK` with the current status. Idempotent if already paused.
 
+Fails with `409 SIM_NOT_STARTED` from the `created` state.
+
 ### Resume
 
 ```
 POST /v1/sim/resume
 ```
 
-Resume from paused state. Returns `200 OK`. Fails with `409` if not paused.
+Resume the tick loop. Returns `200 OK` with the current status. Idempotent if already running.
+
+Fails with `409 SIM_NOT_STARTED` from the `created` state.
+
+### Control-state convergence
+
+`created` means the simulation has never run. Only `start` and `step` leave it, and `pause` and `resume` both fail with `409 SIM_NOT_STARTED` there.
+
+Once a simulation has started, `pause` and `resume` name a desired end state rather than a transition, and converge on it. Re-issuing either one succeeds and returns the current status, so a client may retry a control after a lost response, or issue one from a possibly-stale view of the lifecycle, without special-casing a conflict. `start` and `step` are not convergent and still report `409` when their preconditions do not hold.
 
 ### Step
 
@@ -305,7 +325,9 @@ Resume from paused state. Returns `200 OK`. Fails with `409` if not paused.
 POST /v1/sim/step?count=1
 ```
 
-Advance exactly `count` ticks (default 1) while not running. This works from both `created` and `paused`. If called from `created`, the simulation transitions to `paused` after the requested ticks complete. Returns `200 OK` with status after stepping. The response is sent after all requested ticks have completed. Fails with `409` if the simulation is running.
+Advance exactly `count` ticks (default 1) while not running. This works from both `created` and `paused`. If called from `created`, the simulation transitions to `paused` after the requested ticks complete. Returns `200 OK` with status after stepping. The response is sent after all requested ticks have completed. Fails with `409 SIM_NOT_PAUSED` if the simulation is running.
+
+`count` must be greater than zero. A zero count is rejected with `400 BAD_REQUEST` in every lifecycle state, including `running` — the request is malformed regardless of state, so it is validated before the lifecycle is. If no simulation exists, `404 NO_SIM` takes precedence over both.
 
 ### Reset
 
@@ -644,9 +666,9 @@ All error responses use a consistent JSON body:
 |------|---------|
 | `NO_SIM` | No simulation exists |
 | `SIM_ALREADY_EXISTS` | Simulation already exists |
-| `SIM_NOT_RUNNING` | Operation requires running state |
-| `SIM_NOT_PAUSED` | Operation requires paused state |
-| `SIM_NOT_CREATED` | Operation requires created state |
+| `SIM_NOT_STARTED` | Control requires a simulation that has left the `created` state |
+| `SIM_NOT_PAUSED` | Stepping requires the tick loop stopped |
+| `SIM_ALREADY_STARTED` | `start` requires the `created` state; use `resume` instead |
 | `INVALID_CONFIG` | Config validation failure |
 | `CELL_OUT_OF_BOUNDS` | Cell index or coordinates exceed grid size |
 | `REGION_TOO_LARGE` | Batch inspection region exceeds limit |

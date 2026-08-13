@@ -49,20 +49,21 @@ impl From<ControllerError> for ApiError {
                 code: "SIM_ALREADY_EXISTS",
                 message: "A simulation already exists. DELETE /v1/sim first.".to_owned(),
             },
-            ControllerError::SimNotRunning => Self {
+            ControllerError::SimNotStarted => Self {
                 status: StatusCode::CONFLICT,
-                code: "SIM_NOT_RUNNING",
-                message: "This operation requires a running simulation.".to_owned(),
+                code: "SIM_NOT_STARTED",
+                message: "The simulation has not started yet. POST /v1/sim/start first.".to_owned(),
             },
             ControllerError::SimNotPaused => Self {
                 status: StatusCode::CONFLICT,
                 code: "SIM_NOT_PAUSED",
-                message: "This operation requires a paused simulation.".to_owned(),
+                message: "Cannot step a running simulation. POST /v1/sim/pause first.".to_owned(),
             },
-            ControllerError::SimNotCreated => Self {
+            ControllerError::SimAlreadyStarted => Self {
                 status: StatusCode::CONFLICT,
-                code: "SIM_NOT_CREATED",
-                message: "This operation requires the simulation to be in the created state."
+                code: "SIM_ALREADY_STARTED",
+                message: "The simulation has already started. Use POST /v1/sim/resume or \
+                          /v1/sim/pause to set the run state, or reset it first."
                     .to_owned(),
             },
             ControllerError::InvalidConfig(message) => Self {
