@@ -24,6 +24,11 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 ## Next
 
 - [ ] Design 1–2 minimal self-replicating seed programs
+- [ ] MUTATION-CAUSE-SPLIT: Split the mutation metric into baseline and background-stressed counters. See `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`.
+- [x] EMERGENCE-SWEEP: All three axes swept (62 runs). M2 onset collapses onto mutations × occupancy ≈ 10^4, not `mutation_base_log2` alone; `p_spawn` buys attempts, `r_mass` buys build size; spec default `r_mass = 0.05` yields dead soup. See `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`.
+- [x] ATTRACTOR-CONVERGENCE: Confirmed at 200k ticks — mean genome size converges to 40.5 and mutations-per-lifetime to ≈1.8 by tick 130k; population density does not settle in that span. See `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`.
+- [ ] SEED1-TRACE: Verify the seed-1 genome predictions (offspring receive the literal byte `39`; `boot` fires before the copy loop) by inspecting a live offspring at boot time. See `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`.
+- [ ] EMERGENCE-CENSUS: Add a program-size histogram, opcode census, and per-program parent/birth-tick lineage tracking; blocker for deciding milestones M1/M4-M6 and for converting mutations-per-lifetime into mutations-per-generation. See `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`.
 - [ ] CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
 - [ ] SNAPSHOT-BOUNDARY: Engine snapshot boundary and web-layer snapshot store
 - [x] METRIC-PACKET-ENERGY: Add packet-energy metric
