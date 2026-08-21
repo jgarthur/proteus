@@ -2,7 +2,7 @@
 
 **Status**: Implemented MVP contract.
 
-**Targets**: Proteus v0.3.0 engine, API metrics schema v0.2.3.
+**Targets**: Proteus v0.3.0 engine, API metrics schema v0.2.5.
 
 ---
 
@@ -375,13 +375,15 @@ means the post-tick counter value, not an additional tick to execute.
 
 Every simulation tick executes even when no metrics row is written. An observation cadence of 50 means the runner records ticks 0, 50, 100, and so on; it does not skip simulation work.
 
-Metrics retain the API v0.2.3 distinction:
+Metrics retain the API v0.2.5 distinction:
 
-- gauges such as population, resources, packet energy, and program sizes describe the sampled tick
+- gauges such as population, resources, program sizes, packet energy, and the `census` object describe the sampled tick
 - top-level birth, death, and mutation fields describe the most recently completed tick
 - `event_totals` contain cumulative birth, death, and mutation counts over every completed tick
 
 Cumulative totals prevent sampled observations from losing events between rows. The final completion summary always includes cumulative totals, even if the final tick does not match the observation cadence.
+
+The `census` object is a gauge and has **no cumulative counterpart**. It must never be diffed across rows the way `event_totals` are diffed: the difference between two censuses is not an event count, because programs are created and destroyed between samples. Only `event_totals` carry the losslessness guarantee that survives a coarse cadence.
 
 O(grid) aggregate metrics are computed only at observation cadence and for the final summary. The runner must not scan the grid on every tick merely to support a coarser output cadence.
 
@@ -416,13 +418,45 @@ Each JSONL line uses a runner envelope rather than a bare API object:
       "spawn_births": 0,
       "deaths": 0,
       "mutations": 0
+    },
+    "census": {
+      "live_sizes":  { "scale": "linear", "first_value": 1, "counts": [0, 1, "…256 entries…"],
+                       "overflow": 0, "count": 1, "sum": 2, "max": 2 },
+      "inert_sizes": { "scale": "linear", "first_value": 1, "counts": ["…256 entries…"],
+                       "overflow": 0, "count": 0, "sum": 0, "max": 0 },
+      "opcode_counts": ["…256 entries, indexed by instruction byte…"],
+      "size1": {
+        "live_count": 0, "inert_count": 0,
+        "live_age_sum": 0, "live_max_age": 0,
+        "live_opcode_counts": ["…256 entries…"]
+      },
+      "lineage": {
+        "roots": 1, "orphans": 0,
+        "generation": { "scale": "linear", "first_value": 0, "counts": ["…512 entries…"], "overflow": 0,
+                        "count": 1, "sum": 0, "max": 0 },
+        "birth_tick_sum": 0, "birth_tick_count": 1,
+        "offspring": { "scale": "linear", "first_value": 0, "counts": ["…16 entries…"], "overflow": 0,
+                       "count": 1, "sum": 0, "max": 0 },
+        "origin_seed": 1, "origin_spawn": 0, "origin_append": 0
+      },
+      "stack_depths": { "scale": "log2", "first_value": 0, "counts": ["…33 entries…"],
+                        "overflow": 0, "count": 1, "sum": 0, "max": 0 }
     }
   }
 }
 ```
 
-`metrics` is the API v0.2.3 `MetricsSnapshot` object verbatim, including every
-field in that schema. The runner envelope makes lines safe to concatenate across
+The `counts` arrays above are abbreviated. Every one is written out in full in a
+real row: 256 entries for each size histogram and for both opcode censuses, 512
+for `generation`, 33 for the log2-scaled `stack_depths`, and 16 for `offspring`.
+A row is therefore roughly 7-9 KB rather than the ~400 B of a censusless row, so
+a 200 k-tick run at an observation cadence of 50-500 writes on the order of
+3-36 MB of `metrics.jsonl`. Choose the cadence with that in mind; it does not change what
+the final census contains.
+
+`metrics` is the API v0.2.5 `MetricsSnapshot` object verbatim, including every
+field in that schema. `census` is described in API-SPEC section 10; it is always
+present in a runner row, unlike the web API where it is opt-in. The runner envelope makes lines safe to concatenate across
 runs without requiring their directory context. The runner has one metrics
 epoch, numbered 0. At tick 0, all top-level per-tick event fields and cumulative
 event totals are zero.
@@ -506,7 +540,7 @@ Its exact fields are:
 | `started_at` | RFC 3339 UTC string recorded by the child before world initialization |
 | `finished_at` | RFC 3339 UTC string |
 | `wall_duration_ms` | `u64` monotonic child duration |
-| `final_metrics` | Complete API v0.2.3 `MetricsSnapshot` at `final_tick` |
+| `final_metrics` | Complete API v0.2.5 `MetricsSnapshot` at `final_tick`, census included |
 
 `final_metrics.event_totals` is the authoritative cumulative-event value in the
 summary; it is not duplicated in a second top-level field.
@@ -777,6 +811,7 @@ and scientific stopping rules.
 - A tick limit of `N` performs exactly `N` complete ticks and reports final tick `N`.
 - Observation cadences 1 and 100 produce identical final cumulative event totals.
 - Observation cadence does not change final simulation state.
+- Observation cadence does not change the final census.
 - The final metrics row is emitted when the tick limit is off cadence.
 - Duplicate run IDs and overlapping output directories are rejected before launch.
 - A declared output cannot collide with or descend from another run's retry-archive namespace.

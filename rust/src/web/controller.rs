@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::observe::{
-    collect_metrics, encode_grid_frame, inspect_cell, inspect_region, CellInspection, EventTotals,
-    MetricsSnapshot,
+    collect_census, collect_metrics, encode_grid_frame, inspect_cell, inspect_region,
+    CellInspection, EventTotals, MetricsSnapshot,
 };
 use crate::{apply_bootstrap, Simulation, SimulationError, TickReport};
 
@@ -139,8 +139,17 @@ impl SimulationController {
     }
 
     /// Returns the latest metrics snapshot from the worker.
-    pub async fn metrics(&self) -> Result<MetricsSnapshot, ControllerError> {
-        self.request(Command::Metrics).await
+    ///
+    /// With `census` set, the worker attaches a freshly computed program census
+    /// describing the same tick. The census is opt-in because the controller
+    /// refreshes metrics every tick and the census is far too expensive for
+    /// that path on a dense grid.
+    pub async fn metrics(&self, census: bool) -> Result<MetricsSnapshot, ControllerError> {
+        self.request(|response_tx| Command::Metrics {
+            census,
+            response_tx,
+        })
+        .await
     }
 
     /// Returns one inspected cell by flat index.
@@ -231,7 +240,10 @@ enum Command {
     },
     Reset(oneshot::Sender<Result<SimulationStatusResponse, ControllerError>>),
     Destroy(oneshot::Sender<Result<(), ControllerError>>),
-    Metrics(oneshot::Sender<Result<MetricsSnapshot, ControllerError>>),
+    Metrics {
+        census: bool,
+        response_tx: oneshot::Sender<Result<MetricsSnapshot, ControllerError>>,
+    },
     InspectCellByIndex {
         index: usize,
         response_tx: oneshot::Sender<Result<CellInspection, ControllerError>>,
@@ -572,11 +584,23 @@ fn handle_command(
             };
             let _ = response_tx.send(result);
         }
-        Command::Metrics(response_tx) => {
+        Command::Metrics {
+            census,
+            response_tx,
+        } => {
             let _ = response_tx.send(
                 simulation
                     .as_ref()
-                    .map(|sim| sim.latest_metrics.clone())
+                    .map(|sim| {
+                        // `refresh_observation` runs every tick, so
+                        // `latest_metrics.tick` always equals the simulation's
+                        // current tick and both halves describe one state.
+                        let mut metrics = sim.latest_metrics.clone();
+                        if census {
+                            metrics.census = Some(collect_census(sim.simulation.grid()));
+                        }
+                        metrics
+                    })
                     .ok_or(ControllerError::NoSim),
             );
         }

@@ -10,7 +10,7 @@ use rayon::prelude::*;
 
 use crate::config::{ConfigError, SimConfig};
 use crate::grid::{Grid, GridError};
-use crate::model::{Cell, CellSnapshot, Packet, QueuedAction};
+use crate::model::{Cell, CellSnapshot, Lineage, Packet, ProgramOrigin, ProgramUid, QueuedAction};
 use crate::pass1::{pass1_local, Pass1Output};
 use crate::pass2::{pass2_nonlocal, Pass2Output};
 use crate::pass3::{
@@ -194,6 +194,9 @@ impl Simulation {
             .cell_count()
             .expect("validated config must have a usable cell count");
 
+        let mut grid = grid;
+        backfill_seed_lineage(&mut grid, cell_count);
+
         Ok(Self {
             grid,
             packets: Vec::new(),
@@ -374,6 +377,28 @@ pub struct PreparedTick<'a> {
     pub tick: u64,
     pub snapshot: &'a [CellSnapshot],
     pub live_set: &'a [bool],
+}
+
+/// Gives every pre-built program a seed-origin lineage root at construction.
+///
+/// Grids handed to [`Simulation::from_grid`] (tests, benches, fixtures) carry
+/// programs built through `Program::new_live`/`new_inert`, whose lineage is all
+/// [`ProgramUid::NONE`]. Backfilling here establishes the invariant that every
+/// program inside a `Simulation` has a non-`NONE` uid, which the census and the
+/// property tests rely on. Programs that already carry a uid are left alone.
+fn backfill_seed_lineage(grid: &mut Grid, cell_count: usize) {
+    for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
+        let Some(program) = cell.program.as_mut() else {
+            continue;
+        };
+        if !program.lineage.uid.is_none() {
+            continue;
+        }
+        program.lineage = Lineage::root(
+            ProgramUid::create(0, cell_index, cell_count, ProgramOrigin::Seed),
+            0,
+        );
+    }
 }
 
 /// Clears the newborn marker once a full tick has completed.

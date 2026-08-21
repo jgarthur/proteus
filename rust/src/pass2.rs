@@ -2,7 +2,7 @@
 
 use crate::config::PROGRAM_SIZE_CAP;
 use crate::grid::Grid;
-use crate::model::{Cell, Direction, Program, QueuedAction};
+use crate::model::{Cell, Direction, Lineage, Program, ProgramOrigin, ProgramUid, QueuedAction};
 use crate::random::cell_rng;
 
 const EXCLUSIVE_TIE_SALT: u64 = 0x8d51_4c2f_d5b3_7a11;
@@ -65,10 +65,16 @@ struct MoveCommit {
 }
 
 /// Records an append-into-empty-cell creation to apply after conflicts resolve.
+///
+/// The creator's lineage is captured when the commit is queued, not when it is
+/// applied: `resolve_exclusive` applies every move before every create, so by
+/// apply time the source cell may hold a different program (or none at all).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AppendCreateCommit {
     target: usize,
     value: u8,
+    parent: ProgramUid,
+    parent_generation: u32,
 }
 
 /// Stages exclusive candidates against the immutable pre-Pass-2 state.
@@ -239,7 +245,10 @@ fn resolve_exclusive(
                     false,
                 );
             }
-            apply_boot_success(grid.get_mut(target).expect("target cell should exist"));
+            apply_boot_success(
+                grid.get_mut(target).expect("target cell should exist"),
+                tick,
+            );
             output.booted_programs += 1;
         } else {
             let winner_index = choose_winner(group, target, tick, seed);
@@ -255,7 +264,14 @@ fn resolve_exclusive(
                 );
             }
 
-            apply_winner(grid, group[winner_index], &mut moves, &mut creates, output);
+            apply_winner(
+                grid,
+                group[winner_index],
+                tick,
+                &mut moves,
+                &mut creates,
+                output,
+            );
         }
 
         group_start = group_end;
@@ -345,6 +361,7 @@ fn choose_winner(group: &[ExclusiveCandidate], target: usize, tick: u64, seed: u
 fn apply_winner(
     working: &mut Grid,
     candidate: ExclusiveCandidate,
+    tick: u64,
     moves: &mut Vec<MoveCommit>,
     creates: &mut Vec<AppendCreateCommit>,
     output: &mut Pass2Output,
@@ -380,6 +397,9 @@ fn apply_winner(
 
             source_cell.free_mass -= 1;
             set_flag(source_cell, false);
+            // Capture the creator's lineage while the source cell still holds
+            // it; deferred creates run after every move has been applied.
+            let creator = program(source_cell).lineage;
 
             if candidate.target_has_program {
                 let target_program = program_mut(
@@ -392,6 +412,8 @@ fn apply_winner(
                 creates.push(AppendCreateCommit {
                     target: candidate.target,
                     value,
+                    parent: creator.uid,
+                    parent_generation: creator.generation,
                 });
             }
 
@@ -435,6 +457,7 @@ fn apply_winner(
                 working
                     .get_mut(candidate.target)
                     .expect("target cell should exist"),
+                tick,
             );
             output.booted_programs += 1;
         }
@@ -443,13 +466,16 @@ fn apply_winner(
 }
 
 /// Marks an inert target as successfully booted.
-fn apply_boot_success(target_cell: &mut Cell) {
+fn apply_boot_success(target_cell: &mut Cell, tick: u64) {
     let target_program = program_mut(target_cell);
     target_program.live = true;
     target_program.age = 0;
     target_program.registers.ip = 0;
     target_program.tick.is_newborn = true;
     target_program.tick.is_open = false;
+    // Boot is the moment an inert body becomes live; uid, parent, and
+    // generation were fixed when the body was created and do not change.
+    target_program.lineage.mark_live(tick);
 }
 
 /// Applies the deferred state transfer for a successful move.
@@ -479,8 +505,10 @@ fn apply_append_create_commit(grid: &mut Grid, commit: AppendCreateCommit, tick:
     let dir = Direction::ALL[(rng.next_u32() % Direction::ALL.len() as u32) as usize];
     let id = rng.next_u32() as u8;
 
-    let mut program =
-        Program::new_inert(vec![commit.value], dir, id).expect("append create should be valid");
+    let uid = ProgramUid::create(tick, commit.target, grid.len(), ProgramOrigin::Append);
+    let mut program = Program::new_inert(vec![commit.value], dir, id)
+        .expect("append create should be valid")
+        .with_lineage(Lineage::child(uid, commit.parent, commit.parent_generation));
     program.tick.is_open = true;
 
     let cell = grid
@@ -540,8 +568,198 @@ fn program_mut(cell: &mut Cell) -> &mut Program {
 
 #[cfg(test)]
 mod tests {
-    use super::{choose_winner, ExclusiveCandidate};
-    use crate::model::QueuedAction;
+    use super::{choose_winner, pass2_nonlocal, ExclusiveCandidate};
+    use crate::grid::Grid;
+    use crate::model::{
+        Cell, Direction, Lineage, Program, ProgramOrigin, ProgramSite, ProgramUid, QueuedAction,
+    };
+    use crate::opcode::op;
+
+    /// Builds a live creator carrying a known lineage and enough mass to append.
+    fn creator_cell(lineage: Lineage) -> Cell {
+        Cell {
+            program: Some(
+                Program::new_live(vec![op::APPEND_ADJ], Direction::Right, 3)
+                    .expect("creator should build")
+                    .with_lineage(lineage),
+            ),
+            free_energy: 8,
+            free_mass: 4,
+            ..Cell::default()
+        }
+    }
+
+    /// Returns the lineage of the program in one cell.
+    fn lineage_at(grid: &Grid, index: usize) -> Lineage {
+        grid.get(index)
+            .expect("cell should exist")
+            .program
+            .as_ref()
+            .expect("cell should hold a program")
+            .lineage
+    }
+
+    #[test]
+    fn append_into_empty_cell_records_the_creator_as_parent() {
+        let creator = Lineage {
+            uid: ProgramUid::create(3, 0, 4, ProgramOrigin::Spawn),
+            parent: ProgramUid::NONE,
+            birth_tick: 3,
+            generation: 5,
+        };
+        let mut grid = Grid::from_cells(
+            4,
+            1,
+            vec![
+                creator_cell(creator),
+                Cell::default(),
+                Cell::default(),
+                Cell::default(),
+            ],
+        )
+        .expect("grid should build");
+
+        pass2_nonlocal(
+            &mut grid,
+            &[QueuedAction::AppendAdj {
+                source: 0,
+                target: 1,
+                value: op::NOP,
+            }],
+            9,
+            0x51,
+        );
+
+        let child = lineage_at(&grid, 1);
+        assert_eq!(child.parent, creator.uid);
+        assert_eq!(child.generation, creator.generation + 1);
+        assert_eq!(
+            child.birth_tick(),
+            None,
+            "an inert body has never been live"
+        );
+        assert_eq!(
+            child.uid.site(grid.len()),
+            Some(ProgramSite {
+                tick: 9,
+                cell_index: 1,
+                origin: ProgramOrigin::Append,
+            })
+        );
+        assert!(
+            !grid
+                .get(1)
+                .expect("cell should exist")
+                .program
+                .as_ref()
+                .expect("program should exist")
+                .live
+        );
+    }
+
+    #[test]
+    fn boot_stamps_the_birth_tick_and_preserves_the_rest_of_the_lineage() {
+        let body = Lineage::child(
+            ProgramUid::create(4, 1, 4, ProgramOrigin::Append),
+            ProgramUid::create(2, 0, 4, ProgramOrigin::Seed),
+            6,
+        );
+        let mut inert = Cell::with_program(
+            Program::new_inert(vec![op::NOP], Direction::Up, 1)
+                .expect("inert body should build")
+                .with_lineage(body),
+        );
+        inert
+            .program
+            .as_mut()
+            .expect("program should exist")
+            .tick
+            .is_open = true;
+
+        let mut grid = Grid::from_cells(
+            4,
+            1,
+            vec![
+                creator_cell(Lineage::root(ProgramUid(1), 0)),
+                inert,
+                Cell::default(),
+                Cell::default(),
+            ],
+        )
+        .expect("grid should build");
+
+        pass2_nonlocal(
+            &mut grid,
+            &[QueuedAction::Boot {
+                source: 0,
+                target: 1,
+            }],
+            17,
+            0x51,
+        );
+
+        let booted = lineage_at(&grid, 1);
+        assert_eq!(booted.birth_tick(), Some(17));
+        assert_eq!(booted.uid, body.uid);
+        assert_eq!(booted.parent, body.parent);
+        assert_eq!(booted.generation, body.generation);
+    }
+
+    #[test]
+    fn append_create_keeps_its_parent_when_a_move_empties_the_source_cell() {
+        // Pass 1 queues at most one nonlocal action per program, so this action
+        // pair cannot arise from a real tick. It pins Pass 2's own contract:
+        // creates are applied after every move, so the parent must have been
+        // captured when the commit was queued, not read from the source cell.
+        let creator = Lineage {
+            uid: ProgramUid::create(1, 0, 4, ProgramOrigin::Spawn),
+            parent: ProgramUid::NONE,
+            birth_tick: 1,
+            generation: 2,
+        };
+        let mut grid = Grid::from_cells(
+            4,
+            1,
+            vec![
+                creator_cell(creator),
+                Cell::default(),
+                Cell::default(),
+                Cell::default(),
+            ],
+        )
+        .expect("grid should build");
+
+        pass2_nonlocal(
+            &mut grid,
+            &[
+                QueuedAction::AppendAdj {
+                    source: 0,
+                    target: 1,
+                    value: op::NOP,
+                },
+                QueuedAction::Move {
+                    source: 0,
+                    target: 2,
+                },
+            ],
+            5,
+            0x51,
+        );
+
+        assert!(
+            grid.get(0).expect("cell should exist").program.is_none(),
+            "the move should have emptied the source cell before the create ran"
+        );
+        assert_eq!(
+            lineage_at(&grid, 2).uid,
+            creator.uid,
+            "the mover keeps its uid"
+        );
+
+        let child = lineage_at(&grid, 1);
+        assert_eq!(child.parent, creator.uid);
+        assert_eq!(child.generation, creator.generation + 1);
+    }
 
     #[test]
     fn choose_winner_prefers_higher_strength_before_weighted_ties() {

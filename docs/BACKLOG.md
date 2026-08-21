@@ -23,9 +23,50 @@ References: `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/simulation.rs`, 
 Decision (2026-08-21): implemented exact `2^-k` Bernoulli/binomial samplers, Poisson inversion with per-loop precomputation and a large-rate fallback, dyadic config validation, and exponent-1 `powf` fast paths. The approved decay defaults are `2^-7`; mutation exponents above 63 are configuration errors. Serial and Rayon tests plus 1000-tick parity at 1/2/4/8 threads pass. Timed benchmarks were skipped because the shared machine was not quiet; rerun them before drawing performance conclusions.
 References: `docs/analysis/2026-08-13_dyadic-sampler-plan.md`, `docs/analysis/2026-08-21_dyadic-sampler-results.md`, `rust/src/random.rs`, `rust/src/pass3.rs`, `rust/src/config.rs`
 
+### EMERGENCE-CENSUS: Program-size histogram, opcode census, and per-program lineage
+
+Delivered (2026-08-21): `census` is an optional point-in-time block inside `MetricsSnapshot` (size histograms, opcode census, size-1 population, aggregated lineage, stack depths), always present in runner rows and opt-in over the web API via `GET /v1/sim/metrics?census=1`. `Program` carries a 24-byte observation-only `Lineage` block.
+
+Decisions worth keeping:
+- **Uids are derived from the creation site**, `1 + ((tick * cell_count + cell_index) * 4 + origin)`, never allocated from a counter. Spawn births happen inside the Rayon per-cell closure, so any shared counter would make uids scheduling-dependent and break serial-vs-Rayon parity. The 4-way origin tag exists because one cell can be created twice in a tick (an `appendAdj` body destroyed by maintenance, then a spawn into the same cell). Uids are epoch-scoped: not comparable across simulations, resets, or grid sizes.
+- **Seed programs and spontaneous spawns are lineage roots** (`parent` NONE, `generation` 0), matching SPEC.md's "primordial bootstrap - no parent required" and API-SPEC's rule that bootstrap programs are not births. That makes "did a spawn-rooted lineage reach generation >= 1?" (milestone M5) directly observable.
+- **Parent is captured when the create commit is queued**, not when it is applied, because Pass 2 applies every move before every create.
+- **Computed on sample, never incrementally**, to keep the tick path free of new branches, stores, and draws.
+- **Schema placement**: API metrics schema 0.2.4 -> 0.2.5; `RUNNER_SCHEMA_VERSION` deliberately stays `0.1.0` because it feeds `input_digest` and bumping it would invalidate every golden digest and resume record.
+- **Bucket widths were re-measured, not assumed.** Generation and stack-depth histograms were widened from the specified 32/64 to 512/512 after a grown `web-256x256` run showed 97.8% and 77.8% of the population in the overflow bins. Stack depth still overflows: on a real ecology it is p50 759 / p90 8315 / max 32767, spanning the entire stack cap, so no affordable linear width empties that bin. See CENSUS-LOG-BUCKETS.
+
+Deferred follow-ups: `LINEAGE-DUMP`, `INSPECTOR-LINEAGE`, `CENSUS-STREAM`, `CENSUS-LOG-BUCKETS`.
+References: `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`, `docs/API-SPEC.md`, `docs/RUNNER-SPEC.md`, `rust/src/observe.rs`, `rust/src/model.rs`
+
+### LINEAGE-DUMP: Per-program lineage artifact for offline reconstruction
+
+Context: the census aggregates lineage; reconstructing actual family trees offline needs per-program rows (`lineage.jsonl`) at a coarse cadence. Needs a runner schema bump, which is exactly what EMERGENCE-CENSUS avoided, so it is its own item.
+References: `docs/RUNNER-SPEC.md`, `rust/src/runner/single.rs`
+
+### INSPECTOR-LINEAGE: Surface the lineage fields in the frontend inspector
+
+Context: `GET /v1/sim/cell/:index` now returns `uid`, `parent_uid`, `birth_tick`, `generation`, `origin`, and `created_tick`. The inspector does not show them yet.
+References: `docs/FRONTEND-SPEC.md`, `frontend/src/types.ts`
+
+### CENSUS-STREAM: Opt-in WebSocket census subscription with its own cadence
+
+Context: the census is excluded from the metrics WebSocket stream because the controller refreshes metrics every tick. A separate subscription with an independent, much coarser cadence would let live observers watch the distribution without paying for it per tick.
+References: `docs/API-SPEC.md`, `rust/src/web/ws.rs`, `rust/src/web/controller.rs`
+
+### CENSUS-LOG-BUCKETS: Give the census histograms a logarithmic option
+
+Delivered (2026-08-21): `BucketHistogram` gained a `scale` field, `linear` or `log2`. On the log2 scale bucket 0 counts the value 0 and bucket `i` counts `[2^(i-1), 2^i)`, so 33 buckets span every `u32` and `overflow` is 0 by construction. `count`, `sum`, and `max` remain exact on both scales.
+
+Context that motivated it: linear bucketing fits sizes and offspring well, and generation acceptably, but not stack depth. Measured on `web-256x256` at tick 8000 (65 062 programs, 99.3% occupancy) stack depth was p50 759 / p75 2893 / p90 8315 / p99 31 178 / max 32 767 — the full `PROGRAM_SIZE_CAP` stack range — which left 58.9% of the population in the overflow bin even after widening to 512 linear buckets. A near-empty linear overflow bin would have needed 32 768 buckets in every metrics row.
+
+Only `stack_depths` switched to log2. Sizes, `generation`, and `offspring` stay linear because their measured distributions fit: live size p50 63 / max 286, generation max 319, offspring max 4. The mechanism is in place if any of them ever needs switching. `scale` is always serialized and defaults to linear when absent, so this rode inside the census's existing API 0.2.5 bump with no new version number.
+References: `rust/src/observe.rs`, `docs/API-SPEC.md`, `docs/analysis/2026-08-13_performance-roadmap.md`
+
 ### RAYON-HOTSPOTS: Remaining performance tiers after the sampler work
 
 Context: the recorded roadmap covers what is left once DYADIC-SAMPLERS lands: a digest-identical SoA hot-field split of the grid sweeps (2a), inline program storage behind data-justified code+stack spec caps (2b, prerequisite: a program-size and stack-depth histogram metric from a dense run — capping the stack alone buys nothing), and the open Pass 1 dispatch investigation. Re-profile after each step; parallel absorption, Pass 2 scratch reuse, and further traversal fusion remain profile-gated.
+
+Tier 2b prerequisite data (2026-08-21, EMERGENCE-CENSUS): measured on `web-256x256` at tick 8000, 65 062 programs at 99.3% occupancy. **Live program size** is p50 63 / p90 143 / p99 195 / max 286 - a code cap in the 256-320 range would cover essentially the whole population, so inline code storage looks viable. **Stack depth is the opposite story**: p50 759 / p75 2893 / p90 8315 / p99 31 178 / max 32 767, i.e. the distribution spans the entire `PROGRAM_SIZE_CAP` stack limit and 77.8% of programs sit above depth 64. Inline stack storage behind any small cap would spill for most of the population; the roadmap's note that "capping the stack alone buys nothing" is confirmed, and a stack cap low enough to inline would be a behavior change, not an optimization.
 References: `docs/analysis/2026-08-13_performance-roadmap.md`, `docs/analysis/2026-08-12_rayon-optimization-results.md`, `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/grid.rs`, `rust/src/model.rs`
 
 ### SEED-BOOTSTRAP: Extract seed-program bootstrap module

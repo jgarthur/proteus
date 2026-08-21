@@ -7,7 +7,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{SimConfig, PROGRAM_SIZE_CAP};
-use crate::model::{Direction, Program};
+use crate::model::{Direction, Lineage, Program, ProgramOrigin, ProgramUid};
 use crate::random::cell_rng;
 use crate::Simulation;
 
@@ -118,13 +118,19 @@ pub fn apply_bootstrap(
     }
 
     let seed = simulation.seed();
+    let cell_count = simulation.grid().len();
     for seed_program in &bootstrap.programs {
         let index = simulation.grid().index(seed_program.x, seed_program.y);
         let mut rng = cell_rng(seed ^ BOOTSTRAP_RNG_SALT, 0, index as u64);
         let direction = Direction::ALL[(rng.next_u32() % Direction::ALL.len() as u32) as usize];
         let id = rng.next_u32() as u8;
+        // Bootstrap runs before tick 0 and seeds are always live, so a seed
+        // program is a lineage root born at tick 0 (SPEC.md: bootstrap programs
+        // are not births).
+        let uid = ProgramUid::create(0, index, cell_count, ProgramOrigin::Seed);
         let program = Program::new_live(seed_program.code.clone(), direction, id)
-            .map_err(|error| BootstrapError::Program(error.to_string()))?;
+            .map_err(|error| BootstrapError::Program(error.to_string()))?
+            .with_lineage(Lineage::root(uid, 0));
         let cell = simulation
             .grid_mut()
             .get_mut(index)
@@ -212,8 +218,80 @@ impl Error for BootstrapError {}
 #[cfg(test)]
 mod tests {
     use super::{apply_bootstrap, BootstrapConfig, EnvironmentPreload, SeedProgram};
+    use crate::model::{Lineage, ProgramOrigin, ProgramSite, ProgramUid};
     use crate::observe::inspect_cell;
     use crate::{SimConfig, Simulation};
+
+    /// Returns the lineage of the program seeded into one cell.
+    fn lineage_at(simulation: &Simulation, index: usize) -> Lineage {
+        simulation
+            .grid()
+            .get(index)
+            .expect("cell should exist")
+            .program
+            .as_ref()
+            .expect("cell should hold a seed program")
+            .lineage
+    }
+
+    #[test]
+    fn seed_programs_are_tick_zero_lineage_roots_with_distinct_uids() {
+        let config = SimConfig {
+            width: 2,
+            height: 2,
+            r_energy: 0.0,
+            r_mass: 0.0,
+            ..SimConfig::default()
+        };
+        let mut simulation = Simulation::new(config).expect("simulation should build");
+        let bootstrap = BootstrapConfig {
+            programs: vec![
+                SeedProgram {
+                    x: 0,
+                    y: 0,
+                    code: vec![80],
+                    free_energy: 20,
+                    free_mass: 12,
+                },
+                SeedProgram {
+                    x: 1,
+                    y: 1,
+                    code: vec![80, 100],
+                    free_energy: 20,
+                    free_mass: 12,
+                },
+            ],
+            environment: Vec::new(),
+        };
+
+        apply_bootstrap(&mut simulation, &bootstrap).expect("bootstrap should apply");
+
+        let cell_count = simulation.grid().len();
+        for (index, expected_cell_index) in [(0_usize, 0_usize), (3, 3)] {
+            let lineage = lineage_at(&simulation, index);
+            assert_eq!(lineage.parent, ProgramUid::NONE, "seeds are lineage roots");
+            assert_eq!(lineage.generation, 0);
+            assert_eq!(
+                lineage.birth_tick(),
+                Some(0),
+                "bootstrap runs before tick 0 and seeds are always live"
+            );
+            assert_eq!(
+                lineage.uid.site(cell_count),
+                Some(ProgramSite {
+                    tick: 0,
+                    cell_index: expected_cell_index,
+                    origin: ProgramOrigin::Seed,
+                })
+            );
+        }
+
+        assert_ne!(
+            lineage_at(&simulation, 0).uid,
+            lineage_at(&simulation, 3).uid,
+            "seeds in different cells must get different uids"
+        );
+    }
 
     #[test]
     fn program_resources_override_environment_free_pools_only() {

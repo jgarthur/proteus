@@ -23,7 +23,7 @@ pub use types::{
     SimulationStatusResponse, API_VERSION, API_VERSION_HEADER,
 };
 
-use self::types::{CellQuery, CellRegionQuery, StepQuery};
+use self::types::{CellQuery, CellRegionQuery, MetricsQuery, StepQuery};
 
 const SMOKE_TEST_HTML: &str = include_str!("smoke_test.html");
 
@@ -142,10 +142,17 @@ async fn reset_sim(
 }
 
 /// Returns the latest observer metrics snapshot.
+///
+/// `?census=1` attaches the point-in-time program census for the same tick; it
+/// is opt-in because computing it is far more expensive than the snapshot.
 async fn get_metrics(
     State(state): State<AppState>,
+    query: Result<Query<MetricsQuery>, QueryRejection>,
 ) -> Result<Json<crate::observe::MetricsSnapshot>, ApiError> {
-    Ok(Json(state.controller.metrics().await?))
+    let MetricsQuery { census } = parse_query(query)?;
+    Ok(Json(
+        state.controller.metrics(census.unwrap_or(false)).await?,
+    ))
 }
 
 /// Returns one cell inspection by flat index.

@@ -10,7 +10,7 @@ use crate::config::SimConfig;
 use crate::observe::MetricsSnapshot;
 
 /// Declares the current version string for the HTTP/WebSocket API.
-pub const API_VERSION: &str = "0.2.4";
+pub const API_VERSION: &str = "0.2.5";
 /// Names the response header that reports the API version.
 pub const API_VERSION_HEADER: &str = "X-Proteus-API-Version";
 
@@ -210,6 +210,37 @@ pub struct ErrorBody {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct StepQuery {
     pub count: Option<u64>,
+}
+
+/// Parses the optional census opt-in used by the metrics endpoint.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct MetricsQuery {
+    #[serde(default, deserialize_with = "deserialize_flag")]
+    pub census: Option<bool>,
+}
+
+/// Parses a query-string boolean flag.
+///
+/// `serde_urlencoded` only accepts the exact strings `true` and `false` for a
+/// `bool`, but the documented spelling of this flag is `?census=1`. Accept the
+/// usual query-string spellings so both forms work.
+fn deserialize_flag<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+
+    let Some(raw) = Option::<String>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    match raw.as_str() {
+        "1" | "true" | "yes" | "on" => Ok(Some(true)),
+        "0" | "false" | "no" | "off" | "" => Ok(Some(false)),
+        other => Err(D::Error::custom(format!(
+            "expected a boolean flag (1/0, true/false), got {other:?}"
+        ))),
+    }
 }
 
 /// Parses x/y coordinates for single-cell inspection endpoints.

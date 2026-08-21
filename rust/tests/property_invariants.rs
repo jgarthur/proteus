@@ -1,6 +1,6 @@
 mod helpers;
 
-use helpers::{ProgramBuilder, WorldBuilder};
+use helpers::{run_ticks, ProgramBuilder, WorldBuilder};
 use proteus::op;
 use proteus::{pass1_local, pass2_nonlocal, Direction, Grid, QueuedAction, WyRand};
 
@@ -252,4 +252,93 @@ fn shuffle<T>(items: &mut [T], rng: &mut WyRand) {
             (rng.next_u64() % u64::try_from(index + 1).expect("index should fit")) as usize;
         items.swap(index, swap_index);
     }
+}
+
+#[test]
+fn lineage_invariants_hold_after_a_seeded_replay() {
+    let mut simulation = WorldBuilder::new(6, 4)
+        .seed(0xbead_5eed)
+        .configure(|config| {
+            config.r_energy = 0.4;
+            config.r_mass = 0.4;
+            // Probabilities must be 0, 1, or exactly 2^-k (SPEC v0.3.0).
+            // 0.05 sits between 2^-5 and 2^-4; 2^-4 keeps the maintenance
+            // pressure that makes programs die and orphans appear.
+            config.maintenance_rate = 0.0625;
+            config.p_spawn = 0.25;
+            config.mutation_base_log2 = 4;
+        })
+        .at(
+            1,
+            1,
+            ProgramBuilder::new()
+                .code(&[op::push(1), op::APPEND_ADJ, op::BOOT])
+                .free_energy(40)
+                .free_mass(40),
+        )
+        .at(
+            4,
+            2,
+            ProgramBuilder::new()
+                .code(&[op::push(1), op::APPEND_ADJ, op::BOOT])
+                .free_energy(40)
+                .free_mass(40),
+        )
+        .build_simulation();
+
+    run_ticks(&mut simulation, 60);
+
+    let cell_count = simulation.grid().len();
+    let mut seen_any = false;
+
+    for (cell_index, cell) in simulation.grid().cells().iter().enumerate() {
+        let Some(program) = cell.program.as_ref() else {
+            continue;
+        };
+        seen_any = true;
+        let lineage = program.lineage;
+
+        assert!(
+            !lineage.uid.is_none(),
+            "program in cell {cell_index} has no uid"
+        );
+        let site = lineage
+            .uid
+            .site(cell_count)
+            .expect("a non-NONE uid must decode to a creation site");
+
+        if program.live {
+            assert!(
+                lineage.birth_tick().is_some(),
+                "live program in cell {cell_index} has no birth tick"
+            );
+        }
+
+        // A parent must have been created no later than its child. Both uids
+        // decode to the tick their program first materialized, so this is a
+        // direct causality check on the recorded lineage.
+        if !lineage.parent.is_none() {
+            let parent_site = lineage
+                .parent
+                .site(cell_count)
+                .expect("a non-NONE parent uid must decode to a creation site");
+            assert!(
+                parent_site.tick <= site.tick,
+                "program in cell {cell_index} claims a parent created at tick {} but was itself created at tick {}",
+                parent_site.tick,
+                site.tick
+            );
+            assert!(
+                lineage.generation >= 1,
+                "a program with a parent must have generation >= 1"
+            );
+        } else {
+            assert_eq!(
+                lineage.generation, 0,
+                "a lineage root must have generation 0"
+            );
+        }
+    }
+
+    assert!(seen_any, "the fixture should leave programs to inspect");
 }

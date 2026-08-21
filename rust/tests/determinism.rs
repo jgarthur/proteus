@@ -313,3 +313,40 @@ fn frontend_default_seed_ecology_is_deterministic_for_long_rayon_replay() {
         "frontend-seed tick reports diverged after {ticks} ticks"
     );
 }
+
+/// Collects the uid of every program on the grid, in cell order.
+#[cfg(feature = "rayon")]
+fn program_uids(simulation: &Simulation) -> Vec<u64> {
+    simulation
+        .grid()
+        .cells()
+        .iter()
+        .filter_map(|cell| cell.program.as_ref())
+        .map(|program| program.lineage.uid.get())
+        .collect()
+}
+
+#[cfg(feature = "rayon")]
+#[test]
+fn program_uids_match_across_serial_and_four_thread_replays() {
+    // Uids are derived from (tick, cell_index, cell_count, origin) rather than
+    // handed out by a counter, so spawn births inside the parallel per-cell
+    // closure cannot depend on scheduling. This asserts that directly.
+    let (baseline, _) = run_simulation_in_pool(1, build_deterministic_fixture, 20);
+    let (candidate, _) = run_simulation_in_pool(4, build_deterministic_fixture, 20);
+
+    let baseline_uids = program_uids(&baseline);
+    assert!(
+        !baseline_uids.is_empty(),
+        "the fixture should leave programs alive to compare"
+    );
+    assert!(
+        baseline_uids.iter().all(|uid| *uid != 0),
+        "every program inside a simulation must carry a real uid"
+    );
+    assert_eq!(
+        baseline_uids,
+        program_uids(&candidate),
+        "program uids diverged between a 1-thread and a 4-thread replay"
+    );
+}

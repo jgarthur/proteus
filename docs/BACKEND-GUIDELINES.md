@@ -56,8 +56,13 @@ struct Program {
 
     // Transient per-tick state (reset each tick)
     tick: TickState,
+
+    // Observation-only provenance; no simulation rule reads it
+    lineage: Lineage,
 }
 ```
+
+`Lineage` is a flat 24-byte block (`uid`, `parent`, `birth_tick`, `generation`) recording where a program came from. It lives inside `Program` rather than in a parallel `Grid`-owned array because it must follow the program through `move` (which takes the program out of the source cell wholesale), through death, and through `Grid::from_cells`/`Clone`/`PartialEq`; a side array would have to be mirrored at every one of those sites. No instruction can observe it and no rule branches on it.
 
 Keep `TickState` as a flat struct inside `Program`, not a separate allocation. It's reset every tick and accessed alongside the program during Pass 1.
 
@@ -351,6 +356,10 @@ Start with two output channels:
 **Grid snapshots** (binary, written every M ticks): full grid state sufficient to restart the sim from that point. Use bincode or MessagePack via serde. Include the tick number and config so snapshots are self-contained. RNG state does not need to be saved since it is derived per-tick from (master_seed, tick, cell_index).
 
 Keep the output logic in its own module. The tick loop should call `observer.record_tick(grid, tick)` and the observer decides what to write based on config. This keeps observation concerns out of the simulation logic.
+
+**Compute richer observations on sample, never incrementally.** The program census (size and stack-depth histograms, the opcode census, aggregated lineage) is recomputed from grid state each time it is sampled, in O(live code bytes). The alternative — maintaining it incrementally — would need hooks on every size change and every byte write inside the Pass 1/2/3 hot loops, plus a shared mutable counter array that would need per-thread reduction to stay Rayon-deterministic. That trades a large permanent hot-path cost for a saving on a path that runs once every N ticks. It also keeps the collector trivially parity-safe: `collect_census` is serial in both feature builds because it is off the tick path entirely.
+
+Sampling cost has to be placed deliberately. The headless runner samples only at the observation cadence, where the census is amortized to nothing. The web controller refreshes metrics *every tick*, so the census is excluded from that path and served on demand instead (`GET /v1/sim/metrics?census=1`). Aggregate into fixed-index buckets so `HashMap`/`HashSet` iteration order never reaches the output.
 
 ## Frontend interface
 

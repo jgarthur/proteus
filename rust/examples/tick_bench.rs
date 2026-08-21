@@ -19,11 +19,12 @@
 //! wall-clock means and are machine-specific; treat them as guidance, not as
 //! stable thresholds.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use proteus::observe::{collect_census, collect_metrics};
 use proteus::{
-    apply_bootstrap, op, BootstrapConfig, Cell, Direction, Grid, Program, SeedProgram, SimConfig,
-    Simulation, TickObserver, TickPhase, TickReport,
+    apply_bootstrap, op, BootstrapConfig, Cell, Direction, EventTotals, Grid, Program, SeedProgram,
+    SimConfig, Simulation, TickObserver, TickPhase, TickReport,
 };
 
 /// The lithotroph the frontend seeds by default.
@@ -246,6 +247,7 @@ fn run_fixture(name: &str, make: &dyn Fn() -> Simulation, ticks: u32, reps: u32,
     let mut sums = PhaseSums::new();
     let mut rep_totals = Vec::with_capacity(reps as usize);
     let mut totals = ReportTotals::default();
+    let mut final_simulation = None;
     let mut checkpoint = make();
     for _ in 0..start_tick {
         checkpoint.run_tick();
@@ -269,6 +271,7 @@ fn run_fixture(name: &str, make: &dyn Fn() -> Simulation, ticks: u32, reps: u32,
             sums.sums[phase as usize] += rep_sums.sums[phase as usize];
         }
         sums.ticks += rep_sums.ticks;
+        final_simulation = Some(simulation);
     }
 
     println!("fixture={name} start_tick={start_tick} ticks={ticks} reps={reps}");
@@ -297,6 +300,86 @@ fn run_fixture(name: &str, make: &dyn Fn() -> Simulation, ticks: u32, reps: u32,
         totals.final_programs,
         totals.final_live_programs,
         totals.final_programs as f64 * 100.0 / totals.final_cells as f64,
+    );
+
+    if let Some(simulation) = final_simulation.as_ref() {
+        report_census(simulation);
+    }
+}
+
+/// Times one census against one metrics snapshot and reports bucket saturation.
+///
+/// Strictly a one-shot post-run probe: it runs after the measured window closes,
+/// so it cannot perturb the tick timings above. It exists to answer two
+/// questions on a real ecology - what a sample costs, and whether the fixed
+/// histogram widths are wide enough that overflow bins stay near-empty.
+fn report_census(simulation: &Simulation) {
+    let metrics_start = Instant::now();
+    let metrics = collect_metrics(
+        simulation.grid(),
+        0,
+        simulation.tick(),
+        TickReport::default(),
+        EventTotals::default(),
+    );
+    let metrics_elapsed = metrics_start.elapsed();
+
+    let census_start = Instant::now();
+    let census = collect_census(simulation.grid());
+    let census_elapsed = census_start.elapsed();
+
+    println!(
+        "  sample cost: collect_metrics={:.0} us collect_census={:.0} us population={}",
+        metrics_elapsed.as_secs_f64() * 1e6,
+        census_elapsed.as_secs_f64() * 1e6,
+        metrics.population,
+    );
+    println!(
+        "  census overflow: live_sizes={}/{} inert_sizes={}/{} generation={}/{} offspring={}/{} stack_depths={}/{}",
+        census.live_sizes.overflow,
+        census.live_sizes.count,
+        census.inert_sizes.overflow,
+        census.inert_sizes.count,
+        census.lineage.generation.overflow,
+        census.lineage.generation.count,
+        census.lineage.offspring.overflow,
+        census.lineage.offspring.count,
+        census.stack_depths.overflow,
+        census.stack_depths.count,
+    );
+    let stack = &census.stack_depths;
+    let populated: Vec<String> = stack
+        .counts
+        .iter()
+        .enumerate()
+        .filter(|(_, count)| **count > 0)
+        .map(|(index, count)| {
+            let label = if index == 0 {
+                "0".to_owned()
+            } else {
+                format!("2^{}", index - 1)
+            };
+            format!("{label}:{count}")
+        })
+        .collect();
+    let first = stack.counts.iter().position(|count| *count > 0);
+    let last = stack.counts.iter().rposition(|count| *count > 0);
+    println!(
+        "  stack_depths log2 buckets [{}..{}] of {}: {}",
+        first.map_or("-".to_owned(), |index| index.to_string()),
+        last.map_or("-".to_owned(), |index| index.to_string()),
+        stack.counts.len(),
+        populated.join(" "),
+    );
+    println!(
+        "  census maxima: live_size={} inert_size={} generation={} offspring={} stack_depth={} roots={} orphans={}",
+        census.live_sizes.max,
+        census.inert_sizes.max,
+        census.lineage.generation.max,
+        census.lineage.offspring.max,
+        census.stack_depths.max,
+        census.lineage.roots,
+        census.lineage.orphans,
     );
 }
 

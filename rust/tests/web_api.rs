@@ -91,6 +91,17 @@ async fn rest_lifecycle_flow_and_inspection_work() {
         .expect("cell request should succeed");
     let cell_json = response_json(cell_response).await;
     assert_eq!(cell_json["program"]["disassembly"], json!(["nop", "boot"]));
+    // The seed program is a lineage root created at tick 0.
+    let seeded = &cell_json["program"];
+    assert!(seeded["uid"].as_u64().expect("uid should be a number") > 0);
+    assert!(
+        seeded["parent_uid"].is_null(),
+        "a seed program has no parent"
+    );
+    assert_eq!(seeded["birth_tick"], 0);
+    assert_eq!(seeded["generation"], 0);
+    assert_eq!(seeded["origin"], "seed");
+    assert_eq!(seeded["created_tick"], 0);
 
     let environment_response = app
         .clone()
@@ -370,6 +381,10 @@ async fn websocket_subscriptions_stream_current_state_and_report_errors() {
     assert_eq!(metrics["type"], "metrics");
     assert_eq!(metrics["tick"], 0);
     assert_eq!(metrics["population"], 1);
+    assert!(
+        metrics.get("census").is_none(),
+        "the websocket metrics payload must stay census-free: {metrics}"
+    );
     assert_eq!(metrics["total_energy"], 5);
     assert_eq!(metrics["total_mass"], 2);
 
@@ -453,7 +468,7 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     assert_eq!(sampled["event_totals"]["spawn_births"], 1);
 
     let latest = controller
-        .metrics()
+        .metrics(false)
         .await
         .expect("latest metrics should be available");
     assert_eq!(latest.epoch, 0);
@@ -465,6 +480,7 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     );
 
     let rest_response = rest_app
+        .clone()
         .oneshot(empty_request(Method::GET, "/v1/sim/metrics"))
         .await
         .expect("metrics request should succeed");
@@ -473,6 +489,49 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     assert_eq!(rest_metrics["epoch"], sampled["epoch"]);
     assert_eq!(rest_metrics["tick"], sampled["tick"]);
     assert_eq!(rest_metrics["event_totals"], sampled["event_totals"]);
+    assert!(
+        rest_metrics.get("census").is_none(),
+        "the census is opt-in and must be absent by default: {rest_metrics}"
+    );
+
+    let census_response = rest_app
+        .clone()
+        .oneshot(empty_request(Method::GET, "/v1/sim/metrics?census=1"))
+        .await
+        .expect("census metrics request should succeed");
+    assert_eq!(census_response.status(), StatusCode::OK);
+    let census_metrics = response_json(census_response).await;
+    assert_eq!(
+        census_metrics["tick"], rest_metrics["tick"],
+        "the census must describe the same tick as the snapshot it rides on"
+    );
+    let census = &census_metrics["census"];
+    assert!(!census.is_null(), "?census=1 must attach a census");
+    assert_eq!(census["live_sizes"]["first_value"], 1);
+    assert_eq!(census["live_sizes"]["scale"], "linear");
+    // Stack depth is the one census histogram on a log2 scale.
+    assert_eq!(census["stack_depths"]["scale"], "log2");
+    assert_eq!(
+        census["stack_depths"]["counts"]
+            .as_array()
+            .expect("stack_depths counts should be an array")
+            .len(),
+        33
+    );
+    assert_eq!(census["stack_depths"]["overflow"], 0);
+    assert_eq!(
+        census["live_sizes"]["count"].as_u64().unwrap_or_default()
+            + census["inert_sizes"]["count"].as_u64().unwrap_or_default(),
+        census_metrics["population"].as_u64().expect("population"),
+        "the size histograms must cover the whole population"
+    );
+    assert_eq!(
+        census["opcode_counts"]
+            .as_array()
+            .expect("opcode_counts should be an array")
+            .len(),
+        256
+    );
 
     controller.reset().await.expect("simulation should reset");
     let reset = next_text_message_of_type(&mut websocket, "metrics").await;
@@ -488,7 +547,7 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
         .await
         .expect("replacement simulation should be created");
     let replacement = controller
-        .metrics()
+        .metrics(false)
         .await
         .expect("replacement metrics should be available");
     assert_eq!(replacement.epoch, 2);

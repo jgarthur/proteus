@@ -3,6 +3,7 @@ mod helpers;
 
 use helpers::{run_ticks, ProgramBuilder, WorldBuilder};
 use proteus::op;
+use proteus::{Direction, ProgramOrigin};
 
 #[test]
 fn abandoned_inert_program_pays_maintenance_and_can_die() {
@@ -317,4 +318,92 @@ fn tick_report_tracks_packet_count() {
     let report = simulation.run_tick_report();
 
     assert_eq!(report.packet_count, 1);
+}
+
+#[test]
+fn built_and_booted_neighbor_records_its_parent_generation_and_birth_tick() {
+    // Tick 0 queues appendAdj, which materializes an inert body in the empty
+    // neighbor; the nonlocal instruction advances the ip, so tick 1 executes
+    // boot against that body.
+    let mut simulation = WorldBuilder::new(2, 1)
+        .configure(|config| {
+            config.maintenance_rate = 0.0;
+            config.d_energy = 0.0;
+            config.d_mass = 0.0;
+            config.r_energy = 0.0;
+            config.r_mass = 0.0;
+            config.p_spawn = 0.0;
+            config.mutation_base_log2 = 32;
+            config.mutation_background_log2 = 32;
+        })
+        .at(
+            0,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::push(op::NOP as i16), op::APPEND_ADJ, op::BOOT])
+                .dir(Direction::Right)
+                .free_energy(20)
+                .free_mass(4),
+        )
+        .build_simulation();
+
+    let cell_count = simulation.grid().len();
+    let parent = simulation
+        .grid()
+        .get(0)
+        .expect("creator cell should exist")
+        .program
+        .as_ref()
+        .expect("creator should exist")
+        .lineage;
+
+    simulation.run_tick();
+
+    let offspring = simulation
+        .grid()
+        .get(1)
+        .expect("target cell should exist")
+        .program
+        .as_ref()
+        .expect("appendAdj should have created an inert body")
+        .clone();
+    assert!(!offspring.live, "a fresh appendAdj body starts inert");
+    assert_eq!(offspring.lineage.parent, parent.uid);
+    assert_eq!(offspring.lineage.generation, parent.generation + 1);
+    assert_eq!(
+        offspring.lineage.birth_tick(),
+        None,
+        "an inert body has never been live"
+    );
+    let site = offspring
+        .lineage
+        .uid
+        .site(cell_count)
+        .expect("the offspring uid should decode");
+    assert_eq!(site.tick, 0);
+    assert_eq!(site.cell_index, 1);
+    assert_eq!(site.origin, ProgramOrigin::Append);
+
+    simulation.run_tick();
+
+    let booted = simulation
+        .grid()
+        .get(1)
+        .expect("target cell should exist")
+        .program
+        .as_ref()
+        .expect("the booted program should still exist")
+        .clone();
+    assert!(booted.live, "boot should have made the body live");
+    assert_eq!(
+        booted.lineage.birth_tick(),
+        Some(1),
+        "boot stamps the tick the body came alive"
+    );
+    assert_eq!(
+        booted.lineage.uid, offspring.lineage.uid,
+        "boot keeps the uid"
+    );
+    assert_eq!(booted.lineage.parent, parent.uid);
+    assert_eq!(booted.lineage.generation, parent.generation + 1);
 }

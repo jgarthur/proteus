@@ -112,6 +112,196 @@ impl TickState {
     }
 }
 
+/// Identifies one program uniquely within a single simulation instance.
+///
+/// Encodes the creation site: `1 + ((tick * cell_count + cell_index) * 4 + origin)`.
+/// Never reused within a simulation, because `tick` is monotone. Uids are
+/// *epoch-scoped*: they are not comparable across simulations, across
+/// `POST /v1/sim/reset` (each reset builds a fresh simulation and a new metrics
+/// epoch), or across grids of different size.
+///
+/// Uniqueness holds while `(tick * cell_count + cell_index) * 4 + 1 < 2^64`,
+/// i.e. roughly 2.8e14 ticks at 16 384 cells. Past that ceiling the encoding
+/// wraps and uids may repeat.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
+pub struct ProgramUid(pub u64);
+
+impl ProgramUid {
+    /// Marks "no parent" or "unidentified program".
+    pub const NONE: Self = Self(0);
+
+    /// Reports whether this uid identifies no program.
+    pub fn is_none(self) -> bool {
+        self == Self::NONE
+    }
+
+    /// Returns the raw encoded value.
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// Derives the uid for a program created at one site.
+    ///
+    /// Purely a function of the creation site, so serial and Rayon builds agree
+    /// by construction without any shared counter.
+    pub fn create(tick: u64, cell_index: usize, cell_count: usize, origin: ProgramOrigin) -> Self {
+        debug_assert!(
+            tick.checked_mul(cell_count as u64)
+                .and_then(|base| base.checked_add(cell_index as u64))
+                .and_then(|slot| slot.checked_mul(ProgramOrigin::RESERVED_SLOTS))
+                .and_then(|slot| slot.checked_add(origin as u64))
+                .and_then(|slot| slot.checked_add(1))
+                .is_some(),
+            "program uid encoding overflowed u64"
+        );
+
+        let slot = tick
+            .wrapping_mul(cell_count as u64)
+            .wrapping_add(cell_index as u64);
+        Self(
+            slot.wrapping_mul(ProgramOrigin::RESERVED_SLOTS)
+                .wrapping_add(origin as u64)
+                .wrapping_add(1),
+        )
+    }
+
+    /// Decodes just the creation origin, which needs no grid size.
+    ///
+    /// `None` for [`ProgramUid::NONE`] and for the reserved fourth slot.
+    pub fn origin(self) -> Option<ProgramOrigin> {
+        if self.is_none() {
+            return None;
+        }
+        ProgramOrigin::from_code((self.0 - 1) % ProgramOrigin::RESERVED_SLOTS)
+    }
+
+    /// Decodes the creation site; `None` for [`ProgramUid::NONE`].
+    pub fn site(self, cell_count: usize) -> Option<ProgramSite> {
+        if self.is_none() || cell_count == 0 {
+            return None;
+        }
+
+        let encoded = self.0 - 1;
+        let origin = self.origin()?;
+        let slot = encoded / ProgramOrigin::RESERVED_SLOTS;
+
+        Some(ProgramSite {
+            tick: slot / cell_count as u64,
+            cell_index: (slot % cell_count as u64) as usize,
+            origin,
+        })
+    }
+}
+
+/// Names how a program first came into existence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ProgramOrigin {
+    Seed = 0,
+    Spawn = 1,
+    Append = 2,
+}
+
+impl ProgramOrigin {
+    /// Reserves four uid slots per cell per tick, so two creations at the same
+    /// `(tick, cell_index)` with different origins never collide.
+    pub const RESERVED_SLOTS: u64 = 4;
+
+    /// Returns the wire label for this origin.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Seed => "seed",
+            Self::Spawn => "spawn",
+            Self::Append => "append",
+        }
+    }
+
+    /// Decodes one origin tag, rejecting the reserved fourth slot.
+    pub fn from_code(code: u64) -> Option<Self> {
+        match code {
+            0 => Some(Self::Seed),
+            1 => Some(Self::Spawn),
+            2 => Some(Self::Append),
+            _ => None,
+        }
+    }
+}
+
+/// Decoded creation site of one [`ProgramUid`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProgramSite {
+    pub tick: u64,
+    pub cell_index: usize,
+    pub origin: ProgramOrigin,
+}
+
+/// Records where one program came from. Observation-only: no simulation rule
+/// reads it and no instruction can observe it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Lineage {
+    pub uid: ProgramUid,
+    pub parent: ProgramUid,
+    /// Tick at which this program became live, or [`Lineage::NEVER_LIVE`].
+    pub birth_tick: u32,
+    pub generation: u32,
+}
+
+impl Lineage {
+    /// Marks a program that has never been live (an inert body awaiting `boot`).
+    pub const NEVER_LIVE: u32 = u32::MAX;
+
+    /// Builds a parentless root (seed program or spontaneous spawn).
+    pub fn root(uid: ProgramUid, birth_tick: u64) -> Self {
+        Self {
+            uid,
+            parent: ProgramUid::NONE,
+            birth_tick: clamp_tick(birth_tick),
+            generation: 0,
+        }
+    }
+
+    /// Builds an inert child of `parent`; birth tick is set when it boots.
+    pub fn child(uid: ProgramUid, parent: ProgramUid, parent_generation: u32) -> Self {
+        Self {
+            uid,
+            parent,
+            birth_tick: Self::NEVER_LIVE,
+            generation: parent_generation.saturating_add(1),
+        }
+    }
+
+    /// Records the tick at which the program became live.
+    pub fn mark_live(&mut self, tick: u64) {
+        self.birth_tick = clamp_tick(tick);
+    }
+
+    /// Returns the birth tick, or `None` while the program has never been live.
+    pub fn birth_tick(&self) -> Option<u32> {
+        (self.birth_tick != Self::NEVER_LIVE).then_some(self.birth_tick)
+    }
+}
+
+/// Clamps a tick into the `u32` birth-tick field.
+///
+/// Birth ticks saturate one below [`Lineage::NEVER_LIVE`], so the sentinel stays
+/// unambiguous. Runs past ~4.29e9 ticks report a clamped birth tick.
+fn clamp_tick(tick: u64) -> u32 {
+    tick.min(u64::from(Lineage::NEVER_LIVE - 1)) as u32
+}
+
 /// Represents one program occupying a cell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Program {
@@ -122,6 +312,8 @@ pub struct Program {
     pub age: u32,
     pub abandonment_timer: u32,
     pub tick: TickState,
+    /// Observation-only provenance; never read by a simulation rule.
+    pub lineage: Lineage,
 }
 
 impl Program {
@@ -146,6 +338,13 @@ impl Program {
         !self.live
     }
 
+    /// Attaches lineage to a freshly constructed program.
+    #[must_use]
+    pub fn with_lineage(mut self, lineage: Lineage) -> Self {
+        self.lineage = lineage;
+        self
+    }
+
     /// Builds a program after enforcing the shared constructor invariants.
     fn new(code: Vec<u8>, dir: Direction, id: u8, live: bool) -> Result<Self, ProgramError> {
         validate_code_size(code.len())?;
@@ -164,6 +363,7 @@ impl Program {
             age: 0,
             abandonment_timer: 0,
             tick: TickState::default(),
+            lineage: Lineage::default(),
         })
     }
 }
@@ -319,7 +519,10 @@ pub enum QueuedAction {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cell, CellSnapshot, Direction, Program, ProgramError, TickState};
+    use super::{
+        Cell, CellSnapshot, Direction, Lineage, Program, ProgramError, ProgramOrigin, ProgramSite,
+        ProgramUid, TickState,
+    };
 
     #[test]
     fn direction_rotation_matches_spec_clockwise_order() {
@@ -361,5 +564,121 @@ mod tests {
         assert!(tick.is_newborn);
         assert!(tick.existed_at_tick_start);
         assert!(!tick.was_live_at_tick_start);
+    }
+
+    #[test]
+    fn program_uid_round_trips_through_its_creation_site() {
+        let cases = [
+            (0_u64, 0_usize, 1_usize, ProgramOrigin::Seed),
+            (0, 4095, 4096, ProgramOrigin::Seed),
+            (1, 0, 16_384, ProgramOrigin::Spawn),
+            (26_212, 9_311, 16_384, ProgramOrigin::Append),
+            (1_000_000, 65_535, 65_536, ProgramOrigin::Spawn),
+        ];
+
+        for (tick, cell_index, cell_count, origin) in cases {
+            let uid = ProgramUid::create(tick, cell_index, cell_count, origin);
+            assert_eq!(
+                uid.site(cell_count),
+                Some(ProgramSite {
+                    tick,
+                    cell_index,
+                    origin,
+                }),
+                "uid {uid:?} should decode back to its creation site"
+            );
+        }
+    }
+
+    #[test]
+    fn program_uid_separates_origins_at_the_same_site() {
+        let seed = ProgramUid::create(7, 3, 64, ProgramOrigin::Seed);
+        let spawn = ProgramUid::create(7, 3, 64, ProgramOrigin::Spawn);
+        let append = ProgramUid::create(7, 3, 64, ProgramOrigin::Append);
+
+        assert_ne!(seed, spawn);
+        assert_ne!(spawn, append);
+        assert_ne!(seed, append);
+    }
+
+    #[test]
+    fn program_uid_none_decodes_to_nothing_and_is_never_created() {
+        assert_eq!(ProgramUid::NONE.site(64), None);
+        assert!(ProgramUid::NONE.is_none());
+
+        for origin in [
+            ProgramOrigin::Seed,
+            ProgramOrigin::Spawn,
+            ProgramOrigin::Append,
+        ] {
+            let uid = ProgramUid::create(0, 0, 64, origin);
+            assert!(!uid.is_none(), "created uids must never collide with NONE");
+            assert!(uid.get() > 0);
+        }
+    }
+
+    #[test]
+    fn program_origin_labels_and_codes_agree() {
+        for origin in [
+            ProgramOrigin::Seed,
+            ProgramOrigin::Spawn,
+            ProgramOrigin::Append,
+        ] {
+            assert_eq!(ProgramOrigin::from_code(origin as u64), Some(origin));
+        }
+        assert_eq!(ProgramOrigin::Seed.label(), "seed");
+        assert_eq!(ProgramOrigin::Spawn.label(), "spawn");
+        assert_eq!(ProgramOrigin::Append.label(), "append");
+        assert_eq!(ProgramOrigin::from_code(3), None);
+    }
+
+    #[test]
+    fn lineage_child_increments_generation_and_defers_birth_tick() {
+        let parent = ProgramUid::create(4, 2, 64, ProgramOrigin::Spawn);
+        let child_uid = ProgramUid::create(9, 3, 64, ProgramOrigin::Append);
+        let mut child = Lineage::child(child_uid, parent, 5);
+
+        assert_eq!(child.uid, child_uid);
+        assert_eq!(child.parent, parent);
+        assert_eq!(child.generation, 6);
+        assert_eq!(child.birth_tick, Lineage::NEVER_LIVE);
+        assert_eq!(child.birth_tick(), None);
+
+        child.mark_live(11);
+        assert_eq!(child.birth_tick(), Some(11));
+        assert_eq!(child.uid, child_uid);
+        assert_eq!(child.parent, parent);
+        assert_eq!(child.generation, 6);
+    }
+
+    #[test]
+    fn lineage_child_saturates_generation_at_u32_max() {
+        let child = Lineage::child(ProgramUid(9), ProgramUid(5), u32::MAX);
+        assert_eq!(child.generation, u32::MAX);
+    }
+
+    #[test]
+    fn lineage_root_has_no_parent_and_clamps_the_tick() {
+        let root = Lineage::root(ProgramUid(9), 12);
+        assert_eq!(root.parent, ProgramUid::NONE);
+        assert_eq!(root.generation, 0);
+        assert_eq!(root.birth_tick(), Some(12));
+
+        // Past the u32 ceiling a birth tick clamps below the NEVER_LIVE sentinel,
+        // so a very long run still reports "has been live".
+        let ancient = Lineage::root(ProgramUid(9), u64::from(u32::MAX) + 500);
+        assert_eq!(ancient.birth_tick(), Some(Lineage::NEVER_LIVE - 1));
+    }
+
+    #[test]
+    fn program_lineage_defaults_to_none_until_attached() {
+        let program =
+            Program::new_live(vec![0x00], Direction::Right, 1).expect("program should build");
+        assert_eq!(program.lineage, Lineage::default());
+        assert!(program.lineage.uid.is_none());
+
+        let lineage = Lineage::root(ProgramUid::create(0, 1, 8, ProgramOrigin::Seed), 0);
+        let program = program.with_lineage(lineage);
+        assert_eq!(program.lineage, lineage);
     }
 }

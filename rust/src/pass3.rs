@@ -2,7 +2,7 @@
 
 use crate::config::{dyadic_exponent, SimConfig};
 use crate::grid::Grid;
-use crate::model::{Cell, Direction, Packet, Program};
+use crate::model::{Cell, Direction, Lineage, Packet, Program, ProgramOrigin, ProgramUid};
 use crate::opcode::op;
 use crate::random::{
     bernoulli_pow2, bernoulli_ratio_pow2, binomial_pow2, cell_rng, poisson, PoissonInverter,
@@ -745,6 +745,13 @@ fn resolve_spontaneous_creation_cell(
         Program::new_live(vec![op::NOP], dir, id).expect("spawned program should be valid");
     program.tick.is_newborn = true;
 
+    // Lineage only; no RNG draw, and every value is a pure function of the
+    // creation site, so serial and Rayon traversals agree. SPEC.md calls spawn
+    // the primordial bootstrap, so a spawned program is a parentless root.
+    let cell_count = config.cell_count().unwrap_or(0);
+    let uid = ProgramUid::create(tick, cell_index, cell_count, ProgramOrigin::Spawn);
+    program.lineage = Lineage::root(uid, tick);
+
     cell.program = Some(program);
     cell.free_energy += cell.bg_radiation;
     cell.free_mass += cell.bg_mass;
@@ -807,8 +814,201 @@ mod tests {
     use crate::grid::Grid;
     use crate::model::{Cell, Direction, Packet, Program};
 
-    use super::{pass3_ambient, pass3_packets, resolve_packets_bucketed, Pass3AmbientOutput};
+    use super::{
+        pass3_ambient, pass3_packets, resolve_packets_bucketed, resolve_spontaneous_creation_cell,
+        Pass3AmbientOutput, SPAWN_SALT,
+    };
+    use crate::config::dyadic_exponent;
+    use crate::model::{Lineage, ProgramOrigin, ProgramSite, ProgramUid};
     use crate::opcode::op;
+    use crate::random::{bernoulli_pow2, cell_rng};
+
+    /// Builds a config whose spawn draw always succeeds.
+    fn always_spawn_config(width: u32, height: u32) -> SimConfig {
+        SimConfig {
+            width,
+            height,
+            p_spawn: 1.0,
+            ..SimConfig::default()
+        }
+    }
+
+    #[test]
+    fn spontaneous_spawn_is_a_lineage_root_tagged_with_its_creation_site() {
+        let config = always_spawn_config(8, 8);
+        let cell_count = config.cell_count().expect("config should size the grid");
+        let (tick, seed, cell_index) = (42_u64, 0x1234_5678_9abc_def0_u64, 19_usize);
+
+        let mut cell = Cell::default();
+        let births =
+            resolve_spontaneous_creation_cell(&mut cell, true, &config, tick, seed, cell_index);
+
+        assert_eq!(births, 1);
+        let lineage = cell
+            .program
+            .as_ref()
+            .expect("spawn should place a program")
+            .lineage;
+        assert_eq!(lineage.parent, ProgramUid::NONE);
+        assert_eq!(lineage.generation, 0);
+        assert_eq!(lineage.birth_tick(), Some(tick as u32));
+        assert_eq!(
+            lineage.uid.site(cell_count),
+            Some(ProgramSite {
+                tick,
+                cell_index,
+                origin: ProgramOrigin::Spawn,
+            })
+        );
+    }
+
+    #[test]
+    fn spontaneous_spawn_leaves_the_direction_and_id_draws_untouched() {
+        let config = always_spawn_config(8, 8);
+        let (tick, seed, cell_index) = (7_u64, 0xfeed_face_dead_beef_u64, 5_usize);
+
+        // This fixture uses p_spawn = 1.0, so the exponent is 0 and
+        // `bernoulli_pow2` short-circuits to true *without consuming a draw*.
+        // The spawn path therefore advances the stream exactly twice here:
+        // direction, then id. The k > 0 path, where the Bernoulli really does
+        // consume a draw, is covered by the test below.
+        let spawn_exponent =
+            dyadic_exponent(config.p_spawn).expect("p_spawn should be dyadic in this fixture");
+        assert_eq!(spawn_exponent, 0, "p_spawn = 1.0 is the k == 0 case");
+
+        let mut twin = cell_rng(seed ^ SPAWN_SALT, tick, cell_index as u64);
+        assert!(bernoulli_pow2(&mut twin, spawn_exponent));
+        let expected_dir = Direction::ALL[(twin.next_u32() % Direction::ALL.len() as u32) as usize];
+        let expected_id = twin.next_u32() as u8;
+        let next_after_spawn = twin.next_u32();
+
+        let mut cell = Cell::default();
+        resolve_spontaneous_creation_cell(&mut cell, true, &config, tick, seed, cell_index);
+
+        let program = cell.program.as_ref().expect("spawn should place a program");
+        assert_eq!(program.registers.dir, expected_dir);
+        assert_eq!(program.registers.id, expected_id);
+
+        // A fresh twin must land on the same third `u32`, proving the spawn
+        // path consumed exactly the two draws above and that lineage consumed
+        // nothing after them.
+        let mut replay = cell_rng(seed ^ SPAWN_SALT, tick, cell_index as u64);
+        let _ = bernoulli_pow2(&mut replay, spawn_exponent);
+        let _ = replay.next_u32();
+        let _ = replay.next_u32();
+        assert_eq!(replay.next_u32(), next_after_spawn);
+    }
+
+    #[test]
+    fn spontaneous_spawn_mirrors_the_dyadic_sampler_on_the_drawing_path() {
+        // p_spawn = 2^-2, so `bernoulli_pow2` consumes a real draw before the
+        // direction and id draws. A regression that skipped or added that
+        // Bernoulli draw only for p_spawn < 1 would shift every successful
+        // spawn's direction and id while still passing the k == 0 test above.
+        let config = SimConfig {
+            width: 8,
+            height: 8,
+            p_spawn: 0.25,
+            ..SimConfig::default()
+        };
+        let cell_count = config.cell_count().expect("config should size the grid");
+        let spawn_exponent = dyadic_exponent(config.p_spawn).expect("0.25 is dyadic");
+        assert_eq!(spawn_exponent, 2);
+
+        let (tick, seed) = (11_u64, 0x0bad_c0de_dead_10cc_u64);
+        let (mut fired, mut skipped) = (0_u32, 0_u32);
+
+        for cell_index in 0..cell_count {
+            // Twin mirrors production draw for draw: Bernoulli first, and only
+            // on success the direction and id draws.
+            let mut twin = cell_rng(seed ^ SPAWN_SALT, tick, cell_index as u64);
+            let expect_spawn = bernoulli_pow2(&mut twin, spawn_exponent);
+
+            let mut cell = Cell::default();
+            let births =
+                resolve_spontaneous_creation_cell(&mut cell, true, &config, tick, seed, cell_index);
+
+            if !expect_spawn {
+                skipped += 1;
+                assert_eq!(births, 0, "cell {cell_index} should not have spawned");
+                assert!(
+                    cell.program.is_none(),
+                    "cell {cell_index} should still be empty"
+                );
+                continue;
+            }
+
+            fired += 1;
+            assert_eq!(births, 1, "cell {cell_index} should have spawned");
+            let expected_dir =
+                Direction::ALL[(twin.next_u32() % Direction::ALL.len() as u32) as usize];
+            let expected_id = twin.next_u32() as u8;
+            let next_after_spawn = twin.next_u32();
+
+            let program = cell
+                .program
+                .as_ref()
+                .expect("a fired spawn should place a program");
+            assert_eq!(
+                program.registers.dir, expected_dir,
+                "direction diverged at cell {cell_index}"
+            );
+            assert_eq!(
+                program.registers.id, expected_id,
+                "id diverged at cell {cell_index}"
+            );
+
+            // Lineage is attached after the draws and must consume none of them.
+            let mut replay = cell_rng(seed ^ SPAWN_SALT, tick, cell_index as u64);
+            assert!(bernoulli_pow2(&mut replay, spawn_exponent));
+            let _ = replay.next_u32();
+            let _ = replay.next_u32();
+            assert_eq!(
+                replay.next_u32(),
+                next_after_spawn,
+                "spawn consumed an unexpected number of draws at cell {cell_index}"
+            );
+
+            assert_eq!(program.lineage.parent, ProgramUid::NONE);
+            assert_eq!(program.lineage.generation, 0);
+            assert_eq!(program.lineage.birth_tick(), Some(tick as u32));
+            assert_eq!(
+                program.lineage.uid.site(cell_count),
+                Some(ProgramSite {
+                    tick,
+                    cell_index,
+                    origin: ProgramOrigin::Spawn,
+                })
+            );
+        }
+
+        // Both branches of the Bernoulli must actually be exercised, or the
+        // loop proves nothing about the path it never took.
+        assert!(fired > 0, "no cell spawned; the fixture exercises nothing");
+        assert!(
+            skipped > 0,
+            "every cell spawned; the non-spawning branch is untested"
+        );
+    }
+
+    #[test]
+    fn spawn_skips_occupied_cells_and_leaves_their_lineage_alone() {
+        let config = always_spawn_config(8, 8);
+        let existing = Lineage::root(ProgramUid(97), 3);
+        let mut cell = Cell::with_program(
+            Program::new_live(vec![op::NOP], Direction::Up, 2)
+                .expect("program should build")
+                .with_lineage(existing),
+        );
+
+        let births = resolve_spontaneous_creation_cell(&mut cell, true, &config, 9, 11, 1);
+
+        assert_eq!(births, 0);
+        assert_eq!(
+            cell.program.as_ref().expect("program should exist").lineage,
+            existing
+        );
+    }
 
     #[test]
     fn packet_phase_propagates_and_persists_single_packets() {

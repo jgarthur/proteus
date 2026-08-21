@@ -24,8 +24,8 @@ pub use bootstrap::{
 pub use config::{ConfigError, SimConfig, PROGRAM_SIZE_CAP, SPEC_VERSION};
 pub use grid::{Grid, GridError};
 pub use model::{
-    Cell, CellSnapshot, Direction, Packet, Program, ProgramError, QueuedAction, Registers,
-    TickState,
+    Cell, CellSnapshot, Direction, Lineage, Packet, Program, ProgramError, ProgramOrigin,
+    ProgramSite, ProgramUid, QueuedAction, Registers, TickState,
 };
 pub use observe::EventTotals;
 pub use opcode::{op, AdditionalCost, Locality, Opcode, SPEC_OPCODE_COUNT};

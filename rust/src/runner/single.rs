@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crate::observe::{collect_metrics, EventTotals};
+use crate::observe::{collect_metrics_with_census, EventTotals};
 use crate::{apply_bootstrap, Simulation, TickReport};
 
 use super::{
@@ -69,7 +69,7 @@ pub fn run_main(options: RunOptions) -> Result<(), RunnerError> {
 
     let mut event_totals = EventTotals::default();
     let mut last_report = TickReport::default();
-    let mut latest_metrics = collect_metrics(
+    let mut latest_metrics = collect_metrics_with_census(
         simulation.grid(),
         0,
         simulation.tick(),
@@ -83,7 +83,7 @@ pub fn run_main(options: RunOptions) -> Result<(), RunnerError> {
         last_report = simulation.run_tick_report();
         event_totals.record(last_report);
         if simulation.tick() % run.manifest.observation.every_n_ticks == 0 {
-            latest_metrics = collect_metrics(
+            latest_metrics = collect_metrics_with_census(
                 simulation.grid(),
                 0,
                 simulation.tick(),
@@ -96,7 +96,7 @@ pub fn run_main(options: RunOptions) -> Result<(), RunnerError> {
     }
 
     if last_written_tick != simulation.tick() {
-        latest_metrics = collect_metrics(
+        latest_metrics = collect_metrics_with_census(
             simulation.grid(),
             0,
             simulation.tick(),

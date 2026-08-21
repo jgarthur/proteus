@@ -2,7 +2,9 @@
 
 **Status**: Provisional — subject to change as the engine implementation matures.
 
-**Spec version**: 0.2.4
+**Spec version**: 0.2.5
+
+**Added in 0.2.5**: metrics gained an optional point-in-time `census` object (program-size histograms, opcode census, size-1 population, aggregated lineage, stack depths), omitted from the WebSocket stream and available over REST via `GET /v1/sim/metrics?census=1`; cell inspection gained six lineage fields (`uid`, `parent_uid`, `birth_tick`, `generation`, `origin`, `created_tick`). Both are additive, so existing clients are unaffected (§10, §12).
 
 **Changed in 0.2.4**: the simulation config contract narrowed — `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must each be exactly 0, 1, or `2^-k` for integer `k` in `1..=63`, and both mutation exponent fields must be in `0..=63`; request bodies outside these domains were previously accepted and are now rejected (§8).
 
@@ -60,7 +62,7 @@ The API is independent of any specific frontend implementation.
 
 All REST endpoints are prefixed with `/v1`.
 
-All responses include the header `X-Proteus-API-Version: 0.2.3`.
+All responses include the header `X-Proteus-API-Version: 0.2.5`.
 
 Breaking changes increment the major URL version (`/v2`). Additive changes (new optional fields, new endpoints) do not.
 
@@ -413,13 +415,82 @@ Epochs begin at 0 and increase monotonically for the lifetime of the server proc
 
 All `u64` values are encoded as JSON numbers. JavaScript clients can represent them exactly only through `2^53 - 1` (`Number.MAX_SAFE_INTEGER`); clients requiring longer exact histories must reject values above that limit until the API adopts a string or binary integer representation.
 
+### Program census (optional)
+
+An optional `census` object carries a point-in-time breakdown of the program population: size histograms, an opcode census, the size-1 population, aggregated lineage, and stack depths.
+
+The census is **omitted from the WebSocket stream entirely**. The server recomputes metrics every tick, and the census costs far more than the rest of the snapshot on a dense grid, so it is opt-in and delivered only over REST:
+
+```
+GET /v1/sim/metrics?census=1
+```
+
+The flag accepts `1`/`0`, `true`/`false`, `yes`/`no`, and `on`/`off`. Without it the response has no `census` key at all. When present, the census describes the same tick as the snapshot it rides on.
+
+```json
+"census": {
+  "live_sizes":  { "scale": "linear", "first_value": 1, "counts": [812, 40, "…256 entries…"],
+                   "overflow": 0, "count": 15836, "sum": 1004002, "max": 154 },
+  "inert_sizes": { "scale": "linear", "first_value": 1, "counts": ["…256 entries…"],
+                   "overflow": 0, "count": 224, "sum": 903, "max": 12 },
+  "opcode_counts": [4021, 0, "…256 entries, indexed by instruction byte…"],
+  "size1": {
+    "live_count": 812, "inert_count": 190,
+    "live_age_sum": 913204, "live_max_age": 28417,
+    "live_opcode_counts": ["…256 entries…"]
+  },
+  "lineage": {
+    "roots": 41, "orphans": 15012,
+    "generation": { "scale": "linear", "first_value": 0, "counts": ["…512 entries…"], "overflow": 3,
+                    "count": 15836, "sum": 190032, "max": 37 },
+    "birth_tick_sum": 152340000, "birth_tick_count": 15836,
+    "offspring": { "scale": "linear", "first_value": 0, "counts": ["…16 entries…"], "overflow": 0,
+                   "count": 15836, "sum": 15795, "max": 9 },
+    "origin_seed": 1, "origin_spawn": 40, "origin_append": 15795
+  },
+  "stack_depths": { "scale": "log2", "first_value": 0, "counts": ["…33 entries…"],
+                    "overflow": 0, "count": 16060, "sum": 4120, "max": 9 }
+}
+```
+
+Every histogram uses the same shape and declares its bucketing in `scale`. `count`, `sum`, and `max` are always exact over all observations, whatever the scale and including any that overflow, so a mean or a maximum never depends on bucket layout.
+
+**`"linear"`** — `counts[i]` counts the single value `first_value + i`, and `overflow` counts every observation above the last bucket. Used for `live_sizes` and `inert_sizes` (256 buckets from 1), `generation` (512 buckets from 0), and `offspring` (16 buckets from 0). A linear distribution can outrun its buckets: generation grows with run length, so treat `overflow` as a real population rather than an error.
+
+**`"log2"`** — `counts[0]` counts the value 0, and `counts[i]` for `i >= 1` counts the half-open range `[2^(i-1), 2^i)`. The 33 buckets span every `u32`, so `overflow` is always 0; the field is retained so both scales share one wire shape, and `first_value` is unused and stays 0. Used for `stack_depths`, whose real distribution spans the entire stack cap (measured p50 759, p90 8315, max 32767 on a dense 256×256 run) and which no affordable linear width could describe.
+
+Clients should switch on `scale` rather than assuming a layout. A histogram written before `scale` existed has no such key and is `"linear"`.
+
+| Field | Type | Purpose | Stability |
+|-------|------|---------|-----------|
+| `census.live_sizes` | histogram | Instruction count per live program, `first_value` 1 | unstable |
+| `census.inert_sizes` | histogram | Instruction count per inert program, `first_value` 1 | unstable |
+| `census.opcode_counts` | u64[256] | Instruction bytes equal to each byte value, live programs only | unstable |
+| `census.size1.live_count` | u32 | Live programs of exactly one instruction | unstable |
+| `census.size1.inert_count` | u32 | Inert bodies of exactly one instruction | unstable |
+| `census.size1.live_age_sum` | u64 | Summed age of live size-1 programs | unstable |
+| `census.size1.live_max_age` | u32 | Oldest live size-1 program | unstable |
+| `census.size1.live_opcode_counts` | u32[256] | Live size-1 programs by their single instruction | unstable |
+| `census.lineage.roots` | u32 | Live programs with no parent (seed programs and spontaneous spawns) | unstable |
+| `census.lineage.orphans` | u32 | Live programs whose parent is no longer live | unstable |
+| `census.lineage.generation` | histogram | Generation over live programs, `first_value` 0 | unstable |
+| `census.lineage.birth_tick_sum` | u64 | Summed birth tick over live programs that have one | unstable |
+| `census.lineage.birth_tick_count` | u32 | Live programs contributing to `birth_tick_sum` | unstable |
+| `census.lineage.offspring` | histogram | Live programs bucketed by how many live programs name them as parent | unstable |
+| `census.lineage.origin_seed` | u32 | Live programs first created by bootstrap seeding | unstable |
+| `census.lineage.origin_spawn` | u32 | Live programs first created by spontaneous spawn | unstable |
+| `census.lineage.origin_append` | u32 | Live programs first created by `appendAdj` into an empty cell | unstable |
+| `census.stack_depths` | histogram | Stack depth over live **and** inert programs, `log2` scale | unstable |
+
+The census is strictly **point-in-time**, a gauge like `population` and `mean_program_size`. It has no cumulative counterpart and must never be diffed across samples the way `event_totals` are diffed: a census difference is not an event count. The losslessness guarantee that lets clients derive rates from `event_totals` applies to `event_totals` only.
+
 ### REST fallback
 
 ```
 GET /v1/sim/metrics
 ```
 
-Returns the latest metrics object as `200 OK`. It has the same fields and semantics as the WebSocket payload, except that it has no `"type"` discriminator. Useful for polling without a WebSocket connection.
+Returns the latest metrics object as `200 OK`. It has the same fields and semantics as the WebSocket payload, except that it has no `"type"` discriminator, and that it accepts the optional `?census=1` flag described above. Useful for polling without a WebSocket connection.
 
 ---
 
@@ -517,7 +588,13 @@ Response `200 OK`:
     "id": 3,
     "lc": 4,
     "stack": [12, 0, 7],
-    "abandonment_timer": null
+    "abandonment_timer": null,
+    "uid": 4295098371,
+    "parent_uid": 4294983683,
+    "birth_tick": 26214,
+    "generation": 37,
+    "origin": "append",
+    "created_tick": 26212
   }
 }
 ```
@@ -525,6 +602,21 @@ Response `200 OK`:
 If the cell has no program, the `program` field is `null`.
 
 `abandonment_timer` is present only for inert programs (null for live programs, null when no program).
+
+The six lineage fields describe where the program came from. They are observation metadata: no simulation rule reads them and no instruction can observe them.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `uid` | u64 | Identifies this program uniquely within the current simulation instance |
+| `parent_uid` | u64 or null | The program that created this one; `null` for a lineage root |
+| `birth_tick` | u32 or null | Tick at which the program became live; `null` while an inert body has never booted |
+| `generation` | u32 | 0 for a lineage root, otherwise the creator's generation plus one |
+| `origin` | string or null | How the program first came into existence: `"seed"`, `"spawn"`, or `"append"` |
+| `created_tick` | u64 or null | Tick at which the program first materialized, which for an inert body precedes `birth_tick` |
+
+A program is a **lineage root** when it has no parent: either a bootstrap seed program (`origin` `"seed"`) or a spontaneous spawn (`origin` `"spawn"`). Both are the primordial bootstrap that `docs/SPEC.md` describes, and both carry `generation` 0 and `parent_uid` `null`. Their birth accounting differs: bootstrap seed programs are not births, while a spontaneous spawn increments `spawn_births` (and therefore `births`) exactly as the metrics section above describes. A program created by `appendAdj` into an empty cell (`origin` `"append"`) starts inert with `birth_tick` `null`, and keeps its `uid`, `parent_uid`, and `generation` unchanged when `boot` later makes it live.
+
+`uid` values are **epoch-scoped**. They are never reused within one simulation instance below the encoding ceiling — uniqueness holds while `(tick × cell_count + cell_index) × 4` stays below 2^64 (≈ 2.8 × 10^14 ticks on a 128×128 grid); beyond it uids wrap and may collide, and debug builds assert instead. Independent of that ceiling, they are not comparable across simulations, across `POST /v1/sim/reset`, or across grids of different size, because a uid encodes the grid position and tick at which the program was created. `origin` and `created_tick` are decoded from the uid, so they carry the same scope.
 
 `dir` uses the master `Dir` encoding from `docs/SPEC.md`: `0 = right`, `1 = up`, `2 = left`, `3 = down`.
 

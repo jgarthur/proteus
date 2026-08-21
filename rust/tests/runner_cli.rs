@@ -147,6 +147,51 @@ fn verbosity_zero_is_silent_for_both_flag_spellings_but_not_for_errors() {
 }
 
 #[test]
+fn metrics_rows_carry_a_point_in_time_census() {
+    let sandbox = Sandbox::new("census");
+    let manifest_path = sandbox.path().join("census.json");
+    write_json(
+        &manifest_path,
+        &run_manifest("census", "outputs/census", 6, 2),
+    );
+
+    assert_success(&run_command(&manifest_path, 1));
+
+    let rows = read_metrics(&sandbox.path().join("outputs/census/metrics.jsonl"));
+    assert!(!rows.is_empty(), "the run should have written metrics rows");
+
+    for row in &rows {
+        let census = row
+            .metrics
+            .census
+            .as_ref()
+            .expect("every runner metrics row carries a census");
+        assert_eq!(
+            census.live_sizes.count + census.inert_sizes.count,
+            row.metrics.population,
+            "size histograms must cover the whole population"
+        );
+        assert_eq!(
+            census.stack_depths.count, row.metrics.population,
+            "stack depths are recorded over live and inert programs"
+        );
+        assert_eq!(
+            census.live_sizes.max, row.metrics.max_program_size,
+            "the live size histogram tracks the same maximum as the snapshot"
+        );
+        assert_eq!(census.lineage.offspring.count, row.metrics.live_count);
+    }
+
+    let summary: RunSummary = read_json(&sandbox.path().join("outputs/census/summary.json"));
+    let last = rows.last().expect("there should be a last row");
+    assert_eq!(summary.final_metrics.tick, last.metrics.tick);
+    assert_eq!(
+        summary.final_metrics.census, last.metrics.census,
+        "the summary's final census must be the last row's census"
+    );
+}
+
+#[test]
 fn cadence_changes_sampling_but_not_final_metrics() {
     let sandbox = Sandbox::new("cadence");
     let every_tick_path = sandbox.path().join("every-tick.json");
@@ -166,6 +211,13 @@ fn cadence_changes_sampling_but_not_final_metrics() {
     let every_tick: RunSummary = read_json(&sandbox.path().join("outputs/every-tick/summary.json"));
     let sparse: RunSummary = read_json(&sandbox.path().join("outputs/sparse/summary.json"));
     assert_eq!(every_tick.final_metrics, sparse.final_metrics);
+    // The census is computed from state, not accumulated across samples, so
+    // observation cadence cannot change it.
+    assert!(every_tick.final_metrics.census.is_some());
+    assert_eq!(
+        every_tick.final_metrics.census, sparse.final_metrics.census,
+        "observation cadence must not change the final census"
+    );
     assert_eq!(
         read_metrics(&sandbox.path().join("outputs/sparse/metrics.jsonl"))
             .iter()

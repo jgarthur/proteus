@@ -856,6 +856,7 @@ mod tests {
             deaths: 0,
             mutations: 0,
             event_totals: EventTotals::default(),
+            census: None,
         }
     }
 }
