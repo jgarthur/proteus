@@ -2,7 +2,7 @@
 
 **Status**: Implemented MVP contract.
 
-**Targets**: Proteus v0.2.1 engine, API metrics schema v0.2.3.
+**Targets**: Proteus v0.3.0 engine, API metrics schema v0.2.3.
 
 ---
 
@@ -161,7 +161,7 @@ Thread count and verbosity are operational execution settings, not simulation
 inputs. JSON objects are strict: unknown fields, missing fields,
 duplicate object keys, non-finite numbers, and values outside the corresponding
 Rust integer range are errors. No manifest field receives an implicit default.
-`runner_schema_version` must equal `0.1.0`.
+`runner_schema_version` must equal `0.1.0`. The simulation probabilities `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must each be exactly 0, 1, or `2^-k` for integer `k` in `1..=63`; both mutation exponent fields must be in `0..=63`.
 
 A single-run manifest contains only exact values:
 
@@ -175,8 +175,8 @@ A single-run manifest contains only exact values:
     "seed": 42,
     "r_energy": 0.25,
     "r_mass": 0.05,
-    "d_energy": 0.01,
-    "d_mass": 0.01,
+    "d_energy": 0.0078125,
+    "d_mass": 0.0078125,
     "t_cap": 4.0,
     "maintenance_rate": 0.0078125,
     "maintenance_exponent": 1.0,
@@ -287,11 +287,11 @@ For the complete example manifest in §6, the canonical digest projection is the
 following single line (the displayed line ending is not part of the bytes):
 
 ```text
-{"runner_schema_version":"0.1.0","simulation":{"width":64,"height":64,"seed":42,"r_energy":"0x3fd0000000000000","r_mass":"0x3fa999999999999a","d_energy":"0x3f847ae147ae147b","d_mass":"0x3f847ae147ae147b","t_cap":"0x4010000000000000","maintenance_rate":"0x3f80000000000000","maintenance_exponent":"0x3ff0000000000000","local_action_exponent":"0x3ff0000000000000","n_synth":1,"inert_grace_ticks":10,"p_spawn":"0x0000000000000000","mutation_base_log2":16,"mutation_background_log2":8},"bootstrap":{"programs":[{"x":32,"y":24,"code":[80,100],"free_energy":20,"free_mass":12}],"environment":[{"x":31,"y":24,"free_energy":20,"free_mass":12,"bg_radiation":0,"bg_mass":0}]},"limits":{"ticks":10000},"observation":{"every_n_ticks":50}}
+{"runner_schema_version":"0.1.0","simulation":{"width":64,"height":64,"seed":42,"r_energy":"0x3fd0000000000000","r_mass":"0x3fa999999999999a","d_energy":"0x3f80000000000000","d_mass":"0x3f80000000000000","t_cap":"0x4010000000000000","maintenance_rate":"0x3f80000000000000","maintenance_exponent":"0x3ff0000000000000","local_action_exponent":"0x3ff0000000000000","n_synth":1,"inert_grace_ticks":10,"p_spawn":"0x0000000000000000","mutation_base_log2":16,"mutation_background_log2":8},"bootstrap":{"programs":[{"x":32,"y":24,"code":[80,100],"free_energy":20,"free_mass":12}],"environment":[{"x":31,"y":24,"free_energy":20,"free_mass":12,"bg_radiation":0,"bg_mass":0}]},"limits":{"ticks":10000},"observation":{"every_n_ticks":50}}
 ```
 
 Its required digest is
-`sha256:e5053c7b811503c8d875fde5bb1a85d6fbbfb15596d591c300fae351cb11ac03`.
+`sha256:1ee9860658e963b0fdc49d1660b47c5f37c7d8845aeb5560c5cc593cc6e9953b`.
 
 Build provenance describes the executable that performs the simulation. Capture
 it at build time, not by inspecting a possibly unrelated checkout at launch:

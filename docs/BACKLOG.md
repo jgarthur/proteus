@@ -20,8 +20,8 @@ References: `rust/src/pass1.rs`, `rust/src/pass3.rs`, `rust/src/simulation.rs`, 
 
 ### DYADIC-SAMPLERS: Exact power-of-two probability samplers and Poisson inversion
 
-Context: the dense line profile shows ambient/tail time dominated by per-draw `rand_distr` binomial/Poisson construction (`powf`/`exp`/`log_gamma`). All hot probabilities are (or become, via an approved spec adjustment to the `d_energy`/`d_mass` defaults) exactly `2^-k`, so Bernoulli/binomial collapse to exact integer bit operations and Poisson moves to inversion with a hoisted `exp(-λ)`. Includes a stream-preserving `powf(x, 1.0)` fast-path phase that can land first and alone. The main phase deliberately changes RNG draw streams: bump versions, regenerate sampled golden literals, keep structural invariant tests unmodified, and make the (deliberately undrafted) spec edit for the dyadic constraint with a SPEC-CHANGELOG entry. Full implementable detail, including sampler pseudocode, config validation, call-site map, and migration steps, is in the plan doc.
-References: `docs/analysis/2026-08-13_dyadic-sampler-plan.md`, `docs/analysis/2026-08-13_performance-roadmap.md`, `rust/src/random.rs`, `rust/src/pass3.rs`, `rust/src/config.rs`
+Decision (2026-08-21): implemented exact `2^-k` Bernoulli/binomial samplers, Poisson inversion with per-loop precomputation and a large-rate fallback, dyadic config validation, and exponent-1 `powf` fast paths. The approved decay defaults are `2^-7`; mutation exponents above 63 are configuration errors. Serial and Rayon tests plus 1000-tick parity at 1/2/4/8 threads pass. Timed benchmarks were skipped because the shared machine was not quiet; rerun them before drawing performance conclusions.
+References: `docs/analysis/2026-08-13_dyadic-sampler-plan.md`, `docs/analysis/2026-08-21_dyadic-sampler-results.md`, `rust/src/random.rs`, `rust/src/pass3.rs`, `rust/src/config.rs`
 
 ### RAYON-HOTSPOTS: Remaining performance tiers after the sampler work
 

@@ -16,8 +16,8 @@ fn build_deterministic_fixture() -> Simulation {
         .configure(|config| {
             config.r_energy = 0.45;
             config.r_mass = 0.35;
-            config.d_energy = 0.2;
-            config.d_mass = 0.15;
+            config.d_energy = 0.25;
+            config.d_mass = 0.125;
             config.maintenance_rate = 0.25;
             config.maintenance_exponent = 1.0;
             config.p_spawn = 0.5;
@@ -174,8 +174,8 @@ fn build_frontend_seed_fixture() -> Simulation {
     let mut builder = WorldBuilder::new(64, 64).seed(1).configure(|config| {
         config.r_energy = 0.25;
         config.r_mass = 1.0;
-        config.d_energy = 0.01;
-        config.d_mass = 0.01;
+        config.d_energy = 0.007_812_5;
+        config.d_mass = 0.007_812_5;
         config.t_cap = 4.0;
         config.maintenance_rate = 0.0078125;
         config.maintenance_exponent = 1.0;

@@ -1,4 +1,4 @@
-# Proteus v0.2.1 Specification
+# Proteus v0.3.0 Specification
 
 An artificial life simulator where self-replicating programs emerge, compete, and evolve on a 2D grid with conserved mass and energy.
 
@@ -8,11 +8,11 @@ Proteus prioritizes a minimal substrate that enables emergent complexity. The in
 
 The physics layer provides real resource constraints (spatial locality, maintenance costs, conserved transactions with external energy and mass sources) that drive ecological dynamics without prescribing what those dynamics should look like. The substrate includes controlled stochastic elements — background radiation and mass arrival, mutation, `rand`, and probabilistic maintenance and decay — but is otherwise deterministic. All physics is fully discrete and translation-invariant under 90° rotations and reflections.
 
-### Changes from v0.2.0
+### Changes from v0.2.1
 
-v0.2.1 keeps the v0.2.0 execution model, instruction set, and lifecycle rules, but reinterprets the ambient arrival parameters `R_energy` and `R_mass` as **Poisson arrival means per cell per tick** instead of Bernoulli probabilities capped at one unit. Ambient decay remains per-quantum binomial thinning at `D_energy` / `D_mass`.
+v0.3.0 keeps the v0.2.1 execution model and stochastic laws, but constrains the configured decay, maintenance, and spontaneous-creation probabilities to exact powers of two (plus the deterministic endpoints 0 and 1). This permits exact integer sampling without changing the meaning of any accepted probability.
 
-Fresh simulations now initialize background radiation and background mass from the stationary ambient law implied by those rules: `Poisson(R / D)` for each cell when `D > 0`. If `D = 0`, there is no finite steady state for that pool, so fresh simulations start with 0 background in that pool.
+The suggested `D_energy` and `D_mass` values are now `2^-7 = 1/128 = 0.0078125`. With the unchanged `R_energy = 0.25`, the stationary mean background radiation rises from 25 to 32. Mutation exponents are restricted to `0..=63`; larger values are invalid configuration rather than an approximation of a never-mutate setting.
 
 ## Physics
 
@@ -494,8 +494,8 @@ Mutations do not affect the current tick's execution.
 | Energy arrival rate | `R_energy` | Mean background-radiation arrivals per cell per tick (`Poisson(R_energy)`) | 0.25 |
 | Mass arrival rate | `R_mass` | Mean background-mass arrivals per cell per tick (`Poisson(R_mass)`) | 0.05 |
 | Nop-spawn probability | `P_spawn` | P(end-of-tick nucleation in a spawn-candidate empty cell) | 0 |
-| Energy decay rate | `D_energy` | P(each unit of background radiation or excess free energy removed per tick) | 0.01 |
-| Mass decay rate | `D_mass` | P(each unit of background mass or excess free mass removed per tick) | 0.01 |
+| Energy decay rate | `D_energy` | P(each unit of background radiation or excess free energy removed per tick) | 1/128 |
+| Mass decay rate | `D_mass` | P(each unit of background mass or excess free mass removed per tick) | 1/128 |
 | Decay threshold | `T_cap` | Multiplier on program_size for free resource decay floor | 4 |
 | Maintenance rate | `M` | P(each maintenance quantum costs 1 energy per tick) | 1/128 |
 | Inert grace window | `inert_grace_ticks` | Ticks without incoming write before abandoned inert pays maintenance | 10 |
@@ -504,6 +504,8 @@ Mutations do not affect the current tick's execution.
 | Background mutation exponent | `mutation_background_log2` | Background-stressed mutation rate is `min(x / 2^(value), 1)` | 8 |
 | Local action exponent | `alpha` | Local action budget = `max(1, floor(size^alpha))` | 1.0 |
 | Maintenance exponent | `beta` | Maintenance quanta = `size^beta` | 1.0 |
+
+`D_energy`, `D_mass`, `M`, and `P_spawn` must each be exactly 0, 1, or `2^-k` for an integer `k` in `1..=63`. The configured mutation exponents must each be integers in `0..=63`. These domains allow exact bit-level sampling. For non-integer `beta`, the fractional maintenance term `Bernoulli((q - floor(q)) × M)` is not generally dyadic and retains its stated floating-point probability.
 
 ## Seed Replicator
 
@@ -637,29 +639,29 @@ M_collect + M_synth  ≥  S
 
 ### Example: Seed Replicator at Default Parameters
 
-With `R_energy = 0.25`, `R_mass = 0.05`, `D_energy = D_mass = 0.01`, `M = 1/128`, `S = 12`, `T = 14`, `alpha = beta = 1.0`, absorb_count = 1 (own cell only), no synthesis (`K = 0`):
+With `R_energy = 0.25`, `R_mass = 0.05`, `D_energy = D_mass = 1/128`, `M = 1/128`, `S = 12`, `T = 14`, `alpha = beta = 1.0`, absorb_count = 1 (own cell only), no synthesis (`K = 0`):
 
 ```
-refill(14) = 0.25 × (1 − 0.99^14) / 0.01 = 0.25 × 13.1 = 3.28
+refill(14) = 0.25 × (1 − (127/128)^14) / (1/128) = 0.25 × 13.31 = 3.33
 
-E_in       = 1 × 3.28                = 3.28   (own cell only)
+E_in       = 1 × 3.33                = 3.33   (own cell only)
 E_maintain = 14 × 12 × (1/128)       = 1.31
 E_instruct = 12 (appendAdj)          = 12.0
 E_total    = 13.31
 
-Energy deficit: −10.0 per cycle with single absorb.
+Energy deficit: −9.98 per cycle with single absorb.
 ```
 
 With absorb_count = 4 (all 5 cells):
 
 ```
-E_in       = 5 × 3.28                = 16.4
-Energy surplus: 3.1 per cycle. Marginal.
+E_in       = 5 × 3.3277              = 16.64
+Energy surplus: 3.33 per cycle. Marginal.
 ```
 
 ```
-mass_refill(14) = 0.05 × (1 − 0.99^14) / 0.01 = 0.05 × 13.1 = 0.66
-M_collect  = 0.66 per cycle
+mass_refill(14) = 0.05 × (1 − (127/128)^14) / (1/128) = 0.05 × 13.31 = 0.67
+M_collect  = 0.67 per cycle
 
 Need: 12. Shortfall of ~11.3 per cycle.
 ```

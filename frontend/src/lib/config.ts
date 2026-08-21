@@ -15,6 +15,44 @@ export function parseCode(value: string): number[] {
     .filter((valuePart) => Number.isFinite(valuePart));
 }
 
+/** Largest supported `k` for a `2^-k` probability, matching the backend samplers. */
+const MAX_DYADIC_EXPONENT = 63;
+
+/**
+ * Returns `k` when `value` is exactly `2^-k` for `k` in `0..=63`, else `null`.
+ *
+ * Mirrors `dyadic_exponent` in `rust/src/config.rs`. The `2 ** -k === value`
+ * round-trip is what makes this exact: `Math.log2` only proposes the candidate
+ * exponent, and any non-power-of-two fails the equality.
+ */
+function dyadicExponent(value: number): number | null {
+  if (!Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  const exponent = Math.round(-Math.log2(value));
+  if (exponent < 0 || exponent > MAX_DYADIC_EXPONENT) {
+    return null;
+  }
+
+  return 2 ** -exponent === value ? exponent : null;
+}
+
+/**
+ * Returns the valid dyadic probabilities bracketing an in-range invalid value.
+ *
+ * Mirrors `dyadic_probability_neighbors` in `rust/src/config.rs`.
+ */
+function dyadicNeighbors(value: number): [number, number] {
+  const smallest = 2 ** -MAX_DYADIC_EXPONENT;
+  if (value < smallest) {
+    return [0, smallest];
+  }
+
+  const exponent = Math.floor(Math.log2(value));
+  return [2 ** exponent, 2 ** (exponent + 1)];
+}
+
 export function validateConfig(config: SimConfig): ConfigErrors {
   const errors: ConfigErrors = {};
   const intFields: Array<keyof SimConfig> = [
@@ -22,8 +60,6 @@ export function validateConfig(config: SimConfig): ConfigErrors {
     'height',
     'n_synth',
     'inert_grace_ticks',
-    'mutation_base_log2',
-    'mutation_background_log2',
   ];
 
   intFields.forEach((field) => {
@@ -54,7 +90,19 @@ export function validateConfig(config: SimConfig): ConfigErrors {
 
   probabilityFields.forEach((field) => {
     const value = config[field] as number;
-    if (value < 0 || value > 1) errors[String(field)] = 'Must be between 0.0 and 1.0';
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      errors[String(field)] = 'Must be between 0.0 and 1.0';
+      return;
+    }
+    // The backend samples these with exact bit operations, so it accepts only
+    // 0, 1, or 2^-k (k = 1-63). See API-SPEC 0.2.4 section 8.
+    if (value === 0 || dyadicExponent(value) !== null) {
+      return;
+    }
+
+    const [lower, upper] = dyadicNeighbors(value);
+    errors[String(field)] =
+      `Must be 0, 1, or 2^-k (k = 1-${MAX_DYADIC_EXPONENT}); nearest valid values are ${lower} and ${upper}`;
   });
 
   ['t_cap', 'maintenance_exponent', 'local_action_exponent'].forEach((field) => {
@@ -64,10 +112,19 @@ export function validateConfig(config: SimConfig): ConfigErrors {
     }
   });
 
-  ['n_synth', 'inert_grace_ticks', 'mutation_base_log2', 'mutation_background_log2'].forEach((field) => {
+  ['n_synth', 'inert_grace_ticks'].forEach((field) => {
     const value = config[field as keyof SimConfig] as number;
     if (value < 0) {
       errors[field] = 'Must be non-negative';
+    }
+  });
+
+  // Both exponents feed a single 64-bit draw in the backend samplers, so
+  // values above 63 are configuration errors rather than "effectively never".
+  (['mutation_base_log2', 'mutation_background_log2'] as const).forEach((field) => {
+    const value = config[field];
+    if (!Number.isInteger(value) || value < 0 || value > MAX_DYADIC_EXPONENT) {
+      errors[field] = `Must be an integer 0-${MAX_DYADIC_EXPONENT}`;
     }
   });
 

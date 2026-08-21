@@ -2,6 +2,15 @@
 
 ## Recent Changes
 
+### 2026-08-21 (v0.3.0)
+
+- Constrained `D_energy`, `D_mass`, `M`, and `P_spawn` to exactly 0, 1, or `2^-k` for integer `k` in `1..=63`, while preserving their existing Bernoulli/binomial semantics.
+  - Why: exact power-of-two probabilities admit exact bit-level sampling and remove floating-point distribution construction from the per-cell hot path.
+- Changed the suggested and implementation-default `D_energy` and `D_mass` values from 0.01 to `2^-7 = 0.0078125`. At `R_energy = 0.25`, this raises stationary mean background radiation from 25 to 32.
+  - Why: 0.01 is not dyadic; `2^-7` is the approved nearby value and its ecology shift is accepted.
+- Restricted `mutation_base_log2` and `mutation_background_log2` to `0..=63`. Values above 63, which were previously accepted and behaved as extremely rare or effectively never in the floating-point sampler, are now configuration errors.
+  - Why: the exact mutation samplers operate on one 64-bit draw, and rejecting unsupported exponents makes the boundary explicit instead of silently changing their meaning.
+
 ### 2026-03-23 (v0.2.1)
 
 - Reinterpreted `R_energy` and `R_mass` as Poisson arrival means per cell per tick rather than Bernoulli probabilities capped at one arriving unit. `D_energy` and `D_mass` remain per-quantum decay probabilities with binomial thinning semantics.

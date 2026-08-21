@@ -776,7 +776,7 @@ mod tests {
             r#"{
               "runner_schema_version":"0.1.0",
               "run_id":"example-run-0001",
-              "simulation":{"width":64,"height":64,"seed":42,"r_energy":0.25,"r_mass":0.05,"d_energy":0.01,"d_mass":0.01,"t_cap":4.0,"maintenance_rate":0.0078125,"maintenance_exponent":1.0,"local_action_exponent":1.0,"n_synth":1,"inert_grace_ticks":10,"p_spawn":0.0,"mutation_base_log2":16,"mutation_background_log2":8},
+              "simulation":{"width":64,"height":64,"seed":42,"r_energy":0.25,"r_mass":0.05,"d_energy":0.0078125,"d_mass":0.0078125,"t_cap":4.0,"maintenance_rate":0.0078125,"maintenance_exponent":1.0,"local_action_exponent":1.0,"n_synth":1,"inert_grace_ticks":10,"p_spawn":0.0,"mutation_base_log2":16,"mutation_background_log2":8},
               "bootstrap":{"programs":[{"x":32,"y":24,"code":[80,100],"free_energy":20,"free_mass":12}],"environment":[{"x":31,"y":24,"free_energy":20,"free_mass":12,"bg_radiation":0,"bg_mass":0}]},
               "limits":{"ticks":10000},"observation":{"every_n_ticks":50},"output_directory":"runs/example-run-0001"
             }"#,
@@ -784,7 +784,7 @@ mod tests {
         .expect("golden manifest should parse");
         assert_eq!(
             input_digest(&manifest).expect("digest should build"),
-            "sha256:e5053c7b811503c8d875fde5bb1a85d6fbbfb15596d591c300fae351cb11ac03"
+            "sha256:1ee9860658e963b0fdc49d1660b47c5f37c7d8845aeb5560c5cc593cc6e9953b"
         );
     }
 
@@ -793,7 +793,7 @@ mod tests {
         let json = r#"{
           "runner_schema_version":"0.1.0",
           "run_id":"first-name",
-          "simulation":{"width":2,"height":2,"seed":42,"r_energy":2.5e-1,"r_mass":5e-2,"d_energy":1e-2,"d_mass":0.010,"t_cap":4e0,"maintenance_rate":7.8125e-3,"maintenance_exponent":1,"local_action_exponent":1.0,"n_synth":1,"inert_grace_ticks":10,"p_spawn":-0.0,"mutation_base_log2":16,"mutation_background_log2":8},
+          "simulation":{"width":2,"height":2,"seed":42,"r_energy":2.5e-1,"r_mass":5e-2,"d_energy":0.0078125,"d_mass":0.0078125,"t_cap":4e0,"maintenance_rate":7.8125e-3,"maintenance_exponent":1,"local_action_exponent":1.0,"n_synth":1,"inert_grace_ticks":10,"p_spawn":-0.0,"mutation_base_log2":16,"mutation_background_log2":8},
           "bootstrap":{"programs":[{"x":1,"y":1,"code":[80],"free_energy":20,"free_mass":12},{"x":0,"y":0,"code":[100],"free_energy":4,"free_mass":3}],"environment":[{"x":0,"y":1,"free_energy":1,"free_mass":2,"bg_radiation":3,"bg_mass":4},{"x":1,"y":0,"free_energy":5,"free_mass":6,"bg_radiation":7,"bg_mass":8}]},
           "limits":{"ticks":10},"observation":{"every_n_ticks":2},"output_directory":"runs/first"
         }"#;

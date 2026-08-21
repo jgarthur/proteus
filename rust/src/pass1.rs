@@ -35,7 +35,8 @@ struct Pass1Shared<'a> {
 /// Computes the local action budget for one program size and exponent.
 pub fn local_action_budget(size_at_tick_start: u16, alpha: f64) -> u32 {
     let size = f64::from(size_at_tick_start);
-    let budget = size.powf(alpha).floor() as u32;
+    let scaled_size = if alpha == 1.0 { size } else { size.powf(alpha) };
+    let budget = scaled_size.floor() as u32;
     budget.max(1)
 }
 

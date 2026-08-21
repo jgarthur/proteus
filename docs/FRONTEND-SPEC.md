@@ -2,9 +2,11 @@
 
 **Status**: Provisional — subject to change as the backend API matures.
 
-**Spec version**: 0.2.2
+**Spec version**: 0.2.3
 
-**Targets**: Proteus v0.2.1, API-SPEC v0.2.3
+**Changed in 0.2.3**: config editor validation narrowed to match API-SPEC 0.2.4 — `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` accept only 0, 1, or `2^-k` for integer `k` in `1..=63`, and both mutation exponent fields accept only integers in `0..=63` (§9).
+
+**Targets**: Proteus v0.3.0, API-SPEC v0.2.4
 
 ---
 
@@ -455,7 +457,7 @@ Sorted by `created_at` descending (newest first).
 
 The config editor appears in the **Controls** tab when creating a new simulation. It is a form that produces the JSON body for `POST /v1/sim` (API-SPEC §8).
 
-`r_energy` and `r_mass` are Poisson arrival means per cell per tick, so they are valid for any finite non-negative number. `d_energy` and `d_mass` are per-quantum decay probabilities in `[0, 1]`.
+`r_energy` and `r_mass` are Poisson arrival means per cell per tick, so they are valid for any finite non-negative number. `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must each be exactly 0, 1, or `2^-k` for integer `k` in `1..=63`. Both mutation exponent fields must be integers in `0..=63`.
 
 ### Field groups
 
@@ -473,27 +475,27 @@ The config editor appears in the **Controls** tab when creating a new simulation
 |-------|------|---------|------------|
 | `r_energy` | number | 0.25 | ≥ 0.0 |
 | `r_mass` | number | 0.05 | ≥ 0.0 |
-| `d_energy` | number | 0.01 | 0.0–1.0 |
-| `d_mass` | number | 0.01 | 0.0–1.0 |
+| `d_energy` | number | 0.0078125 | 0, 1, or 2^-k (k = 1–63) |
+| `d_mass` | number | 0.0078125 | 0, 1, or 2^-k (k = 1–63) |
 | `t_cap` | number | 4.0 | > 0 |
 
 **Program dynamics**:
 
 | Field | Type | Default | Validation |
 |-------|------|---------|------------|
-| `maintenance_rate` | number | 0.0078125 | 0.0–1.0 |
+| `maintenance_rate` | number | 0.0078125 | 0, 1, or 2^-k (k = 1–63) |
 | `maintenance_exponent` | number | 1.0 | > 0 |
 | `local_action_exponent` | number | 1.0 | > 0 |
 | `n_synth` | number | 1 | ≥ 0, integer |
 | `inert_grace_ticks` | number | 10 | ≥ 0, integer |
-| `p_spawn` | number | 0.0 | 0.0–1.0 |
+| `p_spawn` | number | 0.0 | 0, 1, or 2^-k (k = 1–63) |
 
 **Mutation**:
 
 | Field | Type | Default | Validation |
 |-------|------|---------|------------|
-| `mutation_base_log2` | number | 16 | ≥ 0, integer |
-| `mutation_background_log2` | number | 8 | ≥ 0, integer |
+| `mutation_base_log2` | number | 16 | 0–63, integer |
+| `mutation_background_log2` | number | 8 | 0–63, integer |
 
 **Seed programs** (MVP):
 

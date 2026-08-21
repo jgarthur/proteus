@@ -272,24 +272,13 @@ Cost is ~3-4ns per cell — noise compared to Pass 1 VM execution.
 
 Use `fastrand` (Wyrand) for all per-cell draws. It's ~1ns per call, the state is a single `u64`, and statistical quality is more than sufficient for simulation stochastics.
 
-If you need `rand_distr::Binomial` or other distributions from the `rand` ecosystem, write a thin trait wrapper around `fastrand::Rng`. Alternatively, for the parameter ranges typical in this sim (n up to a few hundred, p typically small), a direct loop of Bernoulli trials is competitive with BTPE and avoids the dependency. Benchmark both.
-
 Keep RNG adapters and distribution helpers in a dedicated `random` module with unit tests. This code is easy to get subtly wrong and should stay isolated from pass logic.
 
 ### Distribution sampling
 
-Binomial draws come up constantly: decay and maintenance. For small `n` (most cases), a direct Bernoulli trial loop is fine:
+The configured hot-path probabilities are exactly 0, 1, or `2^-k` for `k` in `1..=63`. Sample Bernoulli events with masked `u64` draws, and sample `Binomial(n, 2^-k)` by repeatedly thinning survivors by one half with random-bit popcounts. Zero trials and deterministic probability endpoints consume no RNG draws. This is exact for every `n`; do not replace it with floating-point approximations.
 
-```rust
-fn binomial(rng: &mut fastrand::Rng, n: u32, p: f64) -> u32 {
-    // For small n, direct trials. For large n, consider BTPE.
-    (0..n).filter(|_| rng.f64() < p).count() as u32
-}
-```
-
-For large n (energy/mass pools in the hundreds), this gets slow. Add a BTPE or normal-approximation fast path if profiling shows binomial sampling as a bottleneck.
-
-Ambient arrivals use Poisson draws with mean `R_energy` / `R_mass`, and fresh worlds seed background pools from the stationary `Poisson(R / D)` law when `D > 0`. Keep those helpers in the same `random` module so the stochastic surface stays centralized and testable.
+Ambient arrivals use Poisson draws with mean `R_energy` / `R_mass`, and fresh worlds seed background pools from the stationary `Poisson(R / D)` law when `D > 0`. For rates at most 64, use cumulative inversion with `exp(-rate)` precomputed once outside the per-cell loop. Retain `rand_distr::Poisson` only as the large-rate fallback. Keep those helpers in the same `random` module so the stochastic surface stays centralized and testable.
 
 ## Queued actions
 
@@ -342,6 +331,8 @@ struct SimConfig {
     mutation_background_log2: u32,
 }
 ```
+
+`d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must validate as exactly 0, 1, or `2^-k` for integer `k` in `1..=63`. Both mutation exponent fields must be at most 63.
 
 Keep the program size cap as a fixed implementation constant, not a config field:
 

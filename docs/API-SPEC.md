@@ -2,9 +2,11 @@
 
 **Status**: Provisional — subject to change as the engine implementation matures.
 
-**Spec version**: 0.2.3
+**Spec version**: 0.2.4
 
-**Simulator version**: Targets Proteus v0.2.1
+**Changed in 0.2.4**: the simulation config contract narrowed — `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must each be exactly 0, 1, or `2^-k` for integer `k` in `1..=63`, and both mutation exponent fields must be in `0..=63`; request bodies outside these domains were previously accepted and are now rejected (§8).
+
+**Simulator version**: Targets Proteus v0.3.0
 
 ---
 
@@ -192,8 +194,8 @@ Provided as the request body to `POST /v1/sim`. All fields are required unless m
 | `seed` | u64 | Master RNG seed | *required* |
 | `r_energy` | f64 | Mean bg-radiation arrivals per cell per tick (`Poisson(r_energy)`) | 0.25 |
 | `r_mass` | f64 | Mean bg-mass arrivals per cell per tick (`Poisson(r_mass)`) | 0.05 |
-| `d_energy` | f64 | P(each bg radiation / excess free energy unit decays per tick) | 0.01 |
-| `d_mass` | f64 | P(each bg mass / excess free mass unit decays per tick) | 0.01 |
+| `d_energy` | f64 | P(each bg radiation / excess free energy unit decays per tick) | 0.0078125 |
+| `d_mass` | f64 | P(each bg mass / excess free mass unit decays per tick) | 0.0078125 |
 | `t_cap` | f64 | Free resource decay threshold multiplier on program size | 4.0 |
 | `maintenance_rate` | f64 | P(each maintenance quantum costs 1 per tick) | 0.0078125 |
 | `maintenance_exponent` | f64 | Beta: maintenance quanta = size^beta | 1.0 |
@@ -203,6 +205,8 @@ Provided as the request body to `POST /v1/sim`. All fields are required unless m
 | `p_spawn` | f64 | P(spontaneous creation in eligible empty cell) | 0.0 |
 | `mutation_base_log2` | u32 | Baseline mutation rate = 2^(-value) | 16 |
 | `mutation_background_log2` | u32 | Bg-stressed mutation rate divisor | 8 |
+
+`d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must each be exactly 0, 1, or `2^-k` for integer `k` in `1..=63`. Both mutation exponent fields must be in `0..=63`. Values outside these domains are rejected when the simulation is created.
 
 Optional initial-state fields:
 

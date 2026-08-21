@@ -1,10 +1,13 @@
 //! Executes Pass 3 packet physics, ambient resource flow, and tick-end effects.
 
-use crate::config::SimConfig;
+use crate::config::{dyadic_exponent, SimConfig};
 use crate::grid::Grid;
 use crate::model::{Cell, Direction, Packet, Program};
 use crate::opcode::op;
-use crate::random::{binomial, cell_rng, poisson};
+use crate::random::{
+    bernoulli_pow2, bernoulli_ratio_pow2, binomial_pow2, cell_rng, poisson, PoissonInverter,
+    POISSON_INVERSION_MAX_RATE,
+};
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
@@ -15,6 +18,50 @@ const MAINTENANCE_SALT: u64 = 0x78d2_0a45_4ecb_911f;
 const DECAY_SALT: u64 = 0x42f5_c1a9_203d_b665;
 const SPAWN_SALT: u64 = 0xbfd1_6a70_531c_2e84;
 const MUTATION_SALT: u64 = 0xe3b9_1d8c_7a4f_5012;
+
+#[derive(Clone, Copy, Debug)]
+struct AmbientSamplers {
+    d_energy_exponent: Option<u32>,
+    d_mass_exponent: Option<u32>,
+    energy_arrivals: Option<PoissonInverter>,
+    mass_arrivals: Option<PoissonInverter>,
+}
+
+impl AmbientSamplers {
+    fn new(config: &SimConfig) -> Self {
+        Self {
+            d_energy_exponent: validated_dyadic_exponent("d_energy", config.d_energy),
+            d_mass_exponent: validated_dyadic_exponent("d_mass", config.d_mass),
+            energy_arrivals: poisson_inverter(config.r_energy),
+            mass_arrivals: poisson_inverter(config.r_mass),
+        }
+    }
+}
+
+fn validated_dyadic_exponent(field: &str, probability: f64) -> Option<u32> {
+    if probability == 0.0 {
+        return None;
+    }
+    Some(
+        dyadic_exponent(probability)
+            .unwrap_or_else(|| panic!("{field} should be dyadic after config validation")),
+    )
+}
+
+fn poisson_inverter(rate: f64) -> Option<PoissonInverter> {
+    (rate <= POISSON_INVERSION_MAX_RATE).then(|| PoissonInverter::new(rate))
+}
+
+fn sample_poisson(
+    rng: &mut crate::random::WyRand,
+    rate: f64,
+    inverter: Option<PoissonInverter>,
+) -> u32 {
+    match inverter {
+        Some(inverter) => inverter.sample(rng),
+        None => poisson(rng, rate),
+    }
+}
 
 /// Collects the ambient-phase outputs needed by the Pass 3 tail.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,15 +170,16 @@ pub fn pass3_ambient(
     seed: u64,
 ) -> Pass3AmbientOutput {
     let mut output = Pass3AmbientOutput::new(grid.len());
+    let samplers = AmbientSamplers::new(config);
 
     resolve_absorb(grid);
     #[cfg(feature = "rayon")]
-    resolve_ambient_cells_rayon(grid, config, tick, seed, &mut output);
+    resolve_ambient_cells_rayon(grid, config, samplers, tick, seed, &mut output);
     #[cfg(not(feature = "rayon"))]
     {
-        resolve_background_radiation(grid, config, tick, seed);
+        resolve_background_radiation(grid, config, samplers, tick, seed);
         resolve_collect(grid);
-        resolve_background_mass(grid, config, tick, seed, &mut output);
+        resolve_background_mass(grid, config, samplers, tick, seed, &mut output);
     }
 
     output
@@ -296,6 +344,7 @@ fn resolve_absorb(grid: &mut Grid) {
 fn resolve_ambient_cells_rayon(
     grid: &mut Grid,
     config: &SimConfig,
+    samplers: AmbientSamplers,
     tick: u64,
     seed: u64,
     output: &mut Pass3AmbientOutput,
@@ -305,17 +354,24 @@ fn resolve_ambient_cells_rayon(
         .zip(output.spawn_candidates.par_iter_mut())
         .enumerate()
         .for_each(|(cell_index, (cell, spawn_candidate))| {
-            resolve_background_radiation_cell(cell, config, tick, seed, cell_index);
+            resolve_background_radiation_cell(cell, config, samplers, tick, seed, cell_index);
             resolve_collect_cell(cell);
-            *spawn_candidate = resolve_background_mass_cell(cell, config, tick, seed, cell_index);
+            *spawn_candidate =
+                resolve_background_mass_cell(cell, config, samplers, tick, seed, cell_index);
         });
 }
 
 /// Applies decay and Poisson arrival for background radiation.
 #[cfg(not(feature = "rayon"))]
-fn resolve_background_radiation(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) {
+fn resolve_background_radiation(
+    grid: &mut Grid,
+    config: &SimConfig,
+    samplers: AmbientSamplers,
+    tick: u64,
+    seed: u64,
+) {
     for (cell_index, cell) in grid.cells_mut().iter_mut().enumerate() {
-        resolve_background_radiation_cell(cell, config, tick, seed, cell_index);
+        resolve_background_radiation_cell(cell, config, samplers, tick, seed, cell_index);
     }
 }
 
@@ -332,6 +388,7 @@ fn resolve_collect(grid: &mut Grid) {
 fn resolve_background_mass(
     grid: &mut Grid,
     config: &SimConfig,
+    samplers: AmbientSamplers,
     tick: u64,
     seed: u64,
     output: &mut Pass3AmbientOutput,
@@ -342,7 +399,8 @@ fn resolve_background_mass(
         .zip(output.spawn_candidates.iter_mut())
         .enumerate()
     {
-        *spawn_candidate = resolve_background_mass_cell(cell, config, tick, seed, cell_index);
+        *spawn_candidate =
+            resolve_background_mass_cell(cell, config, samplers, tick, seed, cell_index);
     }
 }
 
@@ -494,9 +552,15 @@ fn mutate_end_of_tick_cell(
         return 0;
     }
 
-    let probability = mutation_probability(program, config);
+    let background_consumed = program.tick.bg_radiation_consumed;
     let mut rng = cell_rng(seed ^ MUTATION_SALT, tick, cell_index as u64);
-    if !rng.bernoulli(probability) {
+    let should_mutate = if background_consumed > 0 {
+        let exponent = config.mutation_background_log2;
+        exponent == 0 || bernoulli_ratio_pow2(&mut rng, background_consumed, exponent)
+    } else {
+        bernoulli_pow2(&mut rng, config.mutation_base_log2)
+    };
+    if !should_mutate {
         return 0;
     }
 
@@ -513,14 +577,17 @@ fn mutate_end_of_tick_cell(
 fn resolve_background_radiation_cell(
     cell: &mut Cell,
     config: &SimConfig,
+    samplers: AmbientSamplers,
     tick: u64,
     seed: u64,
     cell_index: usize,
 ) {
     let mut rng = cell_rng(seed ^ BG_RADIATION_SALT, tick, cell_index as u64);
-    let decayed = binomial(&mut rng, cell.bg_radiation, config.d_energy);
+    let decayed = samplers.d_energy_exponent.map_or(0, |exponent| {
+        binomial_pow2(&mut rng, cell.bg_radiation, exponent)
+    });
     let remaining = cell.bg_radiation - decayed;
-    let arrivals = poisson(&mut rng, config.r_energy);
+    let arrivals = sample_poisson(&mut rng, config.r_energy, samplers.energy_arrivals);
     cell.bg_radiation = remaining.saturating_add(arrivals);
 }
 
@@ -538,14 +605,17 @@ fn resolve_collect_cell(cell: &mut Cell) {
 fn resolve_background_mass_cell(
     cell: &mut Cell,
     config: &SimConfig,
+    samplers: AmbientSamplers,
     tick: u64,
     seed: u64,
     cell_index: usize,
 ) -> bool {
     let mut rng = cell_rng(seed ^ BG_MASS_SALT, tick, cell_index as u64);
-    let decayed = binomial(&mut rng, cell.bg_mass, config.d_mass);
+    let decayed = samplers.d_mass_exponent.map_or(0, |exponent| {
+        binomial_pow2(&mut rng, cell.bg_mass, exponent)
+    });
     let remaining = cell.bg_mass - decayed;
-    let arrivals = poisson(&mut rng, config.r_mass);
+    let arrivals = sample_poisson(&mut rng, config.r_mass, samplers.mass_arrivals);
 
     cell.bg_mass = remaining.saturating_add(arrivals);
     arrivals > 0 && !cell.has_program()
@@ -592,11 +662,20 @@ fn resolve_maintenance_cell(
         return 0;
     }
 
-    let q = f64::from(program.size()).powf(config.maintenance_exponent);
+    let size = f64::from(program.size());
+    let q = if config.maintenance_exponent == 1.0 {
+        size
+    } else {
+        size.powf(config.maintenance_exponent)
+    };
     let whole = q.floor() as u32;
+    let rate_exponent = dyadic_exponent(rate)
+        .expect("positive maintenance_rate should be dyadic after config validation");
     let fractional = (q - f64::from(whole)) * rate;
     let mut rng = cell_rng(seed ^ MAINTENANCE_SALT, tick, cell_index as u64);
-    let mut quanta = binomial(&mut rng, whole, rate);
+    let mut quanta = binomial_pow2(&mut rng, whole, rate_exponent);
+    // For non-integer maintenance exponents, the fractional product is not
+    // generally dyadic and deliberately retains the f64 Bernoulli draw.
     quanta += u32::from(rng.bernoulli(fractional));
     if quanta == 0 {
         return 0;
@@ -616,11 +695,15 @@ fn resolve_free_resource_decay_cell(
     let threshold = resource_threshold(cell, config);
 
     let energy_excess = (f64::from(cell.free_energy) - threshold).max(0.0).floor() as u32;
-    let energy_decay = binomial(&mut rng, energy_excess, config.d_energy);
+    let energy_decay = validated_dyadic_exponent("d_energy", config.d_energy)
+        .map_or(0, |exponent| {
+            binomial_pow2(&mut rng, energy_excess, exponent)
+        });
     cell.free_energy -= energy_decay;
 
     let mass_excess = (f64::from(cell.free_mass) - threshold).max(0.0).floor() as u32;
-    let mass_decay = binomial(&mut rng, mass_excess, config.d_mass);
+    let mass_decay = validated_dyadic_exponent("d_mass", config.d_mass)
+        .map_or(0, |exponent| binomial_pow2(&mut rng, mass_excess, exponent));
     cell.free_mass -= mass_decay;
 }
 
@@ -645,9 +728,14 @@ fn resolve_spontaneous_creation_cell(
     if !is_spawn_candidate || cell.has_program() {
         return 0;
     }
+    if config.p_spawn == 0.0 {
+        return 0;
+    }
 
+    let spawn_exponent = dyadic_exponent(config.p_spawn)
+        .expect("positive p_spawn should be dyadic after config validation");
     let mut rng = cell_rng(seed ^ SPAWN_SALT, tick, cell_index as u64);
-    if !rng.bernoulli(config.p_spawn) {
+    if !bernoulli_pow2(&mut rng, spawn_exponent) {
         return 0;
     }
 
@@ -672,16 +760,6 @@ fn resource_threshold(cell: &Cell, config: &SimConfig) -> f64 {
         .as_ref()
         .map_or(0.0, |program| f64::from(program.size()));
     config.t_cap * size
-}
-
-/// Computes the mutation probability for one program at tick end.
-fn mutation_probability(program: &Program, config: &SimConfig) -> f64 {
-    if program.tick.bg_radiation_consumed > 0 {
-        let denominator = 2_f64.powi(config.mutation_background_log2 as i32);
-        (f64::from(program.tick.bg_radiation_consumed) / denominator).min(1.0)
-    } else {
-        2_f64.powi(-(config.mutation_base_log2 as i32))
-    }
 }
 
 /// Returns the set of cells covered by one absorb footprint.

@@ -17,7 +17,7 @@ use crate::pass3::{
     mutate_end_of_tick, pass3_ambient, pass3_packets, pass3_tail, Pass3AmbientOutput,
     Pass3TailContext,
 };
-use crate::random::{cell_rng, poisson};
+use crate::random::{cell_rng, poisson, PoissonInverter, POISSON_INVERSION_MAX_RATE};
 
 const INITIAL_BG_RADIATION_SALT: u64 = 0x7400_f3bb_9241_b8d7;
 const INITIAL_BG_MASS_SALT: u64 = 0x2f61_5dce_0840_13a9;
@@ -488,31 +488,62 @@ impl fmt::Display for SimulationError {
 impl Error for SimulationError {}
 
 fn initialize_background_steady_state(grid: &mut Grid, config: &SimConfig, seed: u64) {
+    let energy_mean = stationary_background_mean(config.r_energy, config.d_energy);
+    let mass_mean = stationary_background_mean(config.r_mass, config.d_mass);
+    let energy_inverter = stationary_poisson_inverter(energy_mean);
+    let mass_inverter = stationary_poisson_inverter(mass_mean);
+
     for cell_index in 0..grid.len() {
         let cell = grid.get_mut(cell_index).expect("cell should exist");
-        cell.bg_radiation = stationary_background_sample(
+        cell.bg_radiation = stationary_background_sample_with_mean(
             seed ^ INITIAL_BG_RADIATION_SALT,
             cell_index as u64,
-            config.r_energy,
-            config.d_energy,
+            energy_mean,
+            energy_inverter,
         );
-        cell.bg_mass = stationary_background_sample(
+        cell.bg_mass = stationary_background_sample_with_mean(
             seed ^ INITIAL_BG_MASS_SALT,
             cell_index as u64,
-            config.r_mass,
-            config.d_mass,
+            mass_mean,
+            mass_inverter,
         );
     }
 }
 
+#[cfg(test)]
 fn stationary_background_sample(seed: u64, cell_index: u64, rate: f64, decay: f64) -> u32 {
-    if rate <= 0.0 || decay <= 0.0 {
-        return 0;
-    }
+    let mean = stationary_background_mean(rate, decay);
+    stationary_background_sample_with_mean(
+        seed,
+        cell_index,
+        mean,
+        stationary_poisson_inverter(mean),
+    )
+}
 
-    let mean = (rate / decay).min(f64::from(u32::MAX));
+fn stationary_background_mean(rate: f64, decay: f64) -> f64 {
+    if rate <= 0.0 || decay <= 0.0 {
+        0.0
+    } else {
+        (rate / decay).min(f64::from(u32::MAX))
+    }
+}
+
+fn stationary_poisson_inverter(mean: f64) -> Option<PoissonInverter> {
+    (mean <= POISSON_INVERSION_MAX_RATE).then(|| PoissonInverter::new(mean))
+}
+
+fn stationary_background_sample_with_mean(
+    seed: u64,
+    cell_index: u64,
+    mean: f64,
+    inverter: Option<PoissonInverter>,
+) -> u32 {
     let mut rng = cell_rng(seed, 0, cell_index);
-    poisson(&mut rng, mean)
+    match inverter {
+        Some(inverter) => inverter.sample(&mut rng),
+        None => poisson(&mut rng, mean),
+    }
 }
 
 #[cfg(test)]
