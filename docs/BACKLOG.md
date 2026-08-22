@@ -192,3 +192,33 @@ References: `docs/API-SPEC.md` §8, `docs/FRONTEND-SPEC.md` §9, `frontend/src/c
 
 Context: move the main transport actions (play, pause, step, speed selection) into a top-level location that stays accessible while the inspector is open, and add game-style keyboard shortcuts. Initial shortcut ideas: `Space` for play/pause and number keys for speed presets. Define clear focus/typing guards so shortcuts do not interfere with text input fields.
 References: `docs/FRONTEND-SPEC.md`, `frontend/src/App.tsx`, `frontend/src/components/StatusBar.tsx`, `frontend/src/components/controls/ControlsTab.tsx`, `frontend/src/context/SimContext.tsx`
+
+### CONFIG-DYADIC-K
+
+Represent every dyadic probability in `SimConfig` as its exponent: the config
+field carries integer k and the probability is 2^-k, with explicit `null`
+meaning probability 0 (never). Replaces the f64 fields (`d_energy`, `d_mass`,
+`maintenance_rate`, `p_spawn`) with `*_log2` fields matching the existing
+`mutation_base_log2` convention, making invalid values unrepresentable and
+deleting `dyadic_exponent`, `NotDyadicProbability`, and most of the frontend
+dyadic validator. Costs (accepted 2026-08-21): config-contract break (API-SPEC
+bump), SPEC.md domain edits, fixture/manifest/frontend migration, runner
+input-digest churn. Design point to settle explicitly: serde must distinguish
+absent (use default) from explicit null (never) — `p_spawn` defaults to never
+while `d_*` do not. The fractional maintenance term still computes 2^-k as f64
+when `maintenance_exponent != 1.0` (exact conversion).
+
+### MUTATION-ANY-QUANTUM
+
+Background-stressed mutation becomes "each absorbed background quantum is an
+independent Bernoulli(2^-mutation_background_log2) trigger; mutate if any
+fire": p = 1 - (1 - 2^-k)^x, sampled exactly as `binomial_pow2(x, k) > 0`.
+Near-identical to the current `min(x/2^k, 1)` at small doses (~0.4pp at
+x = 25-32, k = 8) but smooth instead of a hard cliff at x = 2^k, and more
+physical. `bernoulli_ratio_pow2` becomes dead and is removed. Draw streams
+change: crate/spec version bump and sampled-literal migration — batch with
+CONFIG-DYADIC-K to pay that once. Open spec question: single mutation when any
+quantum fires (proposed default) vs `count` mutations from the binomial draw
+(semantic escalation; needs its own decision). Interaction: the ambient
+rebalance analysis (2026-08-21 sweep) shows the same x doubles as energy
+income, so this task changes the dose-response curve the sweep measures.
