@@ -157,25 +157,19 @@ impl ProgramUid {
     ///
     /// Purely a function of the creation site, so serial and Rayon builds agree
     /// by construction without any shared counter.
+    ///
+    /// Panics in every build when the encoding exceeds `u64` (≈ 2.8e14 ticks
+    /// at 16 384 cells): a wrapped uid would silently alias an earlier program,
+    /// which is worse than stopping.
     pub fn create(tick: u64, cell_index: usize, cell_count: usize, origin: ProgramOrigin) -> Self {
-        debug_assert!(
-            tick.checked_mul(cell_count as u64)
-                .and_then(|base| base.checked_add(cell_index as u64))
-                .and_then(|slot| slot.checked_mul(ProgramOrigin::RESERVED_SLOTS))
-                .and_then(|slot| slot.checked_add(origin as u64))
-                .and_then(|slot| slot.checked_add(1))
-                .is_some(),
-            "program uid encoding overflowed u64"
-        );
-
-        let slot = tick
-            .wrapping_mul(cell_count as u64)
-            .wrapping_add(cell_index as u64);
-        Self(
-            slot.wrapping_mul(ProgramOrigin::RESERVED_SLOTS)
-                .wrapping_add(origin as u64)
-                .wrapping_add(1),
-        )
+        let encoded = tick
+            .checked_mul(cell_count as u64)
+            .and_then(|base| base.checked_add(cell_index as u64))
+            .and_then(|slot| slot.checked_mul(ProgramOrigin::RESERVED_SLOTS))
+            .and_then(|slot| slot.checked_add(origin as u64))
+            .and_then(|slot| slot.checked_add(1))
+            .expect("program uid encoding overflowed u64");
+        Self(encoded)
     }
 
     /// Decodes just the creation origin, which needs no grid size.
