@@ -54,7 +54,7 @@ The remaining ambient/tail/prepare cost after Tier 1 is memory traffic:
 (code, stack), while the sweeps touch ~20 bytes per cell plus a pointer-chase
 for per-tick flags. Two sub-steps, in order of increasing invasiveness:
 
-**2a. SoA hot-field split (no spec change, digest-identical).** Move the
+**2a. SoA hot-field split (no spec change, digest-identical).** *Bounded 2026-08-22 and NO-GO: a 24 B-stride diagnostic gained only −2.3%/−3.5%; `ambient` is RNG-compute-bound. See `2026-08-22_tier-2a-stride-diagnostic.md`.* Move the
 fields the full-grid sweeps actually touch — `bg_radiation`, `bg_mass`,
 `free_energy`, `free_mass`, and a small per-tick flag bitmask (`did_collect`,
 liveness/occupancy) — into parallel arrays owned by `Grid`, leaving programs

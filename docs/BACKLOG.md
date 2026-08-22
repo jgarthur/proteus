@@ -223,6 +223,11 @@ This is deliberately *not* folded into a rate rebalance. Halving the background-
 Related open question that the sweep could not answer: whether the old `d_energy = 0.01` defaults were genuinely better in ensemble or whether the single recorded old-default checkpoint was also just a favourable seed. `d = 0.01` is now rejected by dyadic validation, so answering it needs a throwaway build with relaxed validation.
 References: `docs/analysis/2026-08-21_ambient-rebalance-sweep.md`, `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`, `rust/src/pass3.rs`, `rust/src/config.rs`
 
+### AMBIENT-SAMPLER-COST: Cut the per-cell ambient RNG work that dominates empty and sparse ticks
+
+Context (2026-08-22, Tier 2a stride diagnostic): on an empty 256x256 grid `ambient` is 88% of the tick and costs ~70 ns/cell regardless of cell stride (a 24-byte-stride build moved it −0.9%). The cost is `pass3_ambient` seeding `cell_rng` twice per cell and running `binomial_pow2` + `sample_poisson` on every cell, occupied or not. Candidates: skip the decay draw when `bg_radiation == 0` / `bg_mass == 0` (probability-0 branches consume no draws, so this is stream-preserving only if the sampler already short-circuits — verify), derive one seed per cell and split it, or batch the Poisson inversion. Any change that moves draw positions needs the full sampled-literal reconciliation from CLAUDE.md and a parity proof for the cases that should not move. Bench on empty-256x256 (the anchor for this phase) and the dense fixtures.
+References: `docs/analysis/2026-08-22_tier-2a-stride-diagnostic.md`, `rust/src/pass3.rs`, `rust/src/sampling.rs`
+
 ### BENCH-WEB-FIXTURE-ENSEMBLE: Stop using a single-seed grown-web checkpoint as a comparison basis
 
 Context (2026-08-21, ambient rebalance sweep): `web-256x256-single` is bimodal. Across 88 runs its final population splits into two clusters with an 18,336-program gap and nothing in between, and the fixture seed `6846702536457205` sits in the minority mode under the current defaults — it finishes at 8,110 programs where the median seed finishes at 56,312. Worse, its response to `r_energy` is non-monotone (fills the grid at backgrounds 25, 28 and 36; stalls at 32), so a single-seed grown-web checkpoint can swing by an order of magnitude on a parameter change that barely moves the ensemble.
