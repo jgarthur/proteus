@@ -226,7 +226,7 @@ References: `docs/analysis/2026-08-21_ambient-rebalance-sweep.md`, `docs/analysi
 ### AMBIENT-SAMPLER-COST: Cut the per-cell ambient RNG work that dominates empty and sparse ticks
 
 Context (2026-08-22, Tier 2a stride diagnostic): on an empty 256x256 grid `ambient` is 88% of the tick and costs ~70 ns/cell regardless of cell stride (a 24-byte-stride build moved it −0.9%). The cost is `pass3_ambient` seeding `cell_rng` twice per cell and running `binomial_pow2` + `sample_poisson` on every cell, occupied or not. Candidates: skip the decay draw when `bg_radiation == 0` / `bg_mass == 0` (probability-0 branches consume no draws, so this is stream-preserving only if the sampler already short-circuits — verify), derive one seed per cell and split it, or batch the Poisson inversion. Any change that moves draw positions needs the full sampled-literal reconciliation from CLAUDE.md and a parity proof for the cases that should not move. Bench on empty-256x256 (the anchor for this phase) and the dense fixtures.
-References: `docs/analysis/2026-08-22_tier-2a-stride-diagnostic.md`, `rust/src/pass3.rs`, `rust/src/sampling.rs`
+References: `docs/analysis/2026-08-22_tier-2a-stride-diagnostic.md`, `rust/src/pass3.rs`, `rust/src/random.rs`
 
 ### BENCH-WEB-FIXTURE-ENSEMBLE: Stop using a single-seed grown-web checkpoint as a comparison basis
 
