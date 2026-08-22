@@ -214,3 +214,18 @@ once; trigger counts do not cause multiple mutations. `k = 0` is deterministic
 and consumes no trigger draw, so the following instruction-index and bit-index
 draws keep their order. The dead `bernoulli_ratio_pow2` helper, re-export, and
 tests were removed and replaced with probability-law and draw-accounting tests.
+### MUTATION-DOSE-TUNING: Decide whether `mutation_background_log2` should move off 8
+
+Context (2026-08-21, ambient rebalance sweep): the ambient background level is simultaneously the energy a program absorbs and the numerator of its mutation probability — `mutate_end_of_tick_cell` uses `min(bg_radiation_consumed / 2^mutation_background_log2, 1)` — so `r_energy` moves food and mutation load together and cannot separate them. `mutation_background_log2` is the only knob that addresses the mutation channel alone, and it has never been tuned. Measured on the `web-256x256-single` fixture at `r_energy = 0.25`: raising the exponent from 8 to 9 (halving the dose, income unchanged) took grid fill from 13/16 to **8/8 with no run below 57,175 programs**, eliminating the bimodal low mode rather than shifting its odds.
+
+This is deliberately *not* folded into a rate rebalance. Halving the background-stressed mutation rate halves what `2026-08-13_mutation-load-and-emergence-milestones.md` §3 identifies as the substrate's operative evolutionary clock, so a world that reliably fills the grid may be a less interesting world. Wants its own investigation against the emergence milestones, not an occupancy metric.
+
+Related open question that the sweep could not answer: whether the old `d_energy = 0.01` defaults were genuinely better in ensemble or whether the single recorded old-default checkpoint was also just a favourable seed. `d = 0.01` is now rejected by dyadic validation, so answering it needs a throwaway build with relaxed validation.
+References: `docs/analysis/2026-08-21_ambient-rebalance-sweep.md`, `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`, `rust/src/pass3.rs`, `rust/src/config.rs`
+
+### BENCH-WEB-FIXTURE-ENSEMBLE: Stop using a single-seed grown-web checkpoint as a comparison basis
+
+Context (2026-08-21, ambient rebalance sweep): `web-256x256-single` is bimodal. Across 88 runs its final population splits into two clusters with an 18,336-program gap and nothing in between, and the fixture seed `6846702536457205` sits in the minority mode under the current defaults — it finishes at 8,110 programs where the median seed finishes at 56,312. Worse, its response to `r_energy` is non-monotone (fills the grid at backgrounds 25, 28 and 36; stalls at 32), so a single-seed grown-web checkpoint can swing by an order of magnitude on a parameter change that barely moves the ensemble.
+
+That is what produced the misleading tick-6500 A/B in `2026-08-21_dyadic-sampler-results.md`. Dense-regime benchmarking should use a synthetic dense fixture (`dense-additive-128x128`, already the honest measurement there) or report a seed ensemble with a stated spread. Consider adding a fixed multi-seed grown-web fixture set to `tick_bench`, or documenting the bimodality inline where the fixture is defined.
+References: `docs/analysis/2026-08-21_ambient-rebalance-sweep.md`, `docs/analysis/2026-08-21_dyadic-sampler-results.md`, `rust/examples/tick_bench.rs`

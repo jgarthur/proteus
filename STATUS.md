@@ -35,6 +35,9 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] LINEAGE-DUMP: Emit a per-program `lineage.jsonl` artifact at coarse cadence for offline lineage reconstruction; needs a runner schema bump. See `docs/BACKLOG.md`.
 - [ ] INSPECTOR-LINEAGE: Surface the new `uid`/`parent_uid`/`birth_tick`/`generation`/`origin`/`created_tick` inspection fields in the frontend inspector. See `docs/BACKLOG.md`.
 - [ ] CENSUS-STREAM: Opt-in WebSocket census subscription with its own cadence. See `docs/BACKLOG.md`.
+- [x] AMBIENT-REBALANCE: Swept `r_energy` x `r_mass` against the merged `d_* = 2^-7` defaults (88 runs). The post-dyadic web-scenario "collapse" is one unlucky seed, not a systematic effect; lowering `r_energy` to 0.1953125 makes the ecology significantly worse (grid fill 4/16 vs 13/16, paired p = 0.004) and `r_mass` is inert. Recommendation is to change no default. See `docs/analysis/2026-08-21_ambient-rebalance-sweep.md`.
+- [ ] MUTATION-DOSE-TUNING: Decide whether `mutation_background_log2` should move off 8; it is the only knob that separates mutation load from energy income, and raising it to 9 gave 8/8 grid fill. See `docs/BACKLOG.md`.
+- [ ] BENCH-WEB-FIXTURE-ENSEMBLE: Stop using a single-seed grown-web checkpoint as a comparison basis; `web-256x256-single` is bimodal and the fixture seed sits in the minority mode. See `docs/BACKLOG.md`.
 - [ ] CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
 - [ ] SNAPSHOT-BOUNDARY: Engine snapshot boundary and web-layer snapshot store
 - [x] METRIC-PACKET-ENERGY: Add packet-energy metric
