@@ -64,7 +64,7 @@ observe/web projections, tests) but behavior-identical, so the parity script
 proves it. Do this only after a post-Tier-1 profile confirms the sweeps are
 memory-bound.
 
-**2b. Inline program storage behind spec caps (spec change).** Cap program
+**2b. Inline program storage behind spec caps (spec change).** *Tried 2026-08-22 and shelved: +2–18% slower at every cap, stride-dominated; see `2026-08-22_inline-program-storage-results.md`.* Cap program
 code and stack sizes small enough to store both as fixed-capacity inline
 arrays (no heap per program): eliminates allocator traffic on
 births/deaths/moves and the code pointer-chase in Pass 1, and improves
