@@ -513,8 +513,8 @@ impl fmt::Display for SimulationError {
 impl Error for SimulationError {}
 
 fn initialize_background_steady_state(grid: &mut Grid, config: &SimConfig, seed: u64) {
-    let energy_mean = stationary_background_mean(config.r_energy, config.d_energy);
-    let mass_mean = stationary_background_mean(config.r_mass, config.d_mass);
+    let energy_mean = stationary_background_mean(config.r_energy, config.d_energy_log2);
+    let mass_mean = stationary_background_mean(config.r_mass, config.d_mass_log2);
     let energy_inverter = stationary_poisson_inverter(energy_mean);
     let mass_inverter = stationary_poisson_inverter(mass_mean);
 
@@ -536,8 +536,13 @@ fn initialize_background_steady_state(grid: &mut Grid, config: &SimConfig, seed:
 }
 
 #[cfg(test)]
-fn stationary_background_sample(seed: u64, cell_index: u64, rate: f64, decay: f64) -> u32 {
-    let mean = stationary_background_mean(rate, decay);
+fn stationary_background_sample(
+    seed: u64,
+    cell_index: u64,
+    rate: f64,
+    decay_log2: Option<u32>,
+) -> u32 {
+    let mean = stationary_background_mean(rate, decay_log2);
     stationary_background_sample_with_mean(
         seed,
         cell_index,
@@ -546,12 +551,15 @@ fn stationary_background_sample(seed: u64, cell_index: u64, rate: f64, decay: f6
     )
 }
 
-fn stationary_background_mean(rate: f64, decay: f64) -> f64 {
-    if rate <= 0.0 || decay <= 0.0 {
-        0.0
-    } else {
-        (rate / decay).min(f64::from(u32::MAX))
+fn stationary_background_mean(rate: f64, decay_log2: Option<u32>) -> f64 {
+    let Some(decay_log2) = decay_log2 else {
+        return 0.0;
+    };
+    if rate <= 0.0 {
+        return 0.0;
     }
+    let decay = 2_f64.powi(-(decay_log2 as i32));
+    (rate / decay).min(f64::from(u32::MAX))
 }
 
 fn stationary_poisson_inverter(mean: f64) -> Option<PoissonInverter> {
@@ -588,8 +596,8 @@ mod initialization_tests {
             seed: 7,
             r_energy: 4.0,
             r_mass: 3.0,
-            d_energy: 0.5,
-            d_mass: 0.25,
+            d_energy_log2: Some(1),
+            d_mass_log2: Some(2),
             ..SimConfig::default()
         };
 
@@ -606,7 +614,7 @@ mod initialization_tests {
                     config.seed ^ INITIAL_BG_RADIATION_SALT,
                     cell_index as u64,
                     config.r_energy,
-                    config.d_energy,
+                    config.d_energy_log2,
                 )
             );
             assert_eq!(
@@ -615,7 +623,7 @@ mod initialization_tests {
                     config.seed ^ INITIAL_BG_MASS_SALT,
                     cell_index as u64,
                     config.r_mass,
-                    config.d_mass,
+                    config.d_mass_log2,
                 )
             );
         }
@@ -629,8 +637,8 @@ mod initialization_tests {
             seed: 7,
             r_energy: 4.0,
             r_mass: 3.0,
-            d_energy: 0.0,
-            d_mass: 0.0,
+            d_energy_log2: None,
+            d_mass_log2: None,
             ..SimConfig::default()
         };
 
@@ -649,8 +657,8 @@ mod initialization_tests {
             height: 1,
             r_energy: 4.0,
             r_mass: 3.0,
-            d_energy: 0.5,
-            d_mass: 0.25,
+            d_energy_log2: Some(1),
+            d_mass_log2: Some(2),
             ..SimConfig::default()
         };
         let grid = Grid::from_cells(

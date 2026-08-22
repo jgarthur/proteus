@@ -2,7 +2,7 @@
 
 **Status**: Implemented MVP contract.
 
-**Targets**: Proteus v0.3.0 engine, API metrics schema v0.2.5.
+**Targets**: Proteus v0.4.0 engine, API metrics schema v0.3.0.
 
 ---
 
@@ -161,13 +161,20 @@ Thread count and verbosity are operational execution settings, not simulation
 inputs. JSON objects are strict: unknown fields, missing fields,
 duplicate object keys, non-finite numbers, and values outside the corresponding
 Rust integer range are errors. No manifest field receives an implicit default.
-`runner_schema_version` must equal `0.1.0`. The simulation probabilities `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must each be exactly 0, 1, or `2^-k` for integer `k` in `1..=63`; both mutation exponent fields must be in `0..=63`.
+
+Proteus v0.4.0 manifests use runner schema `0.2.0` and are not backward
+compatible with pre-v0.4.0 manifests. Existing run trees written under schema
+`0.1.0` cannot resume: the probability field renames already make their
+manifests fail `deny_unknown_fields` regardless of version. The schema bump
+labels that existing break rather than adding a second incompatibility.
+
+`runner_schema_version` must equal `0.2.0`. The simulation fields `d_energy_log2`, `d_mass_log2`, `maintenance_rate_log2`, and `p_spawn_log2` must each be present explicitly and contain either `null` (never) or an integer in `0..=63`; both mutation exponent fields must be integers in `0..=63`. Runner manifests never inherit the web/config serde defaults.
 
 A single-run manifest contains only exact values:
 
 ```json
 {
-  "runner_schema_version": "0.1.0",
+  "runner_schema_version": "0.2.0",
   "run_id": "example-run-0001",
   "simulation": {
     "width": 64,
@@ -175,15 +182,15 @@ A single-run manifest contains only exact values:
     "seed": 42,
     "r_energy": 0.25,
     "r_mass": 0.05,
-    "d_energy": 0.0078125,
-    "d_mass": 0.0078125,
+    "d_energy_log2": 7,
+    "d_mass_log2": 7,
     "t_cap": 4.0,
-    "maintenance_rate": 0.0078125,
+    "maintenance_rate_log2": 7,
     "maintenance_exponent": 1.0,
     "local_action_exponent": 1.0,
     "n_synth": 1,
     "inert_grace_ticks": 10,
-    "p_spawn": 0.0,
+    "p_spawn_log2": null,
     "mutation_base_log2": 16,
     "mutation_background_log2": 8
   },
@@ -234,7 +241,7 @@ Required semantic fields are:
 `output_directory` is resolved relative to the single-run manifest's parent
 directory, not the process working directory. The normalized output record uses
 the resolved absolute path. All input and resolved paths must be valid UTF-8 in
-runner schema `0.1.0`.
+runner schema `0.2.0`.
 
 The `simulation` object contains every field of `SimConfig` with exactly the
 names shown above. It is validated by `SimConfig::validate()` after JSON type
@@ -258,7 +265,7 @@ user-facing invocation and succeeds only against a matching fresh reservation.
 
 `run_id` is the external human-readable identity. The runner also computes a canonical input digest from the normalized manifest fields that affect simulation or observation.
 
-For schema `0.1.0`, the digest projection contains, in order:
+For schema `0.2.0`, the digest projection contains, in order:
 
 1. `runner_schema_version`
 2. the complete `simulation` object in the field order shown in §6
@@ -271,8 +278,10 @@ For schema `0.1.0`, the digest projection contains, in order:
 change simulation or observation results. The canonical projection is compact
 UTF-8 JSON with no whitespace or trailing newline. Object fields use the fixed
 order above and the nested field order shown in §6. Integers use base-10 digits
-with no leading zeroes. Each finite `f64` is represented in the digest projection
-as a JSON string containing `0x` followed by exactly 16 lowercase hexadecimal
+with no leading zeroes. Optional exponent fields encode `Some(k)` as the
+base-10 integer `k` and `None` as the bare JSON token `null` (never as a quoted
+string). Each finite `f64` is represented in the digest projection as a JSON
+string containing `0x` followed by exactly 16 lowercase hexadecimal
 digits from `f64::to_bits()`; negative zero is normalized to positive zero first.
 This float representation is part of the runner contract and does not depend on
 `serde_json`'s number formatter. The runner computes SHA-256 over those exact
@@ -287,11 +296,11 @@ For the complete example manifest in §6, the canonical digest projection is the
 following single line (the displayed line ending is not part of the bytes):
 
 ```text
-{"runner_schema_version":"0.1.0","simulation":{"width":64,"height":64,"seed":42,"r_energy":"0x3fd0000000000000","r_mass":"0x3fa999999999999a","d_energy":"0x3f80000000000000","d_mass":"0x3f80000000000000","t_cap":"0x4010000000000000","maintenance_rate":"0x3f80000000000000","maintenance_exponent":"0x3ff0000000000000","local_action_exponent":"0x3ff0000000000000","n_synth":1,"inert_grace_ticks":10,"p_spawn":"0x0000000000000000","mutation_base_log2":16,"mutation_background_log2":8},"bootstrap":{"programs":[{"x":32,"y":24,"code":[80,100],"free_energy":20,"free_mass":12}],"environment":[{"x":31,"y":24,"free_energy":20,"free_mass":12,"bg_radiation":0,"bg_mass":0}]},"limits":{"ticks":10000},"observation":{"every_n_ticks":50}}
+{"runner_schema_version":"0.2.0","simulation":{"width":64,"height":64,"seed":42,"r_energy":"0x3fd0000000000000","r_mass":"0x3fa999999999999a","d_energy_log2":7,"d_mass_log2":7,"t_cap":"0x4010000000000000","maintenance_rate_log2":7,"maintenance_exponent":"0x3ff0000000000000","local_action_exponent":"0x3ff0000000000000","n_synth":1,"inert_grace_ticks":10,"p_spawn_log2":null,"mutation_base_log2":16,"mutation_background_log2":8},"bootstrap":{"programs":[{"x":32,"y":24,"code":[80,100],"free_energy":20,"free_mass":12}],"environment":[{"x":31,"y":24,"free_energy":20,"free_mass":12,"bg_radiation":0,"bg_mass":0}]},"limits":{"ticks":10000},"observation":{"every_n_ticks":50}}
 ```
 
 Its required digest is
-`sha256:1ee9860658e963b0fdc49d1660b47c5f37c7d8845aeb5560c5cc593cc6e9953b`.
+`sha256:6eec9c637d8967472f2b9712ee52014968086285e5fc14ad32cba13d38fe9292`.
 
 Build provenance describes the executable that performs the simulation. Capture
 it at build time, not by inspecting a possibly unrelated checkout at launch:
@@ -375,7 +384,7 @@ means the post-tick counter value, not an additional tick to execute.
 
 Every simulation tick executes even when no metrics row is written. An observation cadence of 50 means the runner records ticks 0, 50, 100, and so on; it does not skip simulation work.
 
-Metrics retain the API v0.2.5 distinction:
+Metrics retain the API v0.3.0 distinction:
 
 - gauges such as population, resources, program sizes, packet energy, and the `census` object describe the sampled tick
 - top-level birth, death, and mutation fields describe the most recently completed tick
@@ -391,7 +400,7 @@ Each JSONL line uses a runner envelope rather than a bare API object:
 
 ```json
 {
-  "runner_schema_version": "0.1.0",
+  "runner_schema_version": "0.2.0",
   "run_id": "example-run-0001",
   "input_digest": "sha256:...",
   "execution_digest": "sha256:...",
@@ -454,7 +463,7 @@ a 200 k-tick run at an observation cadence of 50-500 writes on the order of
 3-36 MB of `metrics.jsonl`. Choose the cadence with that in mind; it does not change what
 the final census contains.
 
-`metrics` is the API v0.2.5 `MetricsSnapshot` object verbatim, including every
+`metrics` is the API v0.3.0 `MetricsSnapshot` object verbatim, including every
 field in that schema. `census` is described in API-SPEC section 10; it is always
 present in a runner row, unlike the web API where it is opt-in. The runner envelope makes lines safe to concatenate across
 runs without requiring their directory context. The runner has one metrics
@@ -489,11 +498,11 @@ child verifies it before executing. This makes the directory recognizably
 runner-owned even if the child cannot launch. This output record is distinct from
 the strict input schema and is not itself accepted as a run manifest.
 
-Schema `0.1.0` has these exact top-level fields:
+Schema `0.2.0` has these exact top-level fields:
 
 | Field | Type and contents |
 |---|---|
-| `runner_schema_version` | String, `0.1.0` |
+| `runner_schema_version` | String, `0.2.0` |
 | `run_id` | String copied from input |
 | `input_digest` | Canonical `sha256:<hex>` digest |
 | `execution_digest` | SHA-256 digest of the exact `proteus-run` executable |
@@ -530,7 +539,7 @@ Its exact fields are:
 
 | Field | Type and contents |
 |---|---|
-| `runner_schema_version` | String, `0.1.0` |
+| `runner_schema_version` | String, `0.2.0` |
 | `run_id` | String |
 | `input_digest` | String |
 | `execution_digest` | String |
@@ -540,7 +549,7 @@ Its exact fields are:
 | `started_at` | RFC 3339 UTC string recorded by the child before world initialization |
 | `finished_at` | RFC 3339 UTC string |
 | `wall_duration_ms` | `u64` monotonic child duration |
-| `final_metrics` | Complete API v0.2.5 `MetricsSnapshot` at `final_tick`, census included |
+| `final_metrics` | Complete API v0.3.0 `MetricsSnapshot` at `final_tick`, census included |
 
 `final_metrics.event_totals` is the authoritative cumulative-event value in the
 summary; it is not duplicated in a second top-level field.
@@ -617,7 +626,7 @@ alias as `proteus-run`. The default reports batch preflight, skips, launches,
 resolved output directories, and outcomes to stderr. Verbosity 0 suppresses
 normal supervisor status and is propagated to every child; failures and
 interrupts are still reported. Batch manifests reference one file per run;
-embedded run definitions are not supported in schema `0.1.0`.
+embedded run definitions are not supported in schema `0.2.0`.
 
 The supervisor resolves `proteus-run` next to its own executable, using the
 platform executable suffix where applicable. A custom child binary path is not
@@ -626,7 +635,7 @@ part of the MVP. Before preflight mutates any output path, the supervisor invoke
 `runner_schema_version`, `execution_digest`, the exact `build` object defined in
 §9, and `rayon_available`, then exits. It cannot be combined with `--manifest`,
 performs no simulation, and creates no run output. The supervisor requires
-schema `0.1.0` and exact equality with its own build object; otherwise batch
+schema `0.2.0` and exact equality with its own build object; otherwise batch
 preflight fails. The reported child execution digest is written into the run
 artifacts, and the child verifies it again after launch.
 
@@ -634,7 +643,7 @@ The batch manifest is an exact list of single-run manifests plus a concurrency l
 
 ```json
 {
-  "runner_schema_version": "0.1.0",
+  "runner_schema_version": "0.2.0",
   "jobs": 8,
   "runs": [
     { "manifest": "manifests/run-0001.json" },
@@ -643,7 +652,7 @@ The batch manifest is an exact list of single-run manifests plus a concurrency l
 }
 ```
 
-`runner_schema_version` must equal `0.1.0`, `jobs` is a `u32` greater than zero,
+`runner_schema_version` must equal `0.2.0`, `jobs` is a `u32` greater than zero,
 and `runs` must be nonempty. Each `manifest` path is nonempty and is resolved
 relative to the batch manifest's parent directory. Each run's relative
 `output_directory` remains relative to that run manifest, as defined in §6.
@@ -701,7 +710,7 @@ The exact completion fields are:
 
 | Field | Type and contents |
 |---|---|
-| `runner_schema_version` | String, `0.1.0` |
+| `runner_schema_version` | String, `0.2.0` |
 | `run_id` | String |
 | `input_digest` | String |
 | `execution_digest` | String |
@@ -831,10 +840,10 @@ and scientific stopping rules.
 
 ## 16. Deferred Contract Extensions
 
-The MVP decisions above are closed for runner schema `0.1.0`. Later schema
+The MVP decisions above are closed for runner schema `0.2.0`. Later schema
 versions may add embedded batch runs, an explicit successful-run replacement
 mode, additional termination limits, or another metrics encoding. They must not
-silently change schema `0.1.0` normalization, digest, bootstrap, retry, or output
+silently change schema `0.2.0` normalization, digest, bootstrap, retry, or output
 semantics.
 
 Questions about which configurations to try, how to score outcomes, or how to

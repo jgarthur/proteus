@@ -6,7 +6,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 /// Tracks the spec version this backend is aligned to.
-pub const SPEC_VERSION: &str = "0.3.0";
+pub const SPEC_VERSION: &str = "0.4.0";
 /// Stores the maximum allowed program length from the spec.
 pub const PROGRAM_SIZE_CAP: u16 = 0x7fff;
 
@@ -19,15 +19,19 @@ pub struct SimConfig {
     pub seed: u64,
     pub r_energy: f64,
     pub r_mass: f64,
-    pub d_energy: f64,
-    pub d_mass: f64,
+    #[serde(default = "default_d_energy_log2")]
+    pub d_energy_log2: Option<u32>,
+    #[serde(default = "default_d_mass_log2")]
+    pub d_mass_log2: Option<u32>,
     pub t_cap: f64,
-    pub maintenance_rate: f64,
+    #[serde(default = "default_maintenance_rate_log2")]
+    pub maintenance_rate_log2: Option<u32>,
     pub maintenance_exponent: f64,
     pub local_action_exponent: f64,
     pub n_synth: u32,
     pub inert_grace_ticks: u32,
-    pub p_spawn: f64,
+    #[serde(default = "default_p_spawn_log2")]
+    pub p_spawn_log2: Option<u32>,
     pub mutation_base_log2: u32,
     pub mutation_background_log2: u32,
 }
@@ -41,15 +45,15 @@ impl Default for SimConfig {
             seed: 0,
             r_energy: 0.25,
             r_mass: 0.05,
-            d_energy: 1.0 / 128.0,
-            d_mass: 1.0 / 128.0,
+            d_energy_log2: default_d_energy_log2(),
+            d_mass_log2: default_d_mass_log2(),
             t_cap: 4.0,
-            maintenance_rate: 1.0 / 128.0,
+            maintenance_rate_log2: default_maintenance_rate_log2(),
             maintenance_exponent: 1.0,
             local_action_exponent: 1.0,
             n_synth: 1,
             inert_grace_ticks: 10,
-            p_spawn: 0.0,
+            p_spawn_log2: default_p_spawn_log2(),
             mutation_base_log2: 16,
             mutation_background_log2: 8,
         }
@@ -68,23 +72,15 @@ impl SimConfig {
 
         self.check_non_negative("r_energy", self.r_energy)?;
         self.check_non_negative("r_mass", self.r_mass)?;
-        self.check_dyadic_probability("d_energy", self.d_energy)?;
-        self.check_dyadic_probability("d_mass", self.d_mass)?;
-        self.check_dyadic_probability("maintenance_rate", self.maintenance_rate)?;
-        self.check_dyadic_probability("p_spawn", self.p_spawn)?;
-
-        if self.mutation_base_log2 > 63 {
-            return Err(ConfigError::DyadicExponentTooLarge {
-                field: "mutation_base_log2",
-                value: self.mutation_base_log2,
-            });
-        }
-        if self.mutation_background_log2 > 63 {
-            return Err(ConfigError::DyadicExponentTooLarge {
-                field: "mutation_background_log2",
-                value: self.mutation_background_log2,
-            });
-        }
+        self.check_exponent("d_energy_log2", self.d_energy_log2)?;
+        self.check_exponent("d_mass_log2", self.d_mass_log2)?;
+        self.check_exponent("maintenance_rate_log2", self.maintenance_rate_log2)?;
+        self.check_exponent("p_spawn_log2", self.p_spawn_log2)?;
+        self.check_exponent("mutation_base_log2", Some(self.mutation_base_log2))?;
+        self.check_exponent(
+            "mutation_background_log2",
+            Some(self.mutation_background_log2),
+        )?;
 
         self.check_non_negative("t_cap", self.t_cap)?;
         self.check_non_negative("maintenance_exponent", self.maintenance_exponent)?;
@@ -105,22 +101,12 @@ impl SimConfig {
         width.checked_mul(height)
     }
 
-    /// Checks that a floating-point field is an exactly representable dyadic probability.
-    fn check_dyadic_probability(&self, field: &'static str, value: f64) -> Result<(), ConfigError> {
-        if !value.is_finite() || !(0.0..=1.0).contains(&value) {
-            return Err(ConfigError::ProbabilityOutOfRange { field, value });
+    /// Checks that an optional dyadic exponent fits the exact sampler domain.
+    fn check_exponent(&self, field: &'static str, value: Option<u32>) -> Result<(), ConfigError> {
+        if let Some(value @ 64..) = value {
+            return Err(ConfigError::ExponentOutOfRange { field, value });
         }
-        if value == 0.0 || dyadic_exponent(value).is_some() {
-            return Ok(());
-        }
-
-        let (nearest_lower, nearest_upper) = dyadic_probability_neighbors(value);
-        Err(ConfigError::NotDyadicProbability {
-            field,
-            value,
-            nearest_lower,
-            nearest_upper,
-        })
+        Ok(())
     }
 
     /// Checks that a floating-point field is finite and non-negative.
@@ -132,33 +118,20 @@ impl SimConfig {
     }
 }
 
-/// Returns `Some(k)` exactly when `p == 2^-k` for `k` in `0..=63`.
-///
-/// Zero is handled separately by callers because it has no finite exponent.
-pub(crate) fn dyadic_exponent(p: f64) -> Option<u32> {
-    let bits = p.to_bits();
-    let sign = bits >> 63;
-    let mantissa = bits & ((1_u64 << 52) - 1);
-    let biased_exp = (bits >> 52) & 0x7ff;
-    if sign != 0 || mantissa != 0 || biased_exp == 0 {
-        return None;
-    }
-
-    let exponent = biased_exp as i64 - 1023;
-    (-63..=0).contains(&exponent).then(|| (-exponent) as u32)
+pub(crate) const fn default_d_energy_log2() -> Option<u32> {
+    Some(7)
 }
 
-/// Returns the valid dyadic probabilities bracketing an in-range invalid value.
-fn dyadic_probability_neighbors(value: f64) -> (f64, f64) {
-    let minimum = 2_f64.powi(-63);
-    if value < minimum {
-        return (0.0, minimum);
-    }
+pub(crate) const fn default_d_mass_log2() -> Option<u32> {
+    Some(7)
+}
 
-    let biased_exp = (value.to_bits() >> 52) & 0x7ff;
-    let lower = f64::from_bits(biased_exp << 52);
-    let upper = f64::from_bits((biased_exp + 1) << 52);
-    (lower, upper)
+pub(crate) const fn default_maintenance_rate_log2() -> Option<u32> {
+    Some(7)
+}
+
+pub(crate) const fn default_p_spawn_log2() -> Option<u32> {
+    None
 }
 
 /// Describes why a simulation config is invalid.
@@ -166,28 +139,9 @@ fn dyadic_probability_neighbors(value: f64) -> (f64, f64) {
 pub enum ConfigError {
     ZeroWidth,
     ZeroHeight,
-    GridTooLarge {
-        width: u32,
-        height: u32,
-    },
-    ProbabilityOutOfRange {
-        field: &'static str,
-        value: f64,
-    },
-    NotDyadicProbability {
-        field: &'static str,
-        value: f64,
-        nearest_lower: f64,
-        nearest_upper: f64,
-    },
-    DyadicExponentTooLarge {
-        field: &'static str,
-        value: u32,
-    },
-    NegativeOrNonFinite {
-        field: &'static str,
-        value: f64,
-    },
+    GridTooLarge { width: u32, height: u32 },
+    ExponentOutOfRange { field: &'static str, value: u32 },
+    NegativeOrNonFinite { field: &'static str, value: f64 },
 }
 
 impl fmt::Display for ConfigError {
@@ -202,25 +156,10 @@ impl fmt::Display for ConfigError {
                     "grid dimensions {width}x{height} do not fit in memory indexing"
                 )
             }
-            Self::ProbabilityOutOfRange { field, value } => {
+            Self::ExponentOutOfRange { field, value } => {
                 write!(
                     f,
-                    "{field} must be a finite probability in [0, 1], got {value}"
-                )
-            }
-            Self::NotDyadicProbability {
-                field,
-                value,
-                nearest_lower,
-                nearest_upper,
-            } => write!(
-                f,
-                "{field} must be exactly 0, 1, or 2^-k for k in 1..=63; got {value}, whose nearest bracketing valid values are {nearest_lower} and {nearest_upper}"
-            ),
-            Self::DyadicExponentTooLarge { field, value } => {
-                write!(
-                    f,
-                    "{field} must be at most 63 for exact dyadic sampling, got {value}"
+                    "{field} must be an integer exponent in 0..=63, got {value}"
                 )
             }
             Self::NegativeOrNonFinite { field, value } => {
@@ -234,7 +173,7 @@ impl Error for ConfigError {}
 
 #[cfg(test)]
 mod tests {
-    use super::{dyadic_exponent, ConfigError, SimConfig};
+    use super::{ConfigError, SimConfig};
 
     #[test]
     fn default_config_is_valid() {
@@ -270,24 +209,13 @@ mod tests {
     }
 
     #[test]
-    fn dyadic_exponent_recognizes_only_supported_exact_powers_of_two() {
-        assert_eq!(dyadic_exponent(1.0), Some(0));
-        assert_eq!(dyadic_exponent(0.5), Some(1));
-        assert_eq!(dyadic_exponent(2_f64.powi(-63)), Some(63));
-        assert_eq!(dyadic_exponent(0.0), None);
-        assert_eq!(dyadic_exponent(-0.5), None);
-        assert_eq!(dyadic_exponent(0.75), None);
-        assert_eq!(dyadic_exponent(2_f64.powi(-64)), None);
-    }
-
-    #[test]
-    fn dyadic_probability_fields_accept_zero_one_and_supported_powers() {
-        for value in [0.0, 1.0, 0.25, 2_f64.powi(-63)] {
+    fn optional_exponent_fields_accept_never_and_supported_exponents() {
+        for value in [None, Some(0), Some(7), Some(63)] {
             let config = SimConfig {
-                d_energy: value,
-                d_mass: value,
-                maintenance_rate: value,
-                p_spawn: value,
+                d_energy_log2: value,
+                d_mass_log2: value,
+                maintenance_rate_log2: value,
+                p_spawn_log2: value,
                 ..SimConfig::default()
             };
             assert_eq!(config.validate(), Ok(()));
@@ -295,47 +223,105 @@ mod tests {
     }
 
     #[test]
-    fn non_dyadic_probability_reports_bracketing_valid_values() {
-        let config = SimConfig {
-            d_energy: 0.01,
-            ..SimConfig::default()
-        };
-
-        assert_eq!(
-            config.validate(),
-            Err(ConfigError::NotDyadicProbability {
-                field: "d_energy",
-                value: 0.01,
-                nearest_lower: 0.0078125,
-                nearest_upper: 0.015625,
-            })
-        );
+    fn exponents_above_63_are_rejected_with_the_field_name() {
+        for (field, config) in [
+            (
+                "d_energy_log2",
+                SimConfig {
+                    d_energy_log2: Some(64),
+                    ..SimConfig::default()
+                },
+            ),
+            (
+                "d_mass_log2",
+                SimConfig {
+                    d_mass_log2: Some(64),
+                    ..SimConfig::default()
+                },
+            ),
+            (
+                "maintenance_rate_log2",
+                SimConfig {
+                    maintenance_rate_log2: Some(64),
+                    ..SimConfig::default()
+                },
+            ),
+            (
+                "p_spawn_log2",
+                SimConfig {
+                    p_spawn_log2: Some(64),
+                    ..SimConfig::default()
+                },
+            ),
+            (
+                "mutation_base_log2",
+                SimConfig {
+                    mutation_base_log2: 64,
+                    ..SimConfig::default()
+                },
+            ),
+            (
+                "mutation_background_log2",
+                SimConfig {
+                    mutation_background_log2: 64,
+                    ..SimConfig::default()
+                },
+            ),
+        ] {
+            assert_eq!(
+                config.validate(),
+                Err(ConfigError::ExponentOutOfRange { field, value: 64 })
+            );
+        }
     }
 
     #[test]
-    fn mutation_exponents_above_63_are_rejected() {
-        let base = SimConfig {
-            mutation_base_log2: 64,
-            ..SimConfig::default()
-        };
-        assert_eq!(
-            base.validate(),
-            Err(ConfigError::DyadicExponentTooLarge {
-                field: "mutation_base_log2",
-                value: 64,
-            })
-        );
+    fn serde_distinguishes_absent_null_and_value_for_optional_exponents() {
+        for field in ["d_energy_log2", "d_mass_log2", "maintenance_rate_log2"] {
+            let mut absent = serde_json::to_value(SimConfig::default()).unwrap();
+            absent.as_object_mut().unwrap().remove(field);
+            let parsed: SimConfig = serde_json::from_value(absent).unwrap();
+            assert_eq!(field_value(&parsed, field), Some(7), "absent {field}");
 
-        let background = SimConfig {
-            mutation_background_log2: u32::MAX,
-            ..SimConfig::default()
-        };
-        assert_eq!(
-            background.validate(),
-            Err(ConfigError::DyadicExponentTooLarge {
-                field: "mutation_background_log2",
-                value: u32::MAX,
-            })
-        );
+            let mut null = serde_json::to_value(SimConfig::default()).unwrap();
+            null[field] = serde_json::Value::Null;
+            let parsed: SimConfig = serde_json::from_value(null).unwrap();
+            assert_eq!(field_value(&parsed, field), None, "null {field}");
+
+            let mut value = serde_json::to_value(SimConfig::default()).unwrap();
+            value[field] = serde_json::json!(12);
+            let parsed: SimConfig = serde_json::from_value(value).unwrap();
+            assert_eq!(field_value(&parsed, field), Some(12), "value {field}");
+        }
+
+        let mut absent = serde_json::to_value(SimConfig::default()).unwrap();
+        absent.as_object_mut().unwrap().remove("p_spawn_log2");
+        let parsed: SimConfig = serde_json::from_value(absent).unwrap();
+        assert_eq!(parsed.p_spawn_log2, None);
+
+        let mut null = serde_json::to_value(SimConfig::default()).unwrap();
+        null["p_spawn_log2"] = serde_json::Value::Null;
+        let parsed: SimConfig = serde_json::from_value(null).unwrap();
+        assert_eq!(parsed.p_spawn_log2, None);
+
+        let mut value = serde_json::to_value(SimConfig::default()).unwrap();
+        value["p_spawn_log2"] = serde_json::json!(9);
+        let parsed: SimConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.p_spawn_log2, Some(9));
+    }
+
+    #[test]
+    fn none_serializes_as_explicit_null() {
+        let serialized = serde_json::to_value(SimConfig::default()).unwrap();
+        assert_eq!(serialized["p_spawn_log2"], serde_json::Value::Null);
+    }
+
+    fn field_value(config: &SimConfig, field: &str) -> Option<u32> {
+        match field {
+            "d_energy_log2" => config.d_energy_log2,
+            "d_mass_log2" => config.d_mass_log2,
+            "maintenance_rate_log2" => config.maintenance_rate_log2,
+            other => panic!("unexpected field {other}"),
+        }
     }
 }

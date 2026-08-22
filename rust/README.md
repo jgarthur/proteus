@@ -31,7 +31,7 @@ This folder contains the active Rust backend implementation for Proteus.
 
 ## Running Headless Jobs
 
-The included `example-run.json` is a schema `0.1.0` manifest whose simulation
+The included `example-run.json` is a schema `0.2.0` manifest whose simulation
 and bootstrap values match the frontend starter. From `rust/`, run it with:
 
 ```bash

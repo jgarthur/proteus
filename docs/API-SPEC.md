@@ -2,13 +2,13 @@
 
 **Status**: Provisional — subject to change as the engine implementation matures.
 
-**Spec version**: 0.2.5
+**Spec version**: 0.3.0
+
+**Changed in 0.3.0**: the simulation config contract replaces floating probability fields with optional integer exponent fields `d_energy_log2`, `d_mass_log2`, `maintenance_rate_log2`, and `p_spawn_log2`. Integer `k` means probability `2^-k`; explicit `null` means never. Absent decay and maintenance fields default to 7, while absent `p_spawn_log2` defaults to `null` (§8). This is a breaking field rename.
 
 **Added in 0.2.5**: metrics gained an optional point-in-time `census` object (program-size histograms, opcode census, size-1 population, aggregated lineage, stack depths), omitted from the WebSocket stream and available over REST via `GET /v1/sim/metrics?census=1`; cell inspection gained six lineage fields (`uid`, `parent_uid`, `birth_tick`, `generation`, `origin`, `created_tick`). Both are additive, so existing clients are unaffected (§10, §12).
 
-**Changed in 0.2.4**: the simulation config contract narrowed — `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must each be exactly 0, 1, or `2^-k` for integer `k` in `1..=63`, and both mutation exponent fields must be in `0..=63`; request bodies outside these domains were previously accepted and are now rejected (§8).
-
-**Simulator version**: Targets Proteus v0.3.0
+**Simulator version**: Targets Proteus v0.4.0
 
 ---
 
@@ -62,9 +62,9 @@ The API is independent of any specific frontend implementation.
 
 All REST endpoints are prefixed with `/v1`.
 
-All responses include the header `X-Proteus-API-Version: 0.2.5`.
+All responses include the header `X-Proteus-API-Version: 0.3.0`.
 
-Breaking changes increment the major URL version (`/v2`). Additive changes (new optional fields, new endpoints) do not.
+The API is provisional and pre-1.0, so the breaking 0.3.0 config-field migration deliberately retains the `/v1` URL prefix. Once the API is stable, breaking changes increment the major URL version (`/v2`); additive changes do not.
 
 WebSocket messages include an `api_version` field in the initial handshake.
 
@@ -196,19 +196,19 @@ Provided as the request body to `POST /v1/sim`. All fields are required unless m
 | `seed` | u64 | Master RNG seed | *required* |
 | `r_energy` | f64 | Mean bg-radiation arrivals per cell per tick (`Poisson(r_energy)`) | 0.25 |
 | `r_mass` | f64 | Mean bg-mass arrivals per cell per tick (`Poisson(r_mass)`) | 0.05 |
-| `d_energy` | f64 | P(each bg radiation / excess free energy unit decays per tick) | 0.0078125 |
-| `d_mass` | f64 | P(each bg mass / excess free mass unit decays per tick) | 0.0078125 |
+| `d_energy_log2` | u32 or null | Decay probability is `2^-k`; null means no energy decay | 7 |
+| `d_mass_log2` | u32 or null | Decay probability is `2^-k`; null means no mass decay | 7 |
 | `t_cap` | f64 | Free resource decay threshold multiplier on program size | 4.0 |
-| `maintenance_rate` | f64 | P(each maintenance quantum costs 1 per tick) | 0.0078125 |
+| `maintenance_rate_log2` | u32 or null | Maintenance probability is `2^-k`; null means no maintenance charge | 7 |
 | `maintenance_exponent` | f64 | Beta: maintenance quanta = size^beta | 1.0 |
 | `local_action_exponent` | f64 | Alpha: local action budget = max(1, floor(size^alpha)) | 1.0 |
 | `n_synth` | u32 | Additional energy cost for synthesize | 1 |
 | `inert_grace_ticks` | u32 | Ticks before abandoned inert pays maintenance | 10 |
-| `p_spawn` | f64 | P(spontaneous creation in eligible empty cell) | 0.0 |
+| `p_spawn_log2` | u32 or null | Spawn probability is `2^-k`; null means never | null |
 | `mutation_base_log2` | u32 | Baseline mutation rate = 2^(-value) | 16 |
-| `mutation_background_log2` | u32 | Bg-stressed mutation rate divisor | 8 |
+| `mutation_background_log2` | u32 | Per-consumed-quantum mutation-trigger rate = 2^(-value) | 8 |
 
-`d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must each be exactly 0, 1, or `2^-k` for integer `k` in `1..=63`. Both mutation exponent fields must be in `0..=63`. Values outside these domains are rejected when the simulation is created.
+Each optional exponent accepts `null` or an integer in `0..=63`. JSON explicit `null` always means never. If absent, `d_energy_log2`, `d_mass_log2`, and `maintenance_rate_log2` default to 7; `p_spawn_log2` defaults to `null`. Responses always serialize these fields, including `null`. Both mutation exponent fields must be integers in `0..=63`. Values outside these domains are rejected when the simulation is created.
 
 Optional initial-state fields:
 

@@ -9,9 +9,9 @@ use proteus::{Direction, Pass3AmbientOutput};
 fn overlapping_absorb_footprints_split_background_radiation() {
     let mut simulation = WorldBuilder::new(3, 1)
         .configure(|config| {
-            config.d_energy = 0.0;
+            config.d_energy_log2 = None;
             config.r_energy = 0.0;
-            config.d_mass = 0.0;
+            config.d_mass_log2 = None;
             config.r_mass = 0.0;
         })
         .at(
@@ -65,9 +65,9 @@ fn overlapping_absorb_footprints_split_background_radiation() {
 fn collect_converts_background_mass_into_free_mass_before_mass_arrival() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| {
-            config.d_energy = 0.0;
+            config.d_energy_log2 = None;
             config.r_energy = 0.0;
-            config.d_mass = 0.0;
+            config.d_mass_log2 = None;
             config.r_mass = 100.0;
         })
         .at(
@@ -99,9 +99,9 @@ fn collect_converts_background_mass_into_free_mass_before_mass_arrival() {
 fn empty_cell_mass_arrival_marks_spawn_candidate() {
     let mut simulation = WorldBuilder::new(2, 1)
         .configure(|config| {
-            config.d_energy = 0.0;
+            config.d_energy_log2 = None;
             config.r_energy = 0.0;
-            config.d_mass = 0.0;
+            config.d_mass_log2 = None;
             config.r_mass = 100.0;
         })
         .at(1, 0, ProgramBuilder::new().code(&[op::NOP]))
@@ -129,9 +129,9 @@ fn empty_cell_mass_arrival_marks_spawn_candidate() {
 fn background_radiation_decay_then_arrival_uses_post_absorb_remainder() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| {
-            config.d_energy = 1.0;
+            config.d_energy_log2 = Some(0);
             config.r_energy = 100.0;
-            config.d_mass = 0.0;
+            config.d_mass_log2 = None;
             config.r_mass = 0.0;
         })
         .bg_radiation_at(0, 0, 3)

@@ -27,21 +27,22 @@ export const COLOR_MAP_OPTIONS: Array<{ value: ColorMapMode; label: string }> = 
   { value: 'combined', label: 'Combined' },
 ];
 
+// Keep probability-exponent defaults aligned with rust/src/config.rs default_* functions.
 export const DEFAULT_CONFIG: SimConfig = {
   width: 64,
   height: 64,
   seed: 1,
   r_energy: 0.25,
   r_mass: 1.0,
-  d_energy: 0.0078125,
-  d_mass: 0.0078125,
+  d_energy_log2: 7,
+  d_mass_log2: 7,
   t_cap: 4.0,
-  maintenance_rate: 0.0078125,
+  maintenance_rate_log2: 7,
   maintenance_exponent: 1.0,
   local_action_exponent: 1.0,
   n_synth: 1,
   inert_grace_ticks: 10,
-  p_spawn: 0.0,
+  p_spawn_log2: null,
   mutation_base_log2: 16,
   mutation_background_log2: 8,
   seed_programs: [

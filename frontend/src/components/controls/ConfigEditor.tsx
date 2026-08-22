@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
   type ConfigErrors,
+  getDyadicExponentError,
   loadConfigFromStorage,
+  MAX_DYADIC_EXPONENT,
   saveConfigToStorage,
   validateConfig,
 } from '../../lib/config';
@@ -9,6 +11,19 @@ import { fetchSimulationConfig } from '../../lib/api';
 import { useSimContext } from '../../context/SimContext';
 import type { SeedProgram, SimConfig } from '../../types';
 import styles from './ConfigEditor.module.css';
+
+const OPTIONAL_EXPONENT_FIELDS = new Set<keyof SimConfig>([
+  'd_energy_log2',
+  'd_mass_log2',
+  'maintenance_rate_log2',
+  'p_spawn_log2',
+]);
+
+const EXPONENT_FIELDS = new Set<keyof SimConfig>([
+  ...OPTIONAL_EXPONENT_FIELDS,
+  'mutation_base_log2',
+  'mutation_background_log2',
+]);
 
 const INTEGER_FIELDS = new Set<keyof SimConfig>([
   'width',
@@ -139,6 +154,110 @@ function BufferedNumberInput({
         }
       }}
     />
+  );
+}
+
+interface ExponentInputProps {
+  allowNever: boolean;
+  className: string;
+  disabled: boolean;
+  onCommit(value: number | null): void;
+  value: number | null;
+}
+
+function ExponentInput({
+  allowNever,
+  className,
+  disabled,
+  onCommit,
+  value,
+}: ExponentInputProps): JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (disabled) {
+      setDraft(null);
+      setDraftError(null);
+    }
+  }, [disabled]);
+
+  const commit = () => {
+    if (draft === null) {
+      return;
+    }
+
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      const error = getDyadicExponentError(null, allowNever);
+      if (error) {
+        setDraftError(error);
+        return;
+      }
+      onCommit(null);
+      setDraft(null);
+      setDraftError(null);
+      return;
+    }
+
+    const parsed = Number(draft);
+    const error = getDyadicExponentError(parsed, allowNever);
+    if (error) {
+      setDraftError(error);
+      return;
+    }
+    onCommit(parsed);
+    setDraft(null);
+    setDraftError(null);
+  };
+
+  const displayed = draft ?? (value === null ? '' : String(value));
+  const previewExponent = draft === null ? value : parseBufferedNumber(draft, true);
+  const preview =
+    allowNever && displayed.trim() === ''
+      ? 'Probability: never'
+      : previewExponent !== null &&
+          previewExponent >= 0 &&
+          previewExponent <= MAX_DYADIC_EXPONENT
+        ? 'Probability: 2^-' +
+          String(previewExponent) +
+          ' = ' +
+          String(2 ** -previewExponent)
+        : 'Enter an integer from 0 to 63';
+
+  return (
+    <>
+      <input
+        className={className}
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={MAX_DYADIC_EXPONENT}
+        step={1}
+        disabled={disabled}
+        placeholder={allowNever ? 'never' : undefined}
+        value={displayed}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setDraftError(null);
+        }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit();
+            event.currentTarget.blur();
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            setDraft(null);
+            setDraftError(null);
+          }
+        }}
+      />
+      <span className={styles.muted}>{preview}</span>
+      {draftError ? <span className={styles.error}>{draftError}</span> : null}
+    </>
   );
 }
 
@@ -350,8 +469,8 @@ export function ConfigEditor(): JSX.Element {
         fields={[
           ['r_energy', 'R Energy'],
           ['r_mass', 'R Mass'],
-          ['d_energy', 'D Energy'],
-          ['d_mass', 'D Mass'],
+          ['d_energy_log2', 'D Energy Log2'],
+          ['d_mass_log2', 'D Mass Log2'],
           ['t_cap', 'T Cap'],
         ]}
         config={config}
@@ -363,12 +482,12 @@ export function ConfigEditor(): JSX.Element {
       <ConfigGroup
         title="Program Dynamics"
         fields={[
-          ['maintenance_rate', 'Maintenance Rate'],
+          ['maintenance_rate_log2', 'Maintenance Rate Log2'],
           ['maintenance_exponent', 'Maintenance Exponent'],
           ['local_action_exponent', 'Local Action Exponent'],
           ['n_synth', 'N Synth'],
           ['inert_grace_ticks', 'Inert Grace Ticks'],
-          ['p_spawn', 'P Spawn'],
+          ['p_spawn_log2', 'P Spawn Log2'],
         ]}
         config={config}
         errors={errors}
@@ -540,13 +659,23 @@ function ConfigGroup({ config, errors, fields, isEditable, setField, title }: Co
         {fields.map(([field, label]) => (
           <label key={String(field)} className={styles.field}>
             <span>{label}</span>
-            <BufferedNumberInput
-              className={styles.input}
-              integer={INTEGER_FIELDS.has(field)}
-              disabled={!isEditable}
-              value={config[field] as number}
-              onCommit={(value) => setField(field, value as SimConfig[typeof field])}
-            />
+            {EXPONENT_FIELDS.has(field) ? (
+              <ExponentInput
+                allowNever={OPTIONAL_EXPONENT_FIELDS.has(field)}
+                className={styles.input}
+                disabled={!isEditable}
+                value={config[field] as number | null}
+                onCommit={(value) => setField(field, value as SimConfig[typeof field])}
+              />
+            ) : (
+              <BufferedNumberInput
+                className={styles.input}
+                integer={INTEGER_FIELDS.has(field)}
+                disabled={!isEditable}
+                value={config[field] as number}
+                onCommit={(value) => setField(field, value as SimConfig[typeof field])}
+              />
+            )}
             {errors[String(field)] ? <span className={styles.error}>{errors[String(field)]}</span> : null}
           </label>
         ))}

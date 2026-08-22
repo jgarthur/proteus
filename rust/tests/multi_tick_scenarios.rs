@@ -9,11 +9,11 @@ fn absorb_loop_accumulates_energy_after_the_initial_arrival_lag() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| {
             config.r_energy = 100.0;
-            config.d_energy = 0.0;
+            config.d_energy_log2 = None;
             config.r_mass = 0.0;
-            config.d_mass = 0.0;
-            config.maintenance_rate = 0.0;
-            config.p_spawn = 0.0;
+            config.d_mass_log2 = None;
+            config.maintenance_rate_log2 = None;
+            config.p_spawn_log2 = None;
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
@@ -56,13 +56,13 @@ fn inert_program_only_pays_maintenance_after_grace_window_expires() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| {
             config.inert_grace_ticks = 3;
-            config.maintenance_rate = 1.0;
+            config.maintenance_rate_log2 = Some(0);
             config.maintenance_exponent = 1.0;
             config.r_energy = 0.0;
-            config.d_energy = 0.0;
+            config.d_energy_log2 = None;
             config.r_mass = 0.0;
-            config.d_mass = 0.0;
-            config.p_spawn = 0.0;
+            config.d_mass_log2 = None;
+            config.p_spawn_log2 = None;
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
@@ -112,11 +112,11 @@ fn repeated_deladj_pressure_grows_predator_until_the_size_one_guard_stops_it() {
     let mut simulation = WorldBuilder::new(2, 1)
         .configure(|config| {
             config.r_energy = 0.0;
-            config.d_energy = 0.0;
+            config.d_energy_log2 = None;
             config.r_mass = 0.0;
-            config.d_mass = 0.0;
-            config.maintenance_rate = 0.0;
-            config.p_spawn = 0.0;
+            config.d_mass_log2 = None;
+            config.maintenance_rate_log2 = None;
+            config.p_spawn_log2 = None;
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
@@ -170,13 +170,13 @@ fn repeated_deladj_pressure_grows_predator_until_the_size_one_guard_stops_it() {
 fn extinct_cell_can_respawn_on_a_later_tick_when_mass_arrives() {
     let mut simulation = WorldBuilder::new(1, 1)
         .configure(|config| {
-            config.maintenance_rate = 1.0;
+            config.maintenance_rate_log2 = Some(0);
             config.maintenance_exponent = 1.0;
             config.r_energy = 0.0;
-            config.d_energy = 0.0;
+            config.d_energy_log2 = None;
             config.r_mass = 100.0;
-            config.d_mass = 0.0;
-            config.p_spawn = 1.0;
+            config.d_mass_log2 = None;
+            config.p_spawn_log2 = Some(0);
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })

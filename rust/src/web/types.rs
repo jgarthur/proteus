@@ -1,6 +1,6 @@
 //! Defines the HTTP and WebSocket payload types for the web API.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::bootstrap::BootstrapConfig;
 pub use crate::bootstrap::{
@@ -10,7 +10,7 @@ use crate::config::SimConfig;
 use crate::observe::MetricsSnapshot;
 
 /// Declares the current version string for the HTTP/WebSocket API.
-pub const API_VERSION: &str = "0.2.5";
+pub const API_VERSION: &str = "0.3.0";
 /// Names the response header that reports the API version.
 pub const API_VERSION_HEADER: &str = "X-Proteus-API-Version";
 
@@ -25,6 +25,7 @@ pub enum SimulationLifecycle {
 
 /// Accepts a simulation-creation request from the HTTP API.
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateSimulationRequest {
     pub width: u32,
     pub height: u32,
@@ -33,14 +34,14 @@ pub struct CreateSimulationRequest {
     pub r_energy: Option<f64>,
     #[serde(default)]
     pub r_mass: Option<f64>,
-    #[serde(default)]
-    pub d_energy: Option<f64>,
-    #[serde(default)]
-    pub d_mass: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_exponent")]
+    pub d_energy_log2: Option<Option<u32>>,
+    #[serde(default, deserialize_with = "deserialize_optional_exponent")]
+    pub d_mass_log2: Option<Option<u32>>,
     #[serde(default)]
     pub t_cap: Option<f64>,
-    #[serde(default)]
-    pub maintenance_rate: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_exponent")]
+    pub maintenance_rate_log2: Option<Option<u32>>,
     #[serde(default)]
     pub maintenance_exponent: Option<f64>,
     #[serde(default)]
@@ -49,8 +50,8 @@ pub struct CreateSimulationRequest {
     pub n_synth: Option<u32>,
     #[serde(default)]
     pub inert_grace_ticks: Option<u32>,
-    #[serde(default)]
-    pub p_spawn: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_exponent")]
+    pub p_spawn_log2: Option<Option<u32>>,
     #[serde(default)]
     pub mutation_base_log2: Option<u32>,
     #[serde(default)]
@@ -59,6 +60,13 @@ pub struct CreateSimulationRequest {
     pub seed_programs: Vec<SeedProgramConfig>,
     #[serde(default)]
     pub seed_environment: Vec<SeedEnvironmentConfig>,
+}
+
+fn deserialize_optional_exponent<'de, D>(deserializer: D) -> Result<Option<Option<u32>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<u32>::deserialize(deserializer).map(Some)
 }
 
 impl CreateSimulationRequest {
@@ -71,10 +79,12 @@ impl CreateSimulationRequest {
             seed: self.seed,
             r_energy: self.r_energy.unwrap_or(defaults.r_energy),
             r_mass: self.r_mass.unwrap_or(defaults.r_mass),
-            d_energy: self.d_energy.unwrap_or(defaults.d_energy),
-            d_mass: self.d_mass.unwrap_or(defaults.d_mass),
+            d_energy_log2: self.d_energy_log2.unwrap_or(defaults.d_energy_log2),
+            d_mass_log2: self.d_mass_log2.unwrap_or(defaults.d_mass_log2),
             t_cap: self.t_cap.unwrap_or(defaults.t_cap),
-            maintenance_rate: self.maintenance_rate.unwrap_or(defaults.maintenance_rate),
+            maintenance_rate_log2: self
+                .maintenance_rate_log2
+                .unwrap_or(defaults.maintenance_rate_log2),
             maintenance_exponent: self
                 .maintenance_exponent
                 .unwrap_or(defaults.maintenance_exponent),
@@ -83,7 +93,7 @@ impl CreateSimulationRequest {
                 .unwrap_or(defaults.local_action_exponent),
             n_synth: self.n_synth.unwrap_or(defaults.n_synth),
             inert_grace_ticks: self.inert_grace_ticks.unwrap_or(defaults.inert_grace_ticks),
-            p_spawn: self.p_spawn.unwrap_or(defaults.p_spawn),
+            p_spawn_log2: self.p_spawn_log2.unwrap_or(defaults.p_spawn_log2),
             mutation_base_log2: self
                 .mutation_base_log2
                 .unwrap_or(defaults.mutation_base_log2),
@@ -107,15 +117,15 @@ pub struct SimulationConfig {
     pub seed: u64,
     pub r_energy: f64,
     pub r_mass: f64,
-    pub d_energy: f64,
-    pub d_mass: f64,
+    pub d_energy_log2: Option<u32>,
+    pub d_mass_log2: Option<u32>,
     pub t_cap: f64,
-    pub maintenance_rate: f64,
+    pub maintenance_rate_log2: Option<u32>,
     pub maintenance_exponent: f64,
     pub local_action_exponent: f64,
     pub n_synth: u32,
     pub inert_grace_ticks: u32,
-    pub p_spawn: f64,
+    pub p_spawn_log2: Option<u32>,
     pub mutation_base_log2: u32,
     pub mutation_background_log2: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -154,15 +164,15 @@ impl SimulationConfig {
             seed: self.seed,
             r_energy: self.r_energy,
             r_mass: self.r_mass,
-            d_energy: self.d_energy,
-            d_mass: self.d_mass,
+            d_energy_log2: self.d_energy_log2,
+            d_mass_log2: self.d_mass_log2,
             t_cap: self.t_cap,
-            maintenance_rate: self.maintenance_rate,
+            maintenance_rate_log2: self.maintenance_rate_log2,
             maintenance_exponent: self.maintenance_exponent,
             local_action_exponent: self.local_action_exponent,
             n_synth: self.n_synth,
             inert_grace_ticks: self.inert_grace_ticks,
-            p_spawn: self.p_spawn,
+            p_spawn_log2: self.p_spawn_log2,
             mutation_base_log2: self.mutation_base_log2,
             mutation_background_log2: self.mutation_background_log2,
         }
@@ -296,4 +306,49 @@ pub struct WsControlMessage {
     pub max_fps: Option<u32>,
     #[serde(default)]
     pub every_n_ticks: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CreateSimulationRequest;
+
+    #[test]
+    fn create_request_distinguishes_absent_null_and_value_exponents() {
+        let absent: CreateSimulationRequest =
+            serde_json::from_str(r#"{"width":2,"height":2,"seed":1}"#).unwrap();
+        assert_eq!(absent.d_energy_log2, None);
+        assert_eq!(absent.p_spawn_log2, None);
+        let resolved = absent.resolve().unwrap();
+        assert_eq!(resolved.d_energy_log2, Some(7));
+        assert_eq!(resolved.p_spawn_log2, None);
+
+        let explicit_null: CreateSimulationRequest = serde_json::from_str(
+            r#"{"width":2,"height":2,"seed":1,"d_energy_log2":null,"p_spawn_log2":null}"#,
+        )
+        .unwrap();
+        assert_eq!(explicit_null.d_energy_log2, Some(None));
+        assert_eq!(explicit_null.p_spawn_log2, Some(None));
+        let resolved = explicit_null.resolve().unwrap();
+        assert_eq!(resolved.d_energy_log2, None);
+        assert_eq!(resolved.p_spawn_log2, None);
+
+        let explicit_value: CreateSimulationRequest = serde_json::from_str(
+            r#"{"width":2,"height":2,"seed":1,"d_energy_log2":3,"p_spawn_log2":6}"#,
+        )
+        .unwrap();
+        assert_eq!(explicit_value.d_energy_log2, Some(Some(3)));
+        assert_eq!(explicit_value.p_spawn_log2, Some(Some(6)));
+        let resolved = explicit_value.resolve().unwrap();
+        assert_eq!(resolved.d_energy_log2, Some(3));
+        assert_eq!(resolved.p_spawn_log2, Some(6));
+    }
+
+    #[test]
+    fn create_request_rejects_stale_probability_field_names() {
+        let error = serde_json::from_str::<CreateSimulationRequest>(
+            r#"{"width":2,"height":2,"seed":1,"d_mass":0.25,"maintenance_rate":0.5,"p_spawn":0.5}"#,
+        )
+        .expect_err("renamed probability fields must not be silently ignored");
+        assert!(error.to_string().contains("unknown field"));
+    }
 }

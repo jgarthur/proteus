@@ -233,7 +233,7 @@ so a program that moved during Pass 2 still mutates and ages normally.
 Each eligible program mutates with probability based on whether it consumed background radiation for base-cost payment this tick:
 
 - **Normal**: `2^(-mutation_base_log2)` per tick.
-- **Background-stressed**: `min(x / 2^(mutation_background_log2), 1)` where `x` is `bg_radiation_consumed` from `TickState`.
+- **Background-stressed**: each of the `x` quanta in `bg_radiation_consumed` independently triggers with probability `2^(-mutation_background_log2)`; mutate once if any trigger fires, sampled as `binomial_pow2(rng, x, k) > 0`.
 
 If triggered, pick one instruction uniformly at random, flip one random bit in its 8-bit opcode. Mutation does not affect the current tick.
 
@@ -281,9 +281,9 @@ Keep RNG adapters and distribution helpers in a dedicated `random` module with u
 
 ### Distribution sampling
 
-The configured hot-path probabilities are exactly 0, 1, or `2^-k` for `k` in `1..=63`. Sample Bernoulli events with masked `u64` draws, and sample `Binomial(n, 2^-k)` by repeatedly thinning survivors by one half with random-bit popcounts. Zero trials and deterministic probability endpoints consume no RNG draws. This is exact for every `n`; do not replace it with floating-point approximations.
+The optional configured hot-path probabilities are integer exponents `k` in `0..=63`, meaning `2^-k`; `null` means never. The two required mutation exponents use the same integer domain without a null case. Sample Bernoulli events with masked `u64` draws, and sample `Binomial(n, 2^-k)` by repeatedly thinning survivors by one half with random-bit popcounts. Zero trials, `k = 0`, and null/never paths consume no RNG draws. This is exact for every `n`; do not replace it with floating-point approximations.
 
-Ambient arrivals use Poisson draws with mean `R_energy` / `R_mass`, and fresh worlds seed background pools from the stationary `Poisson(R / D)` law when `D > 0`. For rates at most 64, use cumulative inversion with `exp(-rate)` precomputed once outside the per-cell loop. Retain `rand_distr::Poisson` only as the large-rate fallback. Keep those helpers in the same `random` module so the stochastic surface stays centralized and testable.
+Ambient arrivals use Poisson draws with mean `R_energy` / `R_mass`, and fresh worlds seed background pools from the stationary `Poisson(R / D)` law when the corresponding `d_energy_log2` or `d_mass_log2` field encodes `D > 0`; null decay fields have no finite steady state and initialize that pool to zero. For rates at most 64, use cumulative inversion with `exp(-rate)` precomputed once outside the per-cell loop. Retain `rand_distr::Poisson` only as the large-rate fallback. Keep those helpers in the same `random` module so the stochastic surface stays centralized and testable.
 
 ## Queued actions
 
@@ -323,21 +323,21 @@ struct SimConfig {
 
     r_energy: f64,
     r_mass: f64,
-    d_energy: f64,
-    d_mass: f64,
+    d_energy_log2: Option<u32>,
+    d_mass_log2: Option<u32>,
     t_cap: f64,
-    maintenance_rate: f64,
+    maintenance_rate_log2: Option<u32>,
     maintenance_exponent: f64,  // beta
     local_action_exponent: f64, // alpha
     n_synth: u32,
     inert_grace_ticks: u32,
-    p_spawn: f64,
+    p_spawn_log2: Option<u32>,
     mutation_base_log2: u32,
     mutation_background_log2: u32,
 }
 ```
 
-`d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must validate as exactly 0, 1, or `2^-k` for integer `k` in `1..=63`. Both mutation exponent fields must be at most 63.
+The four optional probability exponents store `Some(k)` for probability `2^-k` and `None` for never; every present exponent and both required mutation exponents must be in `0..=63`. Serde defaults absent decay and maintenance fields to `Some(7)`, absent spawn to `None`, and preserves explicit JSON `null` as `None`.
 
 Keep the program size cap as a fixed implementation constant, not a config field:
 

@@ -22,20 +22,20 @@ const TARGET: usize = 1;
 const START_AGE: u32 = 7;
 const START_ENERGY: u32 = 64;
 
-/// Builds a two-cell world running `code`, with maintenance forced to `maintenance_rate`.
+/// Builds a two-cell world running `code`, with maintenance forced to `maintenance_rate_log2`.
 ///
 /// Ambient input and decay are disabled so the only energy movements are the
 /// instruction cost and maintenance.
-fn build_world(code: &[u8], maintenance_rate: f64) -> Simulation {
+fn build_world(code: &[u8], maintenance_rate_log2: Option<u32>) -> Simulation {
     WorldBuilder::new(2, 1)
         .seed(0x_11_0e)
         .configure(move |config| {
             config.r_energy = 0.0;
             config.r_mass = 0.0;
-            config.d_energy = 0.0;
-            config.d_mass = 0.0;
-            config.p_spawn = 0.0;
-            config.maintenance_rate = maintenance_rate;
+            config.d_energy_log2 = None;
+            config.d_mass_log2 = None;
+            config.p_spawn_log2 = None;
+            config.maintenance_rate_log2 = maintenance_rate_log2;
             config.maintenance_exponent = 1.0;
             config.local_action_exponent = 1.0;
             config.inert_grace_ticks = 0;
@@ -59,8 +59,12 @@ fn build_world(code: &[u8], maintenance_rate: f64) -> Simulation {
 /// Comparing this across two maintenance rates isolates the maintenance charge from
 /// the instruction's own cost, which a bare `energy_after < energy_before` assertion
 /// cannot do - a `move` costs energy whether or not maintenance was applied.
-fn energy_spent_in_one_tick(code: &[u8], maintenance_rate: f64, occupied: usize) -> u32 {
-    let mut simulation = build_world(code, maintenance_rate);
+fn energy_spent_in_one_tick(
+    code: &[u8],
+    maintenance_rate_log2: Option<u32>,
+    occupied: usize,
+) -> u32 {
+    let mut simulation = build_world(code, maintenance_rate_log2);
     simulation.run_tick_report();
     let cell = simulation.grid().get(occupied).expect("cell should exist");
     assert!(
@@ -73,7 +77,7 @@ fn energy_spent_in_one_tick(code: &[u8], maintenance_rate: f64, occupied: usize)
 /// Control: a program that stays put is charged maintenance, ages, and mutates.
 #[test]
 fn stationary_program_is_charged_maintenance_and_ages_and_mutates() {
-    let mut simulation = build_world(&[op::NOP, op::NOP], 1.0);
+    let mut simulation = build_world(&[op::NOP, op::NOP], Some(0));
     let report = simulation.run_tick_report();
 
     let cell = simulation.grid().get(SOURCE).expect("cell should exist");
@@ -82,8 +86,8 @@ fn stationary_program_is_charged_maintenance_and_ages_and_mutates() {
     assert_eq!(program.age, START_AGE + 1, "stationary program should age");
     assert_eq!(report.mutations, 1, "stationary program should mutate");
 
-    let without = energy_spent_in_one_tick(&[op::NOP, op::NOP], 0.0, SOURCE);
-    let with = energy_spent_in_one_tick(&[op::NOP, op::NOP], 1.0, SOURCE);
+    let without = energy_spent_in_one_tick(&[op::NOP, op::NOP], None, SOURCE);
+    let with = energy_spent_in_one_tick(&[op::NOP, op::NOP], Some(0), SOURCE);
     assert!(
         with > without,
         "stationary program should be charged maintenance \
@@ -94,7 +98,7 @@ fn stationary_program_is_charged_maintenance_and_ages_and_mutates() {
 /// The move itself works: the program relocates and is not treated as a newborn.
 #[test]
 fn move_relocates_the_program_without_marking_it_newborn() {
-    let mut simulation = build_world(&[op::MOVE, op::NOP], 1.0);
+    let mut simulation = build_world(&[op::MOVE, op::NOP], Some(0));
     simulation.run_tick_report();
 
     assert!(
@@ -122,7 +126,7 @@ fn move_relocates_the_program_without_marking_it_newborn() {
 
 #[test]
 fn moved_program_ages_and_mutates() {
-    let mut simulation = build_world(&[op::MOVE, op::NOP], 1.0);
+    let mut simulation = build_world(&[op::MOVE, op::NOP], Some(0));
     let report = simulation.run_tick_report();
 
     let program = simulation
@@ -147,8 +151,8 @@ fn moved_program_ages_and_mutates() {
 
 #[test]
 fn moved_program_is_charged_maintenance() {
-    let without = energy_spent_in_one_tick(&[op::MOVE, op::NOP], 0.0, TARGET);
-    let with = energy_spent_in_one_tick(&[op::MOVE, op::NOP], 1.0, TARGET);
+    let without = energy_spent_in_one_tick(&[op::MOVE, op::NOP], None, TARGET);
+    let with = energy_spent_in_one_tick(&[op::MOVE, op::NOP], Some(0), TARGET);
 
     assert!(
         with > without,
@@ -163,10 +167,10 @@ fn appended_inert_program_skips_maintenance_on_its_creation_tick() {
         .configure(|config| {
             config.r_energy = 0.0;
             config.r_mass = 0.0;
-            config.d_energy = 0.0;
-            config.d_mass = 0.0;
-            config.p_spawn = 0.0;
-            config.maintenance_rate = 1.0;
+            config.d_energy_log2 = None;
+            config.d_mass_log2 = None;
+            config.p_spawn_log2 = None;
+            config.maintenance_rate_log2 = Some(0);
             config.inert_grace_ticks = 0;
         })
         .at(

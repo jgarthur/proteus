@@ -83,7 +83,7 @@ Where `total_energy = sum of (free_energy + bg_radiation + in-flight_packet_coun
 **Mass conservation per tick:** Same pattern. `total_mass = sum of (free_mass + bg_mass + instruction_count)` across all cells. Mass arrivals add, decay removes, maintenance destroys instructions permanently.
 
 Note: these are stochastic (arrivals/decay are probabilistic), so either:
-- Use `d_energy = 0.0, d_mass = 0.0, r_energy = 0.0, r_mass = 0.0` to remove stochastic terms and test strict conservation of internal transfers
+- Use `d_energy_log2 = null, d_mass_log2 = null, r_energy = 0.0, r_mass = 0.0` to remove stochastic terms and test strict conservation of internal transfers
 - Or track the RNG draws and compute expected values exactly
 
 **Recommendation: test BOTH ways.** Zero-rate configs test that internal operations conserve perfectly. Nonzero configs with known seeds test that the stochastic accounting is correct.

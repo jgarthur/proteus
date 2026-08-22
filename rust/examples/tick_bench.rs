@@ -101,15 +101,15 @@ fn frontend_config(width: u32, height: u32, seed: u64) -> SimConfig {
         seed,
         r_energy: 0.25,
         r_mass: 1.0,
-        d_energy: 0.007_812_5,
-        d_mass: 0.007_812_5,
+        d_energy_log2: Some(7),
+        d_mass_log2: Some(7),
         t_cap: 4.0,
-        maintenance_rate: 0.007_812_5,
+        maintenance_rate_log2: Some(7),
         maintenance_exponent: 1.0,
         local_action_exponent: 1.0,
         n_synth: 1,
         inert_grace_ticks: 10,
-        p_spawn: 0.0,
+        p_spawn_log2: None,
         mutation_base_log2: 16,
         mutation_background_log2: 8,
     }
@@ -164,7 +164,7 @@ fn empty(width: u32, height: u32) -> Simulation {
 /// resources hold steady; maintenance is off to keep the workload stationary.
 fn dense_additive_128x128() -> Simulation {
     let config = SimConfig {
-        maintenance_rate: 0.0,
+        maintenance_rate_log2: None,
         mutation_base_log2: 24,
         ..frontend_config(128, 128, 5)
     };
@@ -183,7 +183,7 @@ fn dense_additive_128x128() -> Simulation {
 /// serial packet phase with thousands of live packets and collisions.
 fn dense_emit_64x64() -> Simulation {
     let config = SimConfig {
-        maintenance_rate: 0.0,
+        maintenance_rate_log2: None,
         mutation_base_log2: 24,
         ..frontend_config(64, 64, 7)
     };

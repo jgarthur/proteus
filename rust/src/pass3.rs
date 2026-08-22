@@ -1,12 +1,11 @@
 //! Executes Pass 3 packet physics, ambient resource flow, and tick-end effects.
 
-use crate::config::{dyadic_exponent, SimConfig};
+use crate::config::SimConfig;
 use crate::grid::Grid;
 use crate::model::{Cell, Direction, Lineage, Packet, Program, ProgramOrigin, ProgramUid};
 use crate::opcode::op;
 use crate::random::{
-    bernoulli_pow2, bernoulli_ratio_pow2, binomial_pow2, cell_rng, poisson, PoissonInverter,
-    POISSON_INVERSION_MAX_RATE,
+    bernoulli_pow2, binomial_pow2, cell_rng, poisson, PoissonInverter, POISSON_INVERSION_MAX_RATE,
 };
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
@@ -21,8 +20,8 @@ const MUTATION_SALT: u64 = 0xe3b9_1d8c_7a4f_5012;
 
 #[derive(Clone, Copy, Debug)]
 struct AmbientSamplers {
-    d_energy_exponent: Option<u32>,
-    d_mass_exponent: Option<u32>,
+    d_energy_log2: Option<u32>,
+    d_mass_log2: Option<u32>,
     energy_arrivals: Option<PoissonInverter>,
     mass_arrivals: Option<PoissonInverter>,
 }
@@ -30,22 +29,12 @@ struct AmbientSamplers {
 impl AmbientSamplers {
     fn new(config: &SimConfig) -> Self {
         Self {
-            d_energy_exponent: validated_dyadic_exponent("d_energy", config.d_energy),
-            d_mass_exponent: validated_dyadic_exponent("d_mass", config.d_mass),
+            d_energy_log2: config.d_energy_log2,
+            d_mass_log2: config.d_mass_log2,
             energy_arrivals: poisson_inverter(config.r_energy),
             mass_arrivals: poisson_inverter(config.r_mass),
         }
     }
-}
-
-fn validated_dyadic_exponent(field: &str, probability: f64) -> Option<u32> {
-    if probability == 0.0 {
-        return None;
-    }
-    Some(
-        dyadic_exponent(probability)
-            .unwrap_or_else(|| panic!("{field} should be dyadic after config validation")),
-    )
 }
 
 fn poisson_inverter(rate: f64) -> Option<PoissonInverter> {
@@ -538,6 +527,22 @@ fn resolve_spontaneous_creation(
         .sum()
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static BACKGROUND_MUTATION_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+fn background_mutation_fires(
+    rng: &mut crate::random::WyRand,
+    background_consumed: u32,
+    exponent: u32,
+) -> bool {
+    #[cfg(test)]
+    BACKGROUND_MUTATION_CALLS.with(|calls| calls.set(calls.get() + 1));
+
+    binomial_pow2(rng, background_consumed, exponent) > 0
+}
+
 fn mutate_end_of_tick_cell(
     cell: &mut Cell,
     config: &SimConfig,
@@ -555,8 +560,11 @@ fn mutate_end_of_tick_cell(
     let background_consumed = program.tick.bg_radiation_consumed;
     let mut rng = cell_rng(seed ^ MUTATION_SALT, tick, cell_index as u64);
     let should_mutate = if background_consumed > 0 {
-        let exponent = config.mutation_background_log2;
-        exponent == 0 || bernoulli_ratio_pow2(&mut rng, background_consumed, exponent)
+        background_mutation_fires(
+            &mut rng,
+            background_consumed,
+            config.mutation_background_log2,
+        )
     } else {
         bernoulli_pow2(&mut rng, config.mutation_base_log2)
     };
@@ -583,7 +591,7 @@ fn resolve_background_radiation_cell(
     cell_index: usize,
 ) {
     let mut rng = cell_rng(seed ^ BG_RADIATION_SALT, tick, cell_index as u64);
-    let decayed = samplers.d_energy_exponent.map_or(0, |exponent| {
+    let decayed = samplers.d_energy_log2.map_or(0, |exponent| {
         binomial_pow2(&mut rng, cell.bg_radiation, exponent)
     });
     let remaining = cell.bg_radiation - decayed;
@@ -611,7 +619,7 @@ fn resolve_background_mass_cell(
     cell_index: usize,
 ) -> bool {
     let mut rng = cell_rng(seed ^ BG_MASS_SALT, tick, cell_index as u64);
-    let decayed = samplers.d_mass_exponent.map_or(0, |exponent| {
+    let decayed = samplers.d_mass_log2.map_or(0, |exponent| {
         binomial_pow2(&mut rng, cell.bg_mass, exponent)
     });
     let remaining = cell.bg_mass - decayed;
@@ -651,16 +659,16 @@ fn resolve_maintenance_cell(
         return 0;
     }
 
-    let rate = if program.live {
-        config.maintenance_rate
+    let rate_log2 = if program.live {
+        config.maintenance_rate_log2
     } else if program.abandonment_timer < config.inert_grace_ticks {
-        0.0
+        None
     } else {
-        config.maintenance_rate
+        config.maintenance_rate_log2
     };
-    if rate <= 0.0 {
+    let Some(rate_log2) = rate_log2 else {
         return 0;
-    }
+    };
 
     let size = f64::from(program.size());
     let q = if config.maintenance_exponent == 1.0 {
@@ -669,11 +677,10 @@ fn resolve_maintenance_cell(
         size.powf(config.maintenance_exponent)
     };
     let whole = q.floor() as u32;
-    let rate_exponent = dyadic_exponent(rate)
-        .expect("positive maintenance_rate should be dyadic after config validation");
+    let rate = 2_f64.powi(-(rate_log2 as i32));
     let fractional = (q - f64::from(whole)) * rate;
     let mut rng = cell_rng(seed ^ MAINTENANCE_SALT, tick, cell_index as u64);
-    let mut quanta = binomial_pow2(&mut rng, whole, rate_exponent);
+    let mut quanta = binomial_pow2(&mut rng, whole, rate_log2);
     // For non-integer maintenance exponents, the fractional product is not
     // generally dyadic and deliberately retains the f64 Bernoulli draw.
     quanta += u32::from(rng.bernoulli(fractional));
@@ -695,14 +702,14 @@ fn resolve_free_resource_decay_cell(
     let threshold = resource_threshold(cell, config);
 
     let energy_excess = (f64::from(cell.free_energy) - threshold).max(0.0).floor() as u32;
-    let energy_decay = validated_dyadic_exponent("d_energy", config.d_energy)
-        .map_or(0, |exponent| {
-            binomial_pow2(&mut rng, energy_excess, exponent)
-        });
+    let energy_decay = config.d_energy_log2.map_or(0, |exponent| {
+        binomial_pow2(&mut rng, energy_excess, exponent)
+    });
     cell.free_energy -= energy_decay;
 
     let mass_excess = (f64::from(cell.free_mass) - threshold).max(0.0).floor() as u32;
-    let mass_decay = validated_dyadic_exponent("d_mass", config.d_mass)
+    let mass_decay = config
+        .d_mass_log2
         .map_or(0, |exponent| binomial_pow2(&mut rng, mass_excess, exponent));
     cell.free_mass -= mass_decay;
 }
@@ -728,12 +735,9 @@ fn resolve_spontaneous_creation_cell(
     if !is_spawn_candidate || cell.has_program() {
         return 0;
     }
-    if config.p_spawn == 0.0 {
+    let Some(spawn_exponent) = config.p_spawn_log2 else {
         return 0;
-    }
-
-    let spawn_exponent = dyadic_exponent(config.p_spawn)
-        .expect("positive p_spawn should be dyadic after config validation");
+    };
     let mut rng = cell_rng(seed ^ SPAWN_SALT, tick, cell_index as u64);
     if !bernoulli_pow2(&mut rng, spawn_exponent) {
         return 0;
@@ -815,20 +819,111 @@ mod tests {
     use crate::model::{Cell, Direction, Packet, Program};
 
     use super::{
-        pass3_ambient, pass3_packets, resolve_packets_bucketed, resolve_spontaneous_creation_cell,
-        Pass3AmbientOutput, SPAWN_SALT,
+        background_mutation_fires, mutate_end_of_tick_cell, pass3_ambient, pass3_packets,
+        resolve_packets_bucketed, resolve_spontaneous_creation_cell, Pass3AmbientOutput,
+        BACKGROUND_MUTATION_CALLS, MUTATION_SALT, SPAWN_SALT,
     };
-    use crate::config::dyadic_exponent;
     use crate::model::{Lineage, ProgramOrigin, ProgramSite, ProgramUid};
     use crate::opcode::op;
-    use crate::random::{bernoulli_pow2, cell_rng};
+    use crate::random::{bernoulli_pow2, binomial_pow2, cell_rng};
+
+    #[test]
+    fn background_stressed_mutation_routes_through_any_quantum_sampler() {
+        let mut always_cell = Cell::with_program(
+            Program::new_live(vec![op::NOP], Direction::Up, 1).expect("program should build"),
+        );
+        let always_program = always_cell.program.as_mut().expect("program should exist");
+        always_program.tick.was_live_at_tick_start = true;
+        always_program.tick.bg_radiation_consumed = 4;
+        let always_config = SimConfig {
+            mutation_base_log2: 63,
+            mutation_background_log2: 0,
+            ..SimConfig::default()
+        };
+
+        BACKGROUND_MUTATION_CALLS.with(|calls| calls.set(0));
+        assert_eq!(
+            mutate_end_of_tick_cell(&mut always_cell, &always_config, 9, 17, 0),
+            1
+        );
+        BACKGROUND_MUTATION_CALLS.with(|calls| assert_eq!(calls.get(), 1));
+        assert_ne!(
+            always_cell
+                .program
+                .as_ref()
+                .expect("program should exist")
+                .code,
+            vec![op::NOP]
+        );
+
+        let (background_consumed, exponent, tick, cell_index) = (4_u32, 1_u32, 11_u64, 0_usize);
+        let seed = (0_u64..)
+            .find(|seed| {
+                let mut rng = cell_rng(*seed ^ MUTATION_SALT, tick, cell_index as u64);
+                let triggers = binomial_pow2(&mut rng, background_consumed, exponent);
+                triggers > 0 && triggers < background_consumed
+            })
+            .expect("a partial-success trigger stream should exist");
+        let mut partial_cell = Cell::with_program(
+            Program::new_live(vec![op::NOP], Direction::Up, 2).expect("program should build"),
+        );
+        let partial_program = partial_cell.program.as_mut().expect("program should exist");
+        partial_program.tick.was_live_at_tick_start = true;
+        partial_program.tick.bg_radiation_consumed = background_consumed;
+        let partial_config = SimConfig {
+            mutation_base_log2: 63,
+            mutation_background_log2: exponent,
+            ..SimConfig::default()
+        };
+
+        assert_eq!(
+            mutate_end_of_tick_cell(&mut partial_cell, &partial_config, tick, seed, cell_index),
+            1
+        );
+        assert_ne!(
+            partial_cell
+                .program
+                .as_ref()
+                .expect("program should exist")
+                .code,
+            vec![op::NOP]
+        );
+    }
+
+    #[test]
+    fn background_mutation_matches_any_quantum_probability_law() {
+        const DRAWS: u32 = 200_000;
+        let exponent = 8_u32;
+        for consumed in [1_u32, 20, 25, 32] {
+            let mut rng = cell_rng(0x4d55_5441, consumed as u64, exponent as u64);
+            let fired = (0..DRAWS)
+                .filter(|_| background_mutation_fires(&mut rng, consumed, exponent))
+                .count() as f64;
+            let actual = fired / f64::from(DRAWS);
+            let per_quantum = 2_f64.powi(-(exponent as i32));
+            let expected = 1.0 - (1.0 - per_quantum).powi(consumed as i32);
+            assert!(
+                (actual - expected).abs() < 0.002,
+                "consumed={consumed}: actual {actual} differs from expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn background_mutation_k_zero_always_fires_without_consuming_a_draw() {
+        let mut rng = cell_rng(0x4d55_5441, 7, 11);
+        let mut twin = rng.clone();
+
+        assert!(background_mutation_fires(&mut rng, 32, 0));
+        assert_eq!(rng.next_u64(), twin.next_u64());
+    }
 
     /// Builds a config whose spawn draw always succeeds.
     fn always_spawn_config(width: u32, height: u32) -> SimConfig {
         SimConfig {
             width,
             height,
-            p_spawn: 1.0,
+            p_spawn_log2: Some(0),
             ..SimConfig::default()
         }
     }
@@ -867,14 +962,13 @@ mod tests {
         let config = always_spawn_config(8, 8);
         let (tick, seed, cell_index) = (7_u64, 0xfeed_face_dead_beef_u64, 5_usize);
 
-        // This fixture uses p_spawn = 1.0, so the exponent is 0 and
+        // This fixture uses p_spawn_log2 = 0, so the exponent is 0 and
         // `bernoulli_pow2` short-circuits to true *without consuming a draw*.
         // The spawn path therefore advances the stream exactly twice here:
         // direction, then id. The k > 0 path, where the Bernoulli really does
         // consume a draw, is covered by the test below.
-        let spawn_exponent =
-            dyadic_exponent(config.p_spawn).expect("p_spawn should be dyadic in this fixture");
-        assert_eq!(spawn_exponent, 0, "p_spawn = 1.0 is the k == 0 case");
+        let spawn_exponent = config.p_spawn_log2.expect("spawn should be enabled");
+        assert_eq!(spawn_exponent, 0, "p_spawn_log2 = 0 is the k == 0 case");
 
         let mut twin = cell_rng(seed ^ SPAWN_SALT, tick, cell_index as u64);
         assert!(bernoulli_pow2(&mut twin, spawn_exponent));
@@ -901,18 +995,18 @@ mod tests {
 
     #[test]
     fn spontaneous_spawn_mirrors_the_dyadic_sampler_on_the_drawing_path() {
-        // p_spawn = 2^-2, so `bernoulli_pow2` consumes a real draw before the
+        // p_spawn_log2 = 2 (probability 2^-2), so `bernoulli_pow2` consumes a real draw before the
         // direction and id draws. A regression that skipped or added that
-        // Bernoulli draw only for p_spawn < 1 would shift every successful
+        // Bernoulli draw only for k > 0 would shift every successful
         // spawn's direction and id while still passing the k == 0 test above.
         let config = SimConfig {
             width: 8,
             height: 8,
-            p_spawn: 0.25,
+            p_spawn_log2: Some(2),
             ..SimConfig::default()
         };
         let cell_count = config.cell_count().expect("config should size the grid");
-        let spawn_exponent = dyadic_exponent(config.p_spawn).expect("0.25 is dyadic");
+        let spawn_exponent = config.p_spawn_log2.expect("spawn should be enabled");
         assert_eq!(spawn_exponent, 2);
 
         let (tick, seed) = (11_u64, 0x0bad_c0de_dead_10cc_u64);
@@ -1175,9 +1269,9 @@ mod tests {
         let mut grid =
             Grid::from_cells(3, 1, vec![left, center, right]).expect("grid should build");
         let config = SimConfig {
-            d_energy: 0.0,
+            d_energy_log2: None,
             r_energy: 0.0,
-            d_mass: 0.0,
+            d_mass_log2: None,
             r_mass: 0.0,
             ..SimConfig::default()
         };

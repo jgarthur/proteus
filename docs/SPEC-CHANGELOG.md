@@ -2,6 +2,15 @@
 
 ## Recent Changes
 
+### 2026-08-21 (v0.4.0)
+
+- Replaced the floating `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` config fields with optional integer exponent fields ending in `_log2`. `Some(k)` means probability `2^-k` for `k` in `0..=63`; JSON `null` means never. Absent decay and maintenance fields default to 7, while absent spawn defaults to null.
+  - Why: the config now carries the exact representation consumed by the samplers, removes invalid dyadic floats and exponent derivation, and makes “never” explicit.
+- Changed background-stressed mutation from `min(x / 2^k, 1)` to one mutation if any of `x` independent `Bernoulli(2^-k)` triggers fires, with probability `1 - (1 - 2^-k)^x`.
+  - Why: independent per-quantum risk removes the hard saturation cliff while keeping the existing single-mutation-per-tick model.
+- Bumped the runner manifest schema `0.1.0` -> `0.2.0` (the exponent-field rename changes the canonical manifest serialization, which the runner spec ties to its schema version). Pre-0.4.0 manifests and run trees are incompatible: manifests are rejected by validation and completed run trees cannot resume. See the migration note in `RUNNER-SPEC.md`.
+  - Why: the field rename already invalidated old manifests; the schema bump labels that break honestly instead of leaving the version string stale.
+
 ### 2026-08-21 (v0.3.0)
 
 - Constrained `D_energy`, `D_mass`, `M`, and `P_spawn` to exactly 0, 1, or `2^-k` for integer `k` in `1..=63`, while preserving their existing Bernoulli/binomial semantics.

@@ -1,6 +1,6 @@
-# Proteus v0.3.0 Spec Companion
+# Proteus v0.4.0 Spec Companion
 
-Companion to **Proteus v0.3.0 Specification**. This document is not a redesign. It is an implementation-facing clarification layer: condensed phase ordering, operational invariants, truth tables, and testable edge-case rules.
+Companion to **Proteus v0.4.0 Specification**. This document is not a redesign. It is an implementation-facing clarification layer: condensed phase ordering, operational invariants, truth tables, and testable edge-case rules.
 
 When prose in the main spec feels broad, this document gives the intended machine semantics.
 
@@ -202,6 +202,8 @@ If an instruction cannot pay a required additional cost:
 ## 5.4 Background-radiation-stressed mutation trigger
 
 A program is considered background-radiation-stressed this tick iff **any base instruction cost** for that program used background radiation.
+
+Each of the `x` consumed background quanta is an independent `Bernoulli(2^-mutation_background_log2)` trigger. Exactly one mutation is applied if any trigger fires, so the combined probability is `1 - (1 - 2^-mutation_background_log2)^x`. For `mutation_background_log2 = 0`, every positive dose triggers and the deterministic trigger consumes no RNG draw. The instruction-index and bit-index draws then retain their normal order.
 
 Background radiation used for no other purpose changes mutation risk only through this rule.
 

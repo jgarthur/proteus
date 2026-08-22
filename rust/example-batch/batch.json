@@ -1,5 +1,5 @@
 {
-  "runner_schema_version": "0.1.0",
+  "runner_schema_version": "0.2.0",
   "jobs": 4,
   "runs": [
     { "manifest": "seed-1.json" },

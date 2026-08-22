@@ -15,42 +15,23 @@ export function parseCode(value: string): number[] {
     .filter((valuePart) => Number.isFinite(valuePart));
 }
 
-/** Largest supported `k` for a `2^-k` probability, matching the backend samplers. */
-const MAX_DYADIC_EXPONENT = 63;
+/** Largest supported k for a 2^-k probability, matching the backend samplers. */
+export const MAX_DYADIC_EXPONENT = 63;
 
-/**
- * Returns `k` when `value` is exactly `2^-k` for `k` in `0..=63`, else `null`.
- *
- * Mirrors `dyadic_exponent` in `rust/src/config.rs`. The `2 ** -k === value`
- * round-trip is what makes this exact: `Math.log2` only proposes the candidate
- * exponent, and any non-power-of-two fails the equality.
- */
-function dyadicExponent(value: number): number | null {
-  if (!Number.isFinite(value) || value <= 0) {
-    return null;
+export function getDyadicExponentError(value: number | null, allowNever: boolean): string | null {
+  const requiredMessage = `Must be an integer 0-${MAX_DYADIC_EXPONENT}`;
+  const optionalMessage = `Must be empty (never) or an integer 0-${MAX_DYADIC_EXPONENT}`;
+  if (value === null) {
+    return allowNever ? null : requiredMessage;
   }
-
-  const exponent = Math.round(-Math.log2(value));
-  if (exponent < 0 || exponent > MAX_DYADIC_EXPONENT) {
-    return null;
+  if (!Number.isInteger(value) || value < 0 || value > MAX_DYADIC_EXPONENT) {
+    return allowNever ? optionalMessage : requiredMessage;
   }
-
-  return 2 ** -exponent === value ? exponent : null;
+  return null;
 }
 
-/**
- * Returns the valid dyadic probabilities bracketing an in-range invalid value.
- *
- * Mirrors `dyadic_probability_neighbors` in `rust/src/config.rs`.
- */
-function dyadicNeighbors(value: number): [number, number] {
-  const smallest = 2 ** -MAX_DYADIC_EXPONENT;
-  if (value < smallest) {
-    return [0, smallest];
-  }
-
-  const exponent = Math.floor(Math.log2(value));
-  return [2 ** exponent, 2 ** (exponent + 1)];
+function isOptionalExponent(value: unknown): value is number | null {
+  return value === null || typeof value === 'number';
 }
 
 export function validateConfig(config: SimConfig): ConfigErrors {
@@ -81,28 +62,16 @@ export function validateConfig(config: SimConfig): ConfigErrors {
     if (value < 0) errors[String(field)] = 'Must be non-negative';
   });
 
-  const probabilityFields: Array<keyof SimConfig> = [
-    'd_energy',
-    'd_mass',
-    'maintenance_rate',
-    'p_spawn',
-  ];
+  const optionalExponentFields = [
+    'd_energy_log2',
+    'd_mass_log2',
+    'maintenance_rate_log2',
+    'p_spawn_log2',
+  ] as const;
 
-  probabilityFields.forEach((field) => {
-    const value = config[field] as number;
-    if (!Number.isFinite(value) || value < 0 || value > 1) {
-      errors[String(field)] = 'Must be between 0.0 and 1.0';
-      return;
-    }
-    // The backend samples these with exact bit operations, so it accepts only
-    // 0, 1, or 2^-k (k = 1-63). See API-SPEC 0.2.4 section 8.
-    if (value === 0 || dyadicExponent(value) !== null) {
-      return;
-    }
-
-    const [lower, upper] = dyadicNeighbors(value);
-    errors[String(field)] =
-      `Must be 0, 1, or 2^-k (k = 1-${MAX_DYADIC_EXPONENT}); nearest valid values are ${lower} and ${upper}`;
+  optionalExponentFields.forEach((field) => {
+    const error = getDyadicExponentError(config[field], true);
+    if (error) errors[field] = error;
   });
 
   ['t_cap', 'maintenance_exponent', 'local_action_exponent'].forEach((field) => {
@@ -122,10 +91,8 @@ export function validateConfig(config: SimConfig): ConfigErrors {
   // Both exponents feed a single 64-bit draw in the backend samplers, so
   // values above 63 are configuration errors rather than "effectively never".
   (['mutation_base_log2', 'mutation_background_log2'] as const).forEach((field) => {
-    const value = config[field];
-    if (!Number.isInteger(value) || value < 0 || value > MAX_DYADIC_EXPONENT) {
-      errors[field] = `Must be an integer 0-${MAX_DYADIC_EXPONENT}`;
-    }
+    const error = getDyadicExponentError(config[field], false);
+    if (error) errors[field] = error;
   });
 
   config.seed_programs.forEach((seed, index) => {
@@ -228,15 +195,15 @@ export function loadConfigFromStorage(): SimConfig | null {
     typeof parsed.seed !== 'number' ||
     typeof parsed.r_energy !== 'number' ||
     typeof parsed.r_mass !== 'number' ||
-    typeof parsed.d_energy !== 'number' ||
-    typeof parsed.d_mass !== 'number' ||
+    !isOptionalExponent(parsed.d_energy_log2) ||
+    !isOptionalExponent(parsed.d_mass_log2) ||
     typeof parsed.t_cap !== 'number' ||
-    typeof parsed.maintenance_rate !== 'number' ||
+    !isOptionalExponent(parsed.maintenance_rate_log2) ||
     typeof parsed.maintenance_exponent !== 'number' ||
     typeof parsed.local_action_exponent !== 'number' ||
     typeof parsed.n_synth !== 'number' ||
     typeof parsed.inert_grace_ticks !== 'number' ||
-    typeof parsed.p_spawn !== 'number' ||
+    !isOptionalExponent(parsed.p_spawn_log2) ||
     typeof parsed.mutation_base_log2 !== 'number' ||
     typeof parsed.mutation_background_log2 !== 'number' ||
     !Array.isArray(parsed.seed_programs) ||
@@ -254,15 +221,15 @@ export function loadConfigFromStorage(): SimConfig | null {
     seed: parsed.seed,
     r_energy: parsed.r_energy,
     r_mass: parsed.r_mass,
-    d_energy: parsed.d_energy,
-    d_mass: parsed.d_mass,
+    d_energy_log2: parsed.d_energy_log2,
+    d_mass_log2: parsed.d_mass_log2,
     t_cap: parsed.t_cap,
-    maintenance_rate: parsed.maintenance_rate,
+    maintenance_rate_log2: parsed.maintenance_rate_log2,
     maintenance_exponent: parsed.maintenance_exponent,
     local_action_exponent: parsed.local_action_exponent,
     n_synth: parsed.n_synth,
     inert_grace_ticks: parsed.inert_grace_ticks,
-    p_spawn: parsed.p_spawn,
+    p_spawn_log2: parsed.p_spawn_log2,
     mutation_base_log2: parsed.mutation_base_log2,
     mutation_background_log2: parsed.mutation_background_log2,
     seed_programs: parsed.seed_programs,

@@ -62,6 +62,10 @@ async fn rest_lifecycle_flow_and_inspection_work() {
     let create_json = response_json(create_response).await;
     assert_eq!(create_json["status"], "created");
     assert_eq!(create_json["tick"], 0);
+    assert_eq!(create_json["config"]["d_energy_log2"], 7);
+    assert_eq!(create_json["config"]["d_mass_log2"], 7);
+    assert_eq!(create_json["config"]["maintenance_rate_log2"], 7);
+    assert!(create_json["config"]["p_spawn_log2"].is_null());
 
     let status_response = app
         .clone()
@@ -81,6 +85,9 @@ async fn rest_lifecycle_flow_and_inspection_work() {
         .expect("config request should succeed");
     let config_json = response_json(config_response).await;
     assert_eq!(config_json["width"], 2);
+    assert_eq!(config_json["d_energy_log2"], 7);
+    assert_eq!(config_json["maintenance_rate_log2"], 7);
+    assert!(config_json["p_spawn_log2"].is_null());
     assert_eq!(config_json["seed_programs"][0]["code"], json!([80, 100]));
     assert_eq!(config_json["seed_environment"][0]["bg_radiation"], 9);
 
@@ -189,6 +196,24 @@ async fn rest_errors_use_expected_status_codes_and_payloads() {
     assert_eq!(missing_sim.status(), StatusCode::NOT_FOUND);
     let missing_json = response_json(missing_sim).await;
     assert_eq!(missing_json["error"]["code"], "NO_SIM");
+
+    let stale_create = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            "/v1/sim",
+            json!({
+                "width": 1,
+                "height": 1,
+                "seed": 9,
+                "d_mass": 0.25,
+                "maintenance_rate": 0.5,
+                "p_spawn": 0.5
+            }),
+        ))
+        .await
+        .expect("stale create request should return an error response");
+    assert!(stale_create.status().is_client_error());
 
     let invalid_create = app
         .clone()
@@ -316,15 +341,15 @@ async fn websocket_subscriptions_stream_current_state_and_report_errors() {
         // steady-state ambient background seeding in this test.
         r_energy: Some(0.0),
         r_mass: Some(0.0),
-        d_energy: None,
-        d_mass: None,
+        d_energy_log2: None,
+        d_mass_log2: None,
         t_cap: None,
-        maintenance_rate: None,
+        maintenance_rate_log2: None,
         maintenance_exponent: None,
         local_action_exponent: None,
         n_synth: None,
         inert_grace_ticks: None,
-        p_spawn: None,
+        p_spawn_log2: None,
         mutation_base_log2: None,
         mutation_background_log2: None,
         seed_programs: vec![serde_json::from_value(json!({
@@ -417,15 +442,15 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
         seed: 23,
         r_energy: Some(0.0),
         r_mass: Some(100.0),
-        d_energy: Some(1.0),
-        d_mass: Some(1.0),
+        d_energy_log2: Some(Some(0)),
+        d_mass_log2: Some(Some(0)),
         t_cap: None,
-        maintenance_rate: None,
+        maintenance_rate_log2: None,
         maintenance_exponent: None,
         local_action_exponent: None,
         n_synth: None,
         inert_grace_ticks: None,
-        p_spawn: Some(1.0),
+        p_spawn_log2: Some(Some(0)),
         mutation_base_log2: None,
         mutation_background_log2: None,
         seed_programs: Vec::new(),

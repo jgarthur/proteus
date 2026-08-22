@@ -11,10 +11,10 @@ fn packet_wraps_toroidally_under_full_run_tick() {
         .configure(|config| {
             config.r_energy = 0.0;
             config.r_mass = 0.0;
-            config.d_energy = 0.0;
-            config.d_mass = 0.0;
-            config.maintenance_rate = 0.0;
-            config.p_spawn = 0.0;
+            config.d_energy_log2 = None;
+            config.d_mass_log2 = None;
+            config.maintenance_rate_log2 = None;
+            config.p_spawn_log2 = None;
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
@@ -43,10 +43,10 @@ fn absorb_and_collect_accumulate_with_one_tick_arrival_lag() {
         .configure(|config| {
             config.r_energy = 100.0;
             config.r_mass = 100.0;
-            config.d_energy = 0.0;
-            config.d_mass = 0.0;
-            config.maintenance_rate = 0.0;
-            config.p_spawn = 0.0;
+            config.d_energy_log2 = None;
+            config.d_mass_log2 = None;
+            config.maintenance_rate_log2 = None;
+            config.p_spawn_log2 = None;
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })

@@ -93,14 +93,10 @@ pub fn cell_rng(master_seed: u64, tick: u64, cell_index: u64) -> WyRand {
     WyRand::with_seed(mixed)
 }
 
-/// Draws an exact Bernoulli event with probability `2^-k` for `k` in `0..=63`.
+/// Draws an exact Bernoulli event with probability 2^-k for k in 0..=63.
 ///
-/// `k == 0` is probability 1 and returns without consuming a draw. Exponents
-/// above 63 have no exact 64-bit representation and panic: `SimConfig::validate`
-/// rejects them as configuration errors, so reaching this assertion means a
-/// caller bypassed validation. The check is deliberately active in release
-/// builds because the masked draw below would otherwise wrap `1 << k` to
-/// `1 << 0` and silently invert the sampler into probability 1.
+/// k == 0 is probability 1 and returns without consuming a draw. Exponents
+/// above 63 panic because validated simulation configs cannot contain them.
 pub fn bernoulli_pow2(rng: &mut WyRand, k: u32) -> bool {
     assert!(k <= 63, "bernoulli_pow2 supports k in 0..=63, got {k}");
     if k == 0 {
@@ -108,28 +104,6 @@ pub fn bernoulli_pow2(rng: &mut WyRand, k: u32) -> bool {
     }
 
     rng.next_u64() & ((1_u64 << k) - 1) == 0
-}
-
-/// Draws an exact Bernoulli event with probability `min(x / 2^k, 1)`.
-///
-/// Panics for `k > 63` on the same grounds as [`bernoulli_pow2`]. `k == 0` is
-/// still handled correctly (every `x >= 1` saturates to probability 1), but
-/// callers are expected to short-circuit that case themselves.
-pub fn bernoulli_ratio_pow2(rng: &mut WyRand, x: u32, k: u32) -> bool {
-    assert!(
-        k <= 63,
-        "bernoulli_ratio_pow2 supports k in 1..=63, got {k}"
-    );
-    debug_assert!((1..=63).contains(&k));
-    if x == 0 {
-        return false;
-    }
-    let denominator = 1_u64 << k;
-    if u64::from(x) >= denominator {
-        return true;
-    }
-
-    (rng.next_u64() & (denominator - 1)) < u64::from(x)
 }
 
 /// Counts successes among a requested number of independent fair coin flips.
@@ -228,10 +202,7 @@ pub fn poisson(rng: &mut WyRand, rate: f64) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        bernoulli_pow2, bernoulli_ratio_pow2, binomial_pow2, cell_rng, poisson, splitmix64,
-        PoissonInverter,
-    };
+    use super::{bernoulli_pow2, binomial_pow2, cell_rng, poisson, splitmix64, PoissonInverter};
 
     #[test]
     fn splitmix64_is_stable_for_known_input() {
@@ -263,13 +234,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "bernoulli_ratio_pow2 supports k in 1..=63, got 64")]
-    fn bernoulli_ratio_pow2_rejects_unsupported_exponent() {
-        let mut rng = cell_rng(1, 1, 1);
-        bernoulli_ratio_pow2(&mut rng, 1, 64);
-    }
-
-    #[test]
     #[should_panic(expected = "binomial_pow2 supports k in 0..=63, got 64")]
     fn binomial_pow2_rejects_unsupported_exponent() {
         let mut rng = cell_rng(1, 1, 1);
@@ -280,7 +244,6 @@ mod tests {
     fn highest_supported_exponent_still_samples() {
         let mut rng = cell_rng(2, 2, 2);
         assert!(!bernoulli_pow2(&mut rng, 63));
-        assert!(!bernoulli_ratio_pow2(&mut rng, 1, 63));
         assert_eq!(binomial_pow2(&mut rng, 8, 63), 0);
     }
 
@@ -299,16 +262,6 @@ mod tests {
         let mut rng = cell_rng(2, 3, 4);
         let mut twin = rng.clone();
         assert!(bernoulli_pow2(&mut rng, 0));
-        assert_eq!(rng.next_u64(), twin.next_u64());
-
-        let mut rng = cell_rng(3, 4, 5);
-        let mut twin = rng.clone();
-        assert!(!bernoulli_ratio_pow2(&mut rng, 0, 8));
-        assert_eq!(rng.next_u64(), twin.next_u64());
-
-        let mut rng = cell_rng(4, 5, 6);
-        let mut twin = rng.clone();
-        assert!(bernoulli_ratio_pow2(&mut rng, 256, 8));
         assert_eq!(rng.next_u64(), twin.next_u64());
 
         let mut rng = cell_rng(5, 6, 7);
@@ -337,10 +290,6 @@ mod tests {
             assert_eq!(
                 bernoulli_pow2(&mut first, 4),
                 bernoulli_pow2(&mut second, 4)
-            );
-            assert_eq!(
-                bernoulli_ratio_pow2(&mut first, 13, 8),
-                bernoulli_ratio_pow2(&mut second, 13, 8)
             );
             assert_eq!(
                 binomial_pow2(&mut first, 64, 3),

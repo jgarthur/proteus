@@ -32,7 +32,7 @@ Decisions worth keeping:
 - **Seed programs and spontaneous spawns are lineage roots** (`parent` NONE, `generation` 0), matching SPEC.md's "primordial bootstrap - no parent required" and API-SPEC's rule that bootstrap programs are not births. That makes "did a spawn-rooted lineage reach generation >= 1?" (milestone M5) directly observable.
 - **Parent is captured when the create commit is queued**, not when it is applied, because Pass 2 applies every move before every create.
 - **Computed on sample, never incrementally**, to keep the tick path free of new branches, stores, and draws.
-- **Schema placement**: API metrics schema 0.2.4 -> 0.2.5; `RUNNER_SCHEMA_VERSION` deliberately stays `0.1.0` because it feeds `input_digest` and bumping it would invalidate every golden digest and resume record.
+- **Schema placement**: API metrics schema 0.2.4 -> 0.2.5. That additive metrics change deliberately left runner schema 0.1.0 alone because it did not alter canonical input bytes. CONFIG-DYADIC-K later overrides that decision with runner schema 0.2.0: its field renames and null encoding change canonicalization and already invalidate every pre-v0.4.0 manifest and resume record.
 - **Bucket widths were re-measured, not assumed.** Generation and stack-depth histograms were widened from the specified 32/64 to 512/512 after a grown `web-256x256` run showed 97.8% and 77.8% of the population in the overflow bins. Stack depth still overflows: on a real ecology it is p50 759 / p90 8315 / max 32767, spanning the entire stack cap, so no affordable linear width empties that bin. See CENSUS-LOG-BUCKETS.
 
 Deferred follow-ups: `LINEAGE-DUMP`, `INSPECTOR-LINEAGE`, `CENSUS-STREAM`, `CENSUS-LOG-BUCKETS`.
@@ -105,7 +105,7 @@ References: `docs/API-SPEC.md` §10, `docs/FRONTEND-SPEC.md` §6, `rust/src/obse
 
 ### CONFIG-RATES: Rework backend ambient/decay config fields from probabilities to true rates
 
-Context: the current backend validates `r_energy`, `r_mass`, `d_energy`, and `d_mass` as probabilities in `[0, 1]`, but the intended tuning model treats them as rates. Reconcile the engine, API docs, and frontend defaults around a single rate-based semantics.
+Context: the backend now validates `r_energy` and `r_mass` as non-negative Poisson arrival rates, while `d_energy_log2` and `d_mass_log2` are optional integer decay exponents (`0..=63`, or null for no decay). This preserves the completed CONFIG-RATES distinction between arrival rates and per-quantum decay probabilities.
 References: `docs/SPEC.md`, `docs/API-SPEC.md` §8, `rust/src/config.rs`, `rust/src/pass3.rs`, `frontend/src/constants.ts`
 
 ### CONFIG-SCENARIO: Share one engine-owned scenario type between the web layer and the runner
@@ -195,30 +195,22 @@ References: `docs/FRONTEND-SPEC.md`, `frontend/src/App.tsx`, `frontend/src/compo
 
 ### CONFIG-DYADIC-K
 
-Represent every dyadic probability in `SimConfig` as its exponent: the config
-field carries integer k and the probability is 2^-k, with explicit `null`
-meaning probability 0 (never). Replaces the f64 fields (`d_energy`, `d_mass`,
-`maintenance_rate`, `p_spawn`) with `*_log2` fields matching the existing
-`mutation_base_log2` convention, making invalid values unrepresentable and
-deleting `dyadic_exponent`, `NotDyadicProbability`, and most of the frontend
-dyadic validator. Costs (accepted 2026-08-21): config-contract break (API-SPEC
-bump), SPEC.md domain edits, fixture/manifest/frontend migration, runner
-input-digest churn. Design point to settle explicitly: serde must distinguish
-absent (use default) from explicit null (never) — `p_spawn` defaults to never
-while `d_*` do not. The fractional maintenance term still computes 2^-k as f64
-when `maintenance_exponent != 1.0` (exact conversion).
+Delivered (2026-08-21): `SimConfig` stores `d_energy_log2`, `d_mass_log2`,
+`maintenance_rate_log2`, and `p_spawn_log2` as `Option<u32>`. `Some(k)`
+means `2^-k` for `k` in `0..=63`; `None`/JSON `null` means never.
+Absent decay and maintenance fields default to `Some(7)`; absent spawn defaults
+to `None`. Serialization always emits explicit nulls. The float dyadic
+derivation and validation classes were deleted, the frontend uses bounded
+integer inputs with live previews, API-SPEC is 0.3.0, and the runner golden
+digest is `sha256:6eec9c637d8967472f2b9712ee52014968086285e5fc14ad32cba13d38fe9292`.
+The fractional maintenance term still converts `2^-k` exactly to `f64`.
 
 ### MUTATION-ANY-QUANTUM
 
-Background-stressed mutation becomes "each absorbed background quantum is an
-independent Bernoulli(2^-mutation_background_log2) trigger; mutate if any
-fire": p = 1 - (1 - 2^-k)^x, sampled exactly as `binomial_pow2(x, k) > 0`.
-Near-identical to the current `min(x/2^k, 1)` at small doses (~0.4pp at
-x = 25-32, k = 8) but smooth instead of a hard cliff at x = 2^k, and more
-physical. `bernoulli_ratio_pow2` becomes dead and is removed. Draw streams
-change: crate/spec version bump and sampled-literal migration — batch with
-CONFIG-DYADIC-K to pay that once. Open spec question: single mutation when any
-quantum fires (proposed default) vs `count` mutations from the binomial draw
-(semantic escalation; needs its own decision). Interaction: the ambient
-rebalance analysis (2026-08-21 sweep) shows the same x doubles as energy
-income, so this task changes the dose-response curve the sweep measures.
+Delivered (2026-08-21): each consumed background quantum independently triggers
+with probability `2^-mutation_background_log2`, sampled exactly as
+`binomial_pow2(rng, x, k) > 0`. If any trigger fires, the program mutates
+once; trigger counts do not cause multiple mutations. `k = 0` is deterministic
+and consumes no trigger draw, so the following instruction-index and bit-index
+draws keep their order. The dead `bernoulli_ratio_pow2` helper, re-export, and
+tests were removed and replaced with probability-law and draw-accounting tests.

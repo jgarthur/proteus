@@ -22,8 +22,8 @@ use crate::observe::MetricsSnapshot;
 pub use batch::{batch_main, BatchOptions, BatchOutcome};
 pub use single::{run_main, RunOptions};
 
-/// Identifies the first stable headless-runner contract.
-pub const RUNNER_SCHEMA_VERSION: &str = "0.1.0";
+/// Identifies the current headless-runner contract.
+pub const RUNNER_SCHEMA_VERSION: &str = "0.2.0";
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -282,6 +282,7 @@ pub fn load_run_manifest(path: &Path) -> Result<ResolvedRun, RunnerError> {
             source_manifest.display()
         ))
     })?;
+    require_manifest_probability_exponents(&bytes, &source_manifest)?;
     let manifest: RunManifest = serde_json::from_slice(&bytes).map_err(|error| {
         RunnerError::invalid(format!(
             "invalid run manifest {}: {error}",
@@ -302,6 +303,35 @@ pub fn load_run_manifest(path: &Path) -> Result<ResolvedRun, RunnerError> {
         output_directory,
         input_digest,
     })
+}
+
+fn require_manifest_probability_exponents(
+    bytes: &[u8],
+    source_manifest: &Path,
+) -> Result<(), RunnerError> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|error| {
+        RunnerError::invalid(format!(
+            "invalid run manifest {}: {error}",
+            source_manifest.display()
+        ))
+    })?;
+    let simulation = value
+        .get("simulation")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| RunnerError::invalid("run manifest is missing field simulation"))?;
+    for field in [
+        "d_energy_log2",
+        "d_mass_log2",
+        "maintenance_rate_log2",
+        "p_spawn_log2",
+    ] {
+        if !simulation.contains_key(field) {
+            return Err(RunnerError::invalid(format!(
+                "run manifest simulation is missing field {field}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Reads and strictly validates a batch manifest.
@@ -385,7 +415,7 @@ fn valid_run_id(run_id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
-/// Computes the schema `0.1.0` golden-compatible semantic input digest.
+/// Computes the schema `0.2.0` golden-compatible semantic input digest.
 pub fn input_digest(manifest: &RunManifest) -> Result<String, RunnerError> {
     let bootstrap = manifest.bootstrap.normalized();
     let config = &manifest.simulation;
@@ -401,10 +431,14 @@ pub fn input_digest(manifest: &RunManifest) -> Result<String, RunnerError> {
     .expect("writing to a String should not fail");
     write_float(&mut canonical, "r_energy", config.r_energy);
     write_float(&mut canonical, "r_mass", config.r_mass);
-    write_float(&mut canonical, "d_energy", config.d_energy);
-    write_float(&mut canonical, "d_mass", config.d_mass);
+    write_optional_exponent(&mut canonical, "d_energy_log2", config.d_energy_log2);
+    write_optional_exponent(&mut canonical, "d_mass_log2", config.d_mass_log2);
     write_float(&mut canonical, "t_cap", config.t_cap);
-    write_float(&mut canonical, "maintenance_rate", config.maintenance_rate);
+    write_optional_exponent(
+        &mut canonical,
+        "maintenance_rate_log2",
+        config.maintenance_rate_log2,
+    );
     write_float(
         &mut canonical,
         "maintenance_exponent",
@@ -421,7 +455,7 @@ pub fn input_digest(manifest: &RunManifest) -> Result<String, RunnerError> {
         config.n_synth, config.inert_grace_ticks
     )
     .expect("writing to a String should not fail");
-    write_float(&mut canonical, "p_spawn", config.p_spawn);
+    write_optional_exponent(&mut canonical, "p_spawn_log2", config.p_spawn_log2);
     write!(
         canonical,
         ",\"mutation_base_log2\":{},\"mutation_background_log2\":{}",
@@ -477,6 +511,14 @@ pub fn input_digest(manifest: &RunManifest) -> Result<String, RunnerError> {
     .expect("writing to a String should not fail");
 
     Ok(sha256_bytes(canonical.as_bytes()))
+}
+
+fn write_optional_exponent(output: &mut String, field: &str, value: Option<u32>) {
+    match value {
+        Some(value) => write!(output, ",\"{field}\":{value}"),
+        None => write!(output, ",\"{field}\":null"),
+    }
+    .expect("writing to a String should not fail");
 }
 
 fn write_float(output: &mut String, field: &str, value: f64) {
@@ -768,15 +810,34 @@ pub(crate) fn sha256_bytes(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{input_digest, timestamp_now, RunManifest};
+    use super::{input_digest, require_manifest_probability_exponents, timestamp_now, RunManifest};
+
+    #[test]
+    fn runner_requires_explicit_optional_exponent_fields() {
+        let json = br#"{
+      "runner_schema_version":"0.2.0",
+      "run_id":"missing-exponent",
+      "simulation":{"width":2,"height":2,"seed":42,"r_energy":0.25,"r_mass":0.05,"d_mass_log2":7,"t_cap":4.0,"maintenance_rate_log2":7,"maintenance_exponent":1.0,"local_action_exponent":1.0,"n_synth":1,"inert_grace_ticks":10,"p_spawn_log2":null,"mutation_base_log2":16,"mutation_background_log2":8},
+      "bootstrap":{"programs":[],"environment":[]},
+      "limits":{"ticks":1},
+      "observation":{"every_n_ticks":1},
+      "output_directory":"runs/missing-exponent"
+    }"#;
+        let error = require_manifest_probability_exponents(
+            json,
+            std::path::Path::new("missing-exponent.json"),
+        )
+        .expect_err("runner manifests must not inherit SimConfig defaults");
+        assert!(error.to_string().contains("missing field d_energy_log2"));
+    }
 
     #[test]
     fn golden_manifest_digest_is_stable() {
         let manifest: RunManifest = serde_json::from_str(
             r#"{
-              "runner_schema_version":"0.1.0",
+              "runner_schema_version":"0.2.0",
               "run_id":"example-run-0001",
-              "simulation":{"width":64,"height":64,"seed":42,"r_energy":0.25,"r_mass":0.05,"d_energy":0.0078125,"d_mass":0.0078125,"t_cap":4.0,"maintenance_rate":0.0078125,"maintenance_exponent":1.0,"local_action_exponent":1.0,"n_synth":1,"inert_grace_ticks":10,"p_spawn":0.0,"mutation_base_log2":16,"mutation_background_log2":8},
+              "simulation":{"width":64,"height":64,"seed":42,"r_energy":0.25,"r_mass":0.05,"d_energy_log2":7,"d_mass_log2":7,"t_cap":4.0,"maintenance_rate_log2":7,"maintenance_exponent":1.0,"local_action_exponent":1.0,"n_synth":1,"inert_grace_ticks":10,"p_spawn_log2":null,"mutation_base_log2":16,"mutation_background_log2":8},
               "bootstrap":{"programs":[{"x":32,"y":24,"code":[80,100],"free_energy":20,"free_mass":12}],"environment":[{"x":31,"y":24,"free_energy":20,"free_mass":12,"bg_radiation":0,"bg_mass":0}]},
               "limits":{"ticks":10000},"observation":{"every_n_ticks":50},"output_directory":"runs/example-run-0001"
             }"#,
@@ -784,16 +845,16 @@ mod tests {
         .expect("golden manifest should parse");
         assert_eq!(
             input_digest(&manifest).expect("digest should build"),
-            "sha256:1ee9860658e963b0fdc49d1660b47c5f37c7d8845aeb5560c5cc593cc6e9953b"
+            "sha256:6eec9c637d8967472f2b9712ee52014968086285e5fc14ad32cba13d38fe9292"
         );
     }
 
     #[test]
     fn digest_normalizes_float_spelling_bootstrap_order_and_storage_identity() {
         let json = r#"{
-          "runner_schema_version":"0.1.0",
+          "runner_schema_version":"0.2.0",
           "run_id":"first-name",
-          "simulation":{"width":2,"height":2,"seed":42,"r_energy":2.5e-1,"r_mass":5e-2,"d_energy":0.0078125,"d_mass":0.0078125,"t_cap":4e0,"maintenance_rate":7.8125e-3,"maintenance_exponent":1,"local_action_exponent":1.0,"n_synth":1,"inert_grace_ticks":10,"p_spawn":-0.0,"mutation_base_log2":16,"mutation_background_log2":8},
+          "simulation":{"width":2,"height":2,"seed":42,"r_energy":2.5e-1,"r_mass":5e-2,"d_energy_log2":7,"d_mass_log2":7,"t_cap":4e0,"maintenance_rate_log2":7,"maintenance_exponent":1,"local_action_exponent":1.0,"n_synth":1,"inert_grace_ticks":10,"p_spawn_log2":null,"mutation_base_log2":16,"mutation_background_log2":8},
           "bootstrap":{"programs":[{"x":1,"y":1,"code":[80],"free_energy":20,"free_mass":12},{"x":0,"y":0,"code":[100],"free_energy":4,"free_mass":3}],"environment":[{"x":0,"y":1,"free_energy":1,"free_mass":2,"bg_radiation":3,"bg_mass":4},{"x":1,"y":0,"free_energy":5,"free_mass":6,"bg_radiation":7,"bg_mass":8}]},
           "limits":{"ticks":10},"observation":{"every_n_ticks":2},"output_directory":"runs/first"
         }"#;

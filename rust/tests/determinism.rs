@@ -16,11 +16,11 @@ fn build_deterministic_fixture() -> Simulation {
         .configure(|config| {
             config.r_energy = 0.45;
             config.r_mass = 0.35;
-            config.d_energy = 0.25;
-            config.d_mass = 0.125;
-            config.maintenance_rate = 0.25;
+            config.d_energy_log2 = Some(2);
+            config.d_mass_log2 = Some(3);
+            config.maintenance_rate_log2 = Some(2);
             config.maintenance_exponent = 1.0;
-            config.p_spawn = 0.5;
+            config.p_spawn_log2 = Some(1);
             config.mutation_base_log2 = 3;
             config.mutation_background_log2 = 1;
         })
@@ -174,15 +174,15 @@ fn build_frontend_seed_fixture() -> Simulation {
     let mut builder = WorldBuilder::new(64, 64).seed(1).configure(|config| {
         config.r_energy = 0.25;
         config.r_mass = 1.0;
-        config.d_energy = 0.007_812_5;
-        config.d_mass = 0.007_812_5;
+        config.d_energy_log2 = Some(7);
+        config.d_mass_log2 = Some(7);
         config.t_cap = 4.0;
-        config.maintenance_rate = 0.0078125;
+        config.maintenance_rate_log2 = Some(7);
         config.maintenance_exponent = 1.0;
         config.local_action_exponent = 1.0;
         config.n_synth = 1;
         config.inert_grace_ticks = 10;
-        config.p_spawn = 0.0;
+        config.p_spawn_log2 = None;
         config.mutation_base_log2 = 16;
         config.mutation_background_log2 = 8;
     });

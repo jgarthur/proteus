@@ -36,8 +36,7 @@ pub use pass3::{
     Pass3TailContext, Pass3TailOutput,
 };
 pub use random::{
-    bernoulli_pow2, bernoulli_ratio_pow2, binomial_pow2, cell_rng, poisson, splitmix64,
-    PoissonInverter, WyRand,
+    bernoulli_pow2, binomial_pow2, cell_rng, poisson, splitmix64, PoissonInverter, WyRand,
 };
 pub use simulation::{
     PreparedTick, Simulation, SimulationError, TickObserver, TickPhase, TickReport, TickScratch,

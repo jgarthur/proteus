@@ -2,11 +2,11 @@
 
 **Status**: Provisional — subject to change as the backend API matures.
 
-**Spec version**: 0.2.3
+**Spec version**: 0.3.0
 
-**Changed in 0.2.3**: config editor validation narrowed to match API-SPEC 0.2.4 — `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` accept only 0, 1, or `2^-k` for integer `k` in `1..=63`, and both mutation exponent fields accept only integers in `0..=63` (§9).
+**Changed in 0.3.0**: the config editor uses the API-SPEC 0.3.0 exponent fields. Each probability exponent is an integer in `0..=63`; the optional fields may be empty/`null` for never, and all exponent inputs show a live `2^-k` probability preview (§9).
 
-**Targets**: Proteus v0.3.0, API-SPEC v0.2.4
+**Targets**: Proteus v0.4.0, API-SPEC v0.3.0
 
 ---
 
@@ -457,7 +457,7 @@ Sorted by `created_at` descending (newest first).
 
 The config editor appears in the **Controls** tab when creating a new simulation. It is a form that produces the JSON body for `POST /v1/sim` (API-SPEC §8).
 
-`r_energy` and `r_mass` are Poisson arrival means per cell per tick, so they are valid for any finite non-negative number. `d_energy`, `d_mass`, `maintenance_rate`, and `p_spawn` must each be exactly 0, 1, or `2^-k` for integer `k` in `1..=63`. Both mutation exponent fields must be integers in `0..=63`.
+`r_energy` and `r_mass` are Poisson arrival means per cell per tick, so they are valid for any finite non-negative number. The four optional probability exponents accept integers in `0..=63`; empty input serializes as `null` and means never. Both required mutation exponent fields accept integers in `0..=63`. The editor displays the decoded `2^-k` probability beside every exponent field.
 
 ### Field groups
 
@@ -475,20 +475,20 @@ The config editor appears in the **Controls** tab when creating a new simulation
 |-------|------|---------|------------|
 | `r_energy` | number | 0.25 | ≥ 0.0 |
 | `r_mass` | number | 0.05 | ≥ 0.0 |
-| `d_energy` | number | 0.0078125 | 0, 1, or 2^-k (k = 1–63) |
-| `d_mass` | number | 0.0078125 | 0, 1, or 2^-k (k = 1–63) |
+| `d_energy_log2` | number or null | 7 | empty/null or integer 0–63 |
+| `d_mass_log2` | number or null | 7 | empty/null or integer 0–63 |
 | `t_cap` | number | 4.0 | > 0 |
 
 **Program dynamics**:
 
 | Field | Type | Default | Validation |
 |-------|------|---------|------------|
-| `maintenance_rate` | number | 0.0078125 | 0, 1, or 2^-k (k = 1–63) |
+| `maintenance_rate_log2` | number or null | 7 | empty/null or integer 0–63 |
 | `maintenance_exponent` | number | 1.0 | > 0 |
 | `local_action_exponent` | number | 1.0 | > 0 |
 | `n_synth` | number | 1 | ≥ 0, integer |
 | `inert_grace_ticks` | number | 10 | ≥ 0, integer |
-| `p_spawn` | number | 0.0 | 0, 1, or 2^-k (k = 1–63) |
+| `p_spawn_log2` | number or null | null | empty/null or integer 0–63 |
 
 **Mutation**:
 
@@ -511,6 +511,7 @@ A "Add seed program" button appends a new empty entry. A "Remove" button on each
 ### Behavior
 
 - Defaults are pre-populated from the values in API-SPEC §8.
+- Exponent inputs are integer controls bounded to 0–63. The optional controls accept an empty value for never and show a live `2^-k` preview; required mutation controls cannot be empty.
 - The form is only editable when `simStatus === 'none'` (config is immutable after creation, per API-SPEC §3).
 - A "Create Simulation" button at the bottom submits the form. On success, `simStatus` transitions to `'created'`.
 - Validation errors are shown inline per field. The API's error response (422 with `INVALID_CONFIG`) is displayed as a banner.

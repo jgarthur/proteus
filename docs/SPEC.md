@@ -1,4 +1,4 @@
-# Proteus v0.3.0 Specification
+# Proteus v0.4.0 Specification
 
 An artificial life simulator where self-replicating programs emerge, compete, and evolve on a 2D grid with conserved mass and energy.
 
@@ -8,11 +8,11 @@ Proteus prioritizes a minimal substrate that enables emergent complexity. The in
 
 The physics layer provides real resource constraints (spatial locality, maintenance costs, conserved transactions with external energy and mass sources) that drive ecological dynamics without prescribing what those dynamics should look like. The substrate includes controlled stochastic elements — background radiation and mass arrival, mutation, `rand`, and probabilistic maintenance and decay — but is otherwise deterministic. All physics is fully discrete and translation-invariant under 90° rotations and reflections.
 
-### Changes from v0.2.1
+### Changes from v0.3.0
 
-v0.3.0 keeps the v0.2.1 execution model and stochastic laws, but constrains the configured decay, maintenance, and spontaneous-creation probabilities to exact powers of two (plus the deterministic endpoints 0 and 1). This permits exact integer sampling without changing the meaning of any accepted probability.
+v0.4.0 replaces the configured decay, maintenance-rate, and spontaneous-creation probabilities with optional integer exponent fields: `d_energy_log2`, `d_mass_log2`, `maintenance_rate_log2`, and `p_spawn_log2`. A value `k` in `0..=63` means probability `2^-k`; explicit `null` means the event never occurs. Absent fields use their documented defaults.
 
-The suggested `D_energy` and `D_mass` values are now `2^-7 = 1/128 = 0.0078125`. With the unchanged `R_energy = 0.25`, the stationary mean background radiation rises from 25 to 32. Mutation exponents are restricted to `0..=63`; larger values are invalid configuration rather than an approximation of a never-mutate setting.
+Background-radiation-stressed mutation now treats each consumed background quantum as an independent `Bernoulli(2^-mutation_background_log2)` trigger and applies one mutation if any trigger fires. This removes the previous saturation cliff while preserving a single mutation per eligible program per tick.
 
 ## Physics
 
@@ -321,8 +321,8 @@ Note: mutual targeting (A targets B while B targets A) does not require special 
 6. **Collect resolution**: for each program that executed `collect` this tick, convert all background mass currently in the program's own cell to free mass.
 7. **Background mass decay then arrival**: in each cell, each existing unit of background mass independently decays with probability `D_mass`. After decay, the cell receives `Poisson(R_mass)` new units of background mass. If any mass arrives into a cell that is empty at the moment of arrival, mark that cell as a **spawn candidate** for end-of-tick spontaneous creation.
 8. **Inert lifecycle update**: for each inert program, if it received an incoming `appendAdj` or `writeAdj` this tick, reset its abandonment timer to 0. Otherwise increment the timer by 1.
-9. **Maintenance**: for each program that existed at tick start and is **not newborn this tick**, compute `q = size_current ^ beta`. Draw from `Binomial(floor(q), M)` plus `Bernoulli((q - floor(q)) × M)` where `M` is `maintenance_rate` for live programs, `0` for inert programs still inside the grace window, and `maintenance_rate` for abandoned inert programs. Deduct from free energy, then free mass, then instructions from the end of the program. Each destroyed instruction pays one remaining maintenance quantum and is permanently removed.
-10. **Decay**: for each cell, compute excess free energy and free mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). For each resource, draw from `Binomial(excess, D)` to determine units removed permanently. (Background pools decay in steps 5 and 7 above.)
+9. **Maintenance**: for each program that existed at tick start and is **not newborn this tick**, compute `q = size_current ^ beta`. Draw from `Binomial(floor(q), M)` plus `Bernoulli((q - floor(q)) × M)`, where `M` is the maintenance probability for live programs, `0` for inert programs still inside the grace window, and the same maintenance probability for abandoned inert programs. Deduct from free energy, then free mass, then instructions from the end of the program. Each destroyed instruction pays one remaining maintenance quantum and is permanently removed.
+10. **Decay**: for each cell, compute excess free energy and free mass above the storage threshold (`T_cap × program_size`, or 0 for empty cells). Draw from `Binomial(energy_excess, D_energy)` and `Binomial(mass_excess, D_mass)` to determine units removed permanently. (Background pools decay in steps 5 and 7 above.)
 11. **Age update**: all programs that were live at tick start increment age by 1.
 12. **Spontaneous creation**: for each spawn candidate cell, if it is still empty, create a new live single-`nop` program with probability `P_spawn` and immediately crystallize all background radiation and background mass in that cell into free resources.
 
@@ -483,29 +483,29 @@ Programs may still be removed by maintenance or decay-driven destruction; explic
 Once per tick, each program that was **live at tick start** has a chance to mutate. A single instruction is selected uniformly at random from the program, and one random bit in its 8-bit opcode is flipped. The mutation probability depends on whether the program used background radiation to pay any **base instruction cost** this tick:
 
 - **Normal**: probability `2^(-mutation_base_log2)` per tick.
-- **Background-radiation-stressed**: if any base-cost payment this tick used background radiation, the probability increases to `min(x / 2^(mutation_background_log2), 1)` where `x` is the total amount of background radiation consumed this tick for base-cost payment.
+- **Background-radiation-stressed**: if base-cost payment consumed `x > 0` background quanta this tick, each quantum independently triggers with probability `2^(-mutation_background_log2)`. The program mutates once if any trigger fires, for total probability `1 - (1 - 2^(-mutation_background_log2))^x`.
 
 Mutations do not affect the current tick's execution.
 
 ## System Parameters
 
-| Parameter | Symbol | Description | Suggested Start |
-|-----------|--------|-------------|-----------------|
-| Energy arrival rate | `R_energy` | Mean background-radiation arrivals per cell per tick (`Poisson(R_energy)`) | 0.25 |
-| Mass arrival rate | `R_mass` | Mean background-mass arrivals per cell per tick (`Poisson(R_mass)`) | 0.05 |
-| Nop-spawn probability | `P_spawn` | P(end-of-tick nucleation in a spawn-candidate empty cell) | 0 |
-| Energy decay rate | `D_energy` | P(each unit of background radiation or excess free energy removed per tick) | 1/128 |
-| Mass decay rate | `D_mass` | P(each unit of background mass or excess free mass removed per tick) | 1/128 |
-| Decay threshold | `T_cap` | Multiplier on program_size for free resource decay floor | 4 |
-| Maintenance rate | `M` | P(each maintenance quantum costs 1 energy per tick) | 1/128 |
-| Inert grace window | `inert_grace_ticks` | Ticks without incoming write before abandoned inert pays maintenance | 10 |
-| Synthesis cost | `N_synth` | Additional energy consumed per mass produced | 1 |
-| Baseline mutation exponent | `mutation_base_log2` | Baseline mutation rate is `2^(-value)` per program per tick | 16 |
-| Background mutation exponent | `mutation_background_log2` | Background-stressed mutation rate is `min(x / 2^(value), 1)` | 8 |
-| Local action exponent | `alpha` | Local action budget = `max(1, floor(size^alpha))` | 1.0 |
-| Maintenance exponent | `beta` | Maintenance quanta = `size^beta` | 1.0 |
+| Parameter | Symbol | Config field | Description | Suggested Start |
+|-----------|--------|--------------|-------------|-----------------|
+| Energy arrival rate | `R_energy` | `r_energy` | Mean background-radiation arrivals per cell per tick (`Poisson(R_energy)`) | 0.25 |
+| Mass arrival rate | `R_mass` | `r_mass` | Mean background-mass arrivals per cell per tick (`Poisson(R_mass)`) | 0.05 |
+| Nop-spawn exponent | `P_spawn` | `p_spawn_log2` | `P_spawn = 2^-k`; null means never | null |
+| Energy-decay exponent | `D_energy` | `d_energy_log2` | `D_energy = 2^-k`; null means no decay | 7 |
+| Mass-decay exponent | `D_mass` | `d_mass_log2` | `D_mass = 2^-k`; null means no decay | 7 |
+| Decay threshold | `T_cap` | `t_cap` | Multiplier on program size for the free-resource decay floor | 4 |
+| Maintenance-rate exponent | `M` | `maintenance_rate_log2` | `M = 2^-k`; null means no maintenance charge | 7 |
+| Inert grace window | — | `inert_grace_ticks` | Ticks without incoming write before abandoned inert pays maintenance | 10 |
+| Synthesis cost | `N_synth` | `n_synth` | Additional energy consumed per mass produced | 1 |
+| Baseline mutation exponent | — | `mutation_base_log2` | Baseline mutation rate is `2^(-value)` per program per tick | 16 |
+| Background mutation exponent | — | `mutation_background_log2` | Per-consumed-quantum trigger probability is `2^(-value)` | 8 |
+| Local action exponent | `alpha` | `local_action_exponent` | Local action budget = `max(1, floor(size^alpha))` | 1.0 |
+| Maintenance exponent | `beta` | `maintenance_exponent` | Maintenance quanta = `size^beta` | 1.0 |
 
-`D_energy`, `D_mass`, `M`, and `P_spawn` must each be exactly 0, 1, or `2^-k` for an integer `k` in `1..=63`. The configured mutation exponents must each be integers in `0..=63`. These domains allow exact bit-level sampling. For non-integer `beta`, the fractional maintenance term `Bernoulli((q - floor(q)) × M)` is not generally dyadic and retains its stated floating-point probability.
+The four optional probability exponents accept `null` or an integer `k` in `0..=63`. The two mutation exponents are required integers in `0..=63`. For non-integer `beta`, the fractional maintenance term computes `M = 2^-maintenance_rate_log2` exactly as an `f64`; the product `Bernoulli((q - floor(q)) × M)` is not generally dyadic and retains its stated floating-point probability.
 
 ## Seed Replicator
 

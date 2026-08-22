@@ -35,10 +35,10 @@ fn zero_rate_world_preserves_total_energy_and_mass_under_internal_transfers() {
         .configure(|config| {
             config.r_energy = 0.0;
             config.r_mass = 0.0;
-            config.d_energy = 0.0;
-            config.d_mass = 0.0;
-            config.maintenance_rate = 0.0;
-            config.p_spawn = 0.0;
+            config.d_energy_log2 = None;
+            config.d_mass_log2 = None;
+            config.maintenance_rate_log2 = None;
+            config.p_spawn_log2 = None;
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
@@ -83,10 +83,10 @@ fn forced_arrivals_with_absorb_and_collect_have_exact_accounting() {
         .configure(|config| {
             config.r_energy = 100.0;
             config.r_mass = 100.0;
-            config.d_energy = 0.0;
-            config.d_mass = 0.0;
-            config.maintenance_rate = 0.0;
-            config.p_spawn = 0.0;
+            config.d_energy_log2 = None;
+            config.d_mass_log2 = None;
+            config.maintenance_rate_log2 = None;
+            config.p_spawn_log2 = None;
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;
         })
@@ -130,10 +130,10 @@ fn forced_arrivals_and_decay_have_exact_accounting_through_pass3_ordering() {
         .configure(|config| {
             config.r_energy = 100.0;
             config.r_mass = 100.0;
-            config.d_energy = 1.0;
-            config.d_mass = 1.0;
-            config.maintenance_rate = 0.0;
-            config.p_spawn = 0.0;
+            config.d_energy_log2 = Some(0);
+            config.d_mass_log2 = Some(0);
+            config.maintenance_rate_log2 = None;
+            config.p_spawn_log2 = None;
             config.t_cap = 1.0;
             config.mutation_base_log2 = 32;
             config.mutation_background_log2 = 32;

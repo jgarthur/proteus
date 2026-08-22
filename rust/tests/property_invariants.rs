@@ -261,11 +261,10 @@ fn lineage_invariants_hold_after_a_seeded_replay() {
         .configure(|config| {
             config.r_energy = 0.4;
             config.r_mass = 0.4;
-            // Probabilities must be 0, 1, or exactly 2^-k (SPEC v0.3.0).
-            // 0.05 sits between 2^-5 and 2^-4; 2^-4 keeps the maintenance
-            // pressure that makes programs die and orphans appear.
-            config.maintenance_rate = 0.0625;
-            config.p_spawn = 0.25;
+            // k = 4 gives 2^-4 maintenance pressure, which makes programs die
+            // and allows orphaned lineages to appear (SPEC v0.4.0).
+            config.maintenance_rate_log2 = Some(4);
+            config.p_spawn_log2 = Some(2);
             config.mutation_base_log2 = 4;
         })
         .at(
