@@ -20,7 +20,7 @@ const FAMILY_TITLES: Record<string, string> = {
 };
 
 const TOTAL_TITLE = 'How many organisms to place in all, split across the active rows by weight.';
-const EQUALIZE_TITLE = 'Set every active weight back to 1 for an even mix.';
+const EQUALIZE_TITLE = 'Set every weight back to 1 for an even mix.';
 const SCATTER_TITLE =
   'Place the counts on distinct random free cells, drawn from the config seed. Replaces the previous scatter; hand-placed entries are kept and their cells avoided.';
 

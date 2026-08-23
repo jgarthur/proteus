@@ -660,7 +660,7 @@ export function ConfigEditor(): JSX.Element {
           onEqualize={() =>
             setComposer((current) => ({
               ...current,
-              rows: current.rows.map((row) => (row.active ? { ...row, weight: 1 } : row)),
+              rows: current.rows.map((row) => ({ ...row, weight: 1 })),
             }))
           }
           onRowChange={updateComposerRow}

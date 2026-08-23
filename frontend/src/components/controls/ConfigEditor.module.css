@@ -274,7 +274,13 @@
   color: #dbe8f6;
   font: inherit;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.composerTable .numberCell {
+  width: 64px;
+  padding: 4px 6px;
 }
 
 .disclosure:hover {
