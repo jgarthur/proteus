@@ -525,7 +525,13 @@ A list editor where each entry has:
 
 A "Add seed program" button appends a new empty entry. A "Remove" button on each entry deletes it.
 
-**Later**: Assembly-language input for seed programs (enter mnemonics instead of raw bytes), with client-side assembly.
+**Seed library**: ten built-in organisms in four structural families. *Classic* holds the three that predate the ladder — Turnchain (the spec Seed Replicator), Quadsorb (the 4×-absorb default), and Driftkin (the evolved 39-instruction glider) — none of which has a verified regime. The other seven are the verified ladder from `docs/analysis/2026-08-23_seed-organisms.md`: *Chain* (Radchain, Sunchain), *Synthesis* (Freesynth, Frontforge, Mixedforge), and *Mobile* (Squarestep, Wildstep). Each entry carries a description, provenance, an evidence note (its five-seed horizon result), and the parameter regime it was verified in; `free_energy`/`free_mass` are the root preloads those runs used. The entry cards show a derived library badge (matched on bytes) or "custom".
+
+**Population composer**: a table of per-organism weights plus a total, grouped by family, with each row expanding in place to show the organism's description, evidence, regime, source, starting resources, and disassembly. The per-card library picker groups the same organisms into `<optgroup>`s. The total is split across the active organisms by largest-remainder apportionment, and "Scatter" places the resulting counts on distinct random free cells, drawn deterministically from the config `seed`. Hand-placed entries are preserved and their cells excluded; a re-scatter replaces only the previously generated entries, and editing or removing a generated entry drops it from the composer's set, so a later scatter neither replaces nor resurrects it. Changing the seed re-scatters automatically. If the request exceeds the free-cell count it is clamped proportionally with an inline warning. Composer state sits alongside the draft config in app state, never inside `SimConfig` — the submitted `seed_programs` list is unchanged in shape and remains the source of truth. Loading a saved config, or creating/resetting a simulation, clears what the composer had generated.
+
+**Assembly input**: each entry has a mnemonic textarea alongside the raw-bytes input; editing either keeps both in sync. Assembly happens client-side and mirrors the engine's decode table, so inspector `disassembly` output pastes straight back in. Unknown tokens are reported inline with line, token, and near-miss suggestions, and the last valid bytes are retained. A collapsible opcode reference lists every mnemonic with a one-line summary.
+
+**Later**: Import/export of seed sets, and user-saved organisms alongside the built-in library.
 
 ### Behavior
 

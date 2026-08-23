@@ -1,3 +1,4 @@
+import { DEFAULT_LITHOTROPH_CODE } from './lib/seedLibrary';
 import type { AppState, ColorMapMode, SimConfig, TargetTpsOption } from './types';
 
 export const API_BASE_URL =
@@ -14,7 +15,8 @@ export const FRONTEND_TICKER_INTERVAL_MS = 16;
 export const FRONTEND_STEP_BATCH_LIMIT = 120;
 
 // Temporary local testing defaults. Reconcile these with the spec-backed defaults later.
-export const DEFAULT_LITHOTROPH_CODE = [0x51, 0x51, 0x51, 0x51, 0x53, 0x40, 0x42, 0x30, 0x55, 0x5f, 0x31, 0x64];
+// The genome itself now lives in the seed library, next to the other built-in organisms.
+export { DEFAULT_LITHOTROPH_CODE };
 
 export const COLOR_MAP_OPTIONS: Array<{ value: ColorMapMode; label: string }> = [
   { value: 'occupancy', label: 'Occupancy' },

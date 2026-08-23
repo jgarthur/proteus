@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   type ConfigErrors,
   getDyadicExponentError,
@@ -9,8 +9,13 @@ import {
 } from '../../lib/config';
 import { fetchSimulationConfig } from '../../lib/api';
 import { formatDyadicProbability } from '../../lib/format';
+import { OPCODES } from '../../lib/opcodes';
+import { allocateCounts, cellKey, type ComposerRow, liveGenerated, scatter } from '../../lib/populate';
+import { findLibraryOrganismByCode, SEED_LIBRARY, seedLibraryByFamily } from '../../lib/seedLibrary';
 import { useSimContext } from '../../context/SimContext';
 import type { SeedProgram, SimConfig } from '../../types';
+import { AssemblyField } from './AssemblyField';
+import { SeedComposer } from './SeedComposer';
 import styles from './ConfigEditor.module.css';
 
 const OPTIONAL_EXPONENT_FIELDS = new Set<keyof SimConfig>([
@@ -69,6 +74,10 @@ const FIELD_TITLES: Partial<Record<keyof SimConfig, string>> = {
 
 const SEED_PROGRAM_CELL_TITLE = '0-indexed cell of the seed program.';
 const SEED_PROGRAM_RESOURCE_TITLE = 'Starting free energy/mass in the seed cell.';
+const SEED_PROGRAM_ASSEMBLY_TITLE =
+  'Mnemonic view of the same bytes. Edit either box \u2014 they stay in sync. Inspector disassembly pastes in unchanged.';
+const SEED_PROGRAM_LIBRARY_TITLE =
+  'Replace this entry\u2019s code, free energy, and free mass with a built-in organism.';
 
 /// A config field row.
 ///
@@ -385,7 +394,17 @@ function BufferedCodeTextarea({
 }
 
 export function ConfigEditor(): JSX.Element {
-  const { config, configErrorSummary, configIsValid, randomizeSeed, setConfig, state } = useSimContext();
+  const {
+    composer,
+    config,
+    configErrorSummary,
+    configIsValid,
+    randomizeSeed,
+    resetComposer,
+    setComposer,
+    setConfig,
+    state,
+  } = useSimContext();
   const [toolMessage, setToolMessage] = useState<string | null>(null);
 
   const errors = validateConfig(config);
@@ -398,6 +417,55 @@ export function ConfigEditor(): JSX.Element {
     setConfig((current) => ({
       ...current,
       [field]: value,
+    }));
+  };
+
+  // Which remembered entries the composer still owns is derived on every
+  // render, never cached: an entry that was edited, removed, or replaced by a
+  // loaded config is no longer in `seed_programs` by identity, so it stops
+  // counting as generated and cannot be resurrected by the next scatter.
+  const generated = liveGenerated(composer.generated, config.seed_programs);
+  const generatedSet = new Set(generated);
+  const composerCounts = allocateCounts(composer.total, composer.rows);
+
+  const runScatter = (seed: number) => {
+    const handPlaced = config.seed_programs.filter((program) => !generatedSet.has(program));
+    const occupied = new Set(handPlaced.map((program) => cellKey(program.x, program.y)));
+    const result = scatter({
+      width: config.width,
+      height: config.height,
+      seed,
+      counts: allocateCounts(composer.total, composer.rows),
+      occupied,
+      library: SEED_LIBRARY,
+    });
+
+    setComposer((current) => ({ ...current, generated: result.programs, clampedTo: result.clampedTo }));
+    setField('seed_programs', [...handPlaced, ...result.programs]);
+  };
+
+  // The seed effect must see the current config and composer state, so the
+  // latest closure is parked in a ref on every render.
+  const scatterRef = useRef(runScatter);
+  scatterRef.current = runScatter;
+  const hasGeneratedRef = useRef(generated.length > 0);
+  hasGeneratedRef.current = generated.length > 0;
+
+  const lastScatterSeed = useRef(config.seed);
+  useEffect(() => {
+    if (lastScatterSeed.current === config.seed) {
+      return;
+    }
+    lastScatterSeed.current = config.seed;
+    if (hasGeneratedRef.current) {
+      scatterRef.current(config.seed);
+    }
+  }, [config.seed]);
+
+  const updateComposerRow = (organismId: string, patch: Partial<ComposerRow>) => {
+    setComposer((current) => ({
+      ...current,
+      rows: current.rows.map((row) => (row.organismId === organismId ? { ...row, ...patch } : row)),
     }));
   };
 
@@ -521,6 +589,7 @@ export function ConfigEditor(): JSX.Element {
                   return;
                 }
                 setConfig(savedConfig);
+                resetComposer();
                 setToolMessage('Loaded saved config from this browser.');
               } catch (error) {
                 setToolMessage(error instanceof Error ? error.message : 'Failed to load saved config.');
@@ -579,10 +648,39 @@ export function ConfigEditor(): JSX.Element {
 
       <div className={styles.group}>
         <h3 className={styles.groupTitle}>Seed Programs</h3>
+
+        <SeedComposer
+          clampedTo={composer.clampedTo}
+          counts={composerCounts}
+          disabled={!isEditable}
+          library={SEED_LIBRARY}
+          requested={composer.total}
+          rows={composer.rows}
+          total={composer.total}
+          onEqualize={() =>
+            setComposer((current) => ({
+              ...current,
+              rows: current.rows.map((row) => (row.active ? { ...row, weight: 1 } : row)),
+            }))
+          }
+          onRowChange={updateComposerRow}
+          onScatter={() => runScatter(config.seed)}
+          onTotalChange={(total) => setComposer((current) => ({ ...current, total }))}
+        />
+
         {config.seed_programs.length === 0 ? <p className={styles.muted}>No seed programs configured.</p> : null}
         {config.seed_programs.map((seedProgram, index) => {
+          const libraryMatch = findLibraryOrganismByCode(seedProgram.code);
           return (
             <div key={`${index}-${seedProgram.x}-${seedProgram.y}`} className={styles.seedCard}>
+              <div className={styles.seedCardHead}>
+                <span className={libraryMatch ? styles.badge : styles.badgeCustom}>
+                  {libraryMatch ? libraryMatch.name : 'custom'}
+                </span>
+                <span className={styles.muted}>
+                  {generatedSet.has(seedProgram) ? 'scattered' : 'hand-placed'} · {seedProgram.code.length} bytes
+                </span>
+              </div>
               <div className={styles.grid}>
                 <Field label="X" title={SEED_PROGRAM_CELL_TITLE}>
                   <BufferedNumberInput
@@ -665,7 +763,48 @@ export function ConfigEditor(): JSX.Element {
                 />
                 <HintSlot error={errors[`seed_programs.${index}.code`]} />
               </Field>
+              <AssemblyField
+                code={seedProgram.code}
+                disabled={!isEditable}
+                title={SEED_PROGRAM_ASSEMBLY_TITLE}
+                onChange={(code) =>
+                  setField('seed_programs', updateSeedProgram(config.seed_programs, index, { code }))
+                }
+              />
               <div className={styles.buttonRow}>
+                <label className={styles.inlineField} title={SEED_PROGRAM_LIBRARY_TITLE}>
+                  <span>Pick from library</span>
+                  <select
+                    className={styles.input}
+                    disabled={!isEditable}
+                    value=""
+                    onChange={(event) => {
+                      const organism = SEED_LIBRARY.find((entry) => entry.id === event.target.value);
+                      if (!organism) {
+                        return;
+                      }
+                      setField(
+                        'seed_programs',
+                        updateSeedProgram(config.seed_programs, index, {
+                          code: [...organism.code],
+                          free_energy: organism.free_energy,
+                          free_mass: organism.free_mass,
+                        }),
+                      );
+                    }}
+                  >
+                    <option value="">Choose…</option>
+                    {seedLibraryByFamily(SEED_LIBRARY).map((group) => (
+                      <optgroup key={group.family} label={group.family}>
+                        {group.organisms.map((organism) => (
+                          <option key={organism.id} value={organism.id} title={organism.description}>
+                            {organism.name} ({organism.code.length}B)
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
                 <button
                   className={styles.buttonSecondary}
                   type="button"
@@ -698,6 +837,28 @@ export function ConfigEditor(): JSX.Element {
             Add Seed Program
           </button>
         </div>
+
+        <details className={styles.reference}>
+          <summary>Opcode reference ({OPCODES.length + 16} opcodes)</summary>
+          <p className={styles.muted}>
+            <code>push N</code> covers bytes 0x00–0x0f with N from −8 to 7. Every undefined byte reads and writes
+            back as <code>noop 0xNN</code>. Bare decimals 0–255 and <code>0x</code> literals assemble as raw bytes,
+            so a comma-separated byte list pastes in unchanged.
+          </p>
+          <table className={styles.referenceTable}>
+            <tbody>
+              {OPCODES.map((opcode) => (
+                <tr key={opcode.byte}>
+                  <td className={styles.mono}>{opcode.mnemonic}</td>
+                  <td className={`${styles.mono} ${styles.numeric}`}>
+                    0x{opcode.byte.toString(16).padStart(2, '0')}
+                  </td>
+                  <td>{opcode.summary}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
       </div>
     </section>
   );

@@ -28,6 +28,8 @@ import {
   stepSimulation,
 } from '../lib/api';
 import { getFirstConfigError, validateConfig, type ConfigErrors } from '../lib/config';
+import { createComposerSession, type ComposerSession } from '../lib/populate';
+import { SEED_LIBRARY } from '../lib/seedLibrary';
 import { parseFrame } from '../lib/frame';
 import { MetricsBuffer } from '../lib/metricsBuffer';
 import { randomSeed } from '../lib/random';
@@ -144,6 +146,9 @@ interface SimContextValue {
   configErrorSummary: string | null;
   configIsValid: boolean;
   setConfig: React.Dispatch<React.SetStateAction<SimConfig>>;
+  composer: ComposerSession;
+  setComposer: React.Dispatch<React.SetStateAction<ComposerSession>>;
+  resetComposer(): void;
   selectedCellData: CellResponse | null;
   /** Null until a cell inspection lands; identifies what that data describes. */
   selectedCellStamp: InspectionStamp | null;
@@ -187,6 +192,12 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     wsStatus: status,
   });
   const [config, setConfig] = useState<SimConfig>(DEFAULT_CONFIG);
+  // The composer lives here rather than in ConfigEditor because that component
+  // unmounts whenever the sidebar collapses or switches to the Inspector tab,
+  // which would otherwise strand every entry it had generated.
+  const [composer, setComposer] = useState<ComposerSession>(() =>
+    createComposerSession(SEED_LIBRARY.map((organism) => organism.id)),
+  );
   const [latestMetrics, setLatestMetrics] = useState<MetricsSnapshot | null>(null);
   const [metricsVersion, setMetricsVersion] = useState(0);
   const [selectedCellData, setSelectedCellData] = useState<CellResponse | null>(null);
@@ -232,6 +243,27 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     () => Object.keys(configErrors).length === 0,
     [configErrors],
   );
+
+  /** Returns the composer to its initial mix with nothing generated. */
+  const resetComposer = useCallback(() => {
+    setComposer(createComposerSession(SEED_LIBRARY.map((organism) => organism.id)));
+  }, []);
+
+  /**
+   * Forgets which entries the composer generated while keeping the user's mix.
+   *
+   * Called whenever the seed-program list stops being the one the composer
+   * produced — a saved config is loaded over it, or a simulation is created or
+   * reset from it — so a later scatter cannot resurrect entries that are no
+   * longer the composer's to replace.
+   */
+  const clearComposerGenerated = useCallback(() => {
+    setComposer((current) =>
+      current.generated.length === 0 && current.clampedTo === null
+        ? current
+        : { ...current, generated: [], clampedTo: null },
+    );
+  }, []);
 
   const syncStatus = useCallback(async () => {
     try {
@@ -621,11 +653,13 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
         }
         dispatch({ type: 'SET_API_ERROR', value: null });
         await syncStatus();
+        return true;
       } catch (error) {
         dispatch({
           type: 'SET_API_ERROR',
           value: error instanceof Error ? error.message : 'Request failed',
         });
+        return false;
       }
     },
     [syncStatus],
@@ -645,7 +679,11 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     setMetricsVersion(0);
     beginSimBoundary();
     try {
-      await runAction(async () => createSimulation(config));
+      // Only a successful create turns scattered entries into plain hand-placed ones;
+      // a rejected request must leave the composer's ownership intact.
+      if (await runAction(async () => createSimulation(config))) {
+        clearComposerGenerated();
+      }
       await seedMetricsSnapshot();
     } finally {
       endSimBoundary();
@@ -653,6 +691,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     await refreshSelectedCell();
   }, [
     beginSimBoundary,
+    clearComposerGenerated,
     config,
     configErrorSummary,
     configIsValid,
@@ -705,7 +744,9 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     setMetricsVersion(0);
     beginSimBoundary();
     try {
-      await runAction(async () => postSimulationAction('reset'));
+      if (await runAction(async () => postSimulationAction('reset'))) {
+        clearComposerGenerated();
+      }
       await seedMetricsSnapshot();
     } finally {
       endSimBoundary();
@@ -713,6 +754,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     await refreshSelectedCell();
   }, [
     beginSimBoundary,
+    clearComposerGenerated,
     endSimBoundary,
     refreshSelectedCell,
     runAction,
@@ -824,6 +866,9 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
       configErrorSummary,
       configIsValid,
       setConfig,
+      composer,
+      setComposer,
+      resetComposer,
       selectedCellData,
       selectedCellStamp,
       selectedCellLoading,
@@ -849,8 +894,10 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
       randomizeSeed: randomizeSeedValue,
     }),
     [
+      composer,
       config,
       createFromConfig,
+      resetComposer,
       destroy,
       latestMetrics,
       metricsVersion,
