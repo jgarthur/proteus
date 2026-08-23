@@ -10,7 +10,16 @@ import {
 import { fetchSimulationConfig } from '../../lib/api';
 import { formatDyadicProbability } from '../../lib/format';
 import { OPCODES } from '../../lib/opcodes';
-import { allocateCounts, cellKey, type ComposerRow, liveGenerated, scatter } from '../../lib/populate';
+import {
+  allocateCounts,
+  cellKey,
+  combineSeeds,
+  type ComposerRow,
+  type ComposerSession,
+  liveGenerated,
+  scatter,
+} from '../../lib/populate';
+import { randomPlacementSeed } from '../../lib/random';
 import { findLibraryOrganismByCode, SEED_LIBRARY, seedLibraryByFamily } from '../../lib/seedLibrary';
 import { useSimContext } from '../../context/SimContext';
 import type { SeedProgram, SimConfig } from '../../types';
@@ -166,6 +175,30 @@ function updateSeedProgram(
 ): SeedProgram[] {
   return seedPrograms.map((program, currentIndex) =>
     currentIndex === index ? { ...program, ...patch } : program,
+  );
+}
+
+/**
+ * Whether two placements are the same population on the same cells.
+ *
+ * Compared by value rather than by identity because a regeneration always
+ * builds fresh objects: without this the composer would rewrite `seed_programs`
+ * with an equivalent list on every remount and every no-op change.
+ */
+function samePlacement(left: readonly SeedProgram[], right: readonly SeedProgram[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((program, index) => {
+      const other = right[index]!;
+      return (
+        program.x === other.x &&
+        program.y === other.y &&
+        program.free_energy === other.free_energy &&
+        program.free_mass === other.free_mass &&
+        program.code.length === other.code.length &&
+        program.code.every((byte, byteIndex) => byte === other.code[byteIndex])
+      );
+    })
   );
 }
 
@@ -423,48 +456,90 @@ export function ConfigEditor(): JSX.Element {
   // Which remembered entries the composer still owns is derived on every
   // render, never cached: an entry that was edited, removed, or replaced by a
   // loaded config is no longer in `seed_programs` by identity, so it stops
-  // counting as generated and cannot be resurrected by the next scatter.
+  // counting as generated and cannot be resurrected by a regeneration.
   const generated = liveGenerated(composer.generated, config.seed_programs);
   const generatedSet = new Set(generated);
   const composerCounts = allocateCounts(composer.total, composer.rows);
 
-  const runScatter = (seed: number) => {
+  /** Applies a composer edit, and arms live write-through with it. */
+  const editComposer = (update: (current: ComposerSession) => Partial<ComposerSession>) => {
+    setComposer((current) => ({ ...current, ...update(current), touched: true }));
+  };
+
+  /**
+   * Rebuilds the composer's entries from the current mix, grid, and seeds,
+   * replacing whatever it had generated before.
+   *
+   * Hand-placed entries — including generated ones the user has since edited —
+   * are kept as they are and their cells excluded, so the two kinds never
+   * collide. The write is skipped when the placement it computed is the one
+   * already in the config, which is what keeps a remount (the editor unmounts
+   * with the sidebar) from churning object identities for no reason, and what
+   * makes running this effect again after its own write a no-op.
+   */
+  const regenerate = () => {
     const handPlaced = config.seed_programs.filter((program) => !generatedSet.has(program));
     const occupied = new Set(handPlaced.map((program) => cellKey(program.x, program.y)));
     const result = scatter({
       width: config.width,
       height: config.height,
-      seed,
-      counts: allocateCounts(composer.total, composer.rows),
+      // Two knobs over one stream: the world seed moves the layout because the
+      // whole run moves with it, and the placement seed moves only the layout.
+      seed: combineSeeds(config.seed, composer.placementSeed),
+      counts: composerCounts,
       occupied,
       library: SEED_LIBRARY,
     });
+
+    if (composer.clampedTo === result.clampedTo && samePlacement(generated, result.programs)) {
+      return;
+    }
 
     setComposer((current) => ({ ...current, generated: result.programs, clampedTo: result.clampedTo }));
     setField('seed_programs', [...handPlaced, ...result.programs]);
   };
 
-  // The seed effect must see the current config and composer state, so the
-  // latest closure is parked in a ref on every render.
-  const scatterRef = useRef(runScatter);
-  scatterRef.current = runScatter;
-  const hasGeneratedRef = useRef(generated.length > 0);
-  hasGeneratedRef.current = generated.length > 0;
+  // The effect below must see the current config and composer state without
+  // depending on them wholesale — depending on `seed_programs` would make it
+  // regenerate from its own write, and from every hand edit — so the latest
+  // closure is parked in a ref on every render.
+  const regenerateRef = useRef(regenerate);
+  regenerateRef.current = regenerate;
 
-  const lastScatterSeed = useRef(config.seed);
+  // A session that owns nothing and has never been edited stays out of the
+  // config entirely: opening the editor, or loading a saved config (which
+  // starts a fresh session), must not place a population nobody asked for.
+  const armed = generated.length > 0 || composer.touched;
+
+  // Hand-placed cells are an input to the layout too: moving, adding, or
+  // removing one (including editing a generated entry, which makes it
+  // hand-placed) must re-scatter around it. A sorted key of those cells changes
+  // exactly then, and never on the effect's own write, which only touches
+  // generated entries.
+  const handPlacedCellsKey = config.seed_programs
+    .filter((program) => !generatedSet.has(program))
+    .map((program) => cellKey(program.x, program.y))
+    .sort()
+    .join(';');
+
   useEffect(() => {
-    if (lastScatterSeed.current === config.seed) {
+    if (!armed) {
       return;
     }
-    lastScatterSeed.current = config.seed;
-    if (hasGeneratedRef.current) {
-      scatterRef.current(config.seed);
-    }
-  }, [config.seed]);
+    regenerateRef.current();
+  }, [
+    armed,
+    composer.placementSeed,
+    composer.rows,
+    composer.total,
+    config.height,
+    config.seed,
+    config.width,
+    handPlacedCellsKey,
+  ]);
 
   const updateComposerRow = (organismId: string, patch: Partial<ComposerRow>) => {
-    setComposer((current) => ({
-      ...current,
+    editComposer((current) => ({
       rows: current.rows.map((row) => (row.organismId === organismId ? { ...row, ...patch } : row)),
     }));
   };
@@ -657,15 +732,16 @@ export function ConfigEditor(): JSX.Element {
           requested={composer.total}
           rows={composer.rows}
           total={composer.total}
+          placementSeed={composer.placementSeed}
           onEqualize={() =>
-            setComposer((current) => ({
-              ...current,
+            editComposer((current) => ({
               rows: current.rows.map((row) => ({ ...row, weight: 1 })),
             }))
           }
+          onNewPlacementSeed={() => editComposer(() => ({ placementSeed: randomPlacementSeed() }))}
+          onPlacementSeedChange={(placementSeed) => editComposer(() => ({ placementSeed }))}
           onRowChange={updateComposerRow}
-          onScatter={() => runScatter(config.seed)}
-          onTotalChange={(total) => setComposer((current) => ({ ...current, total }))}
+          onTotalChange={(total) => editComposer(() => ({ total }))}
         />
 
         {config.seed_programs.length === 0 ? <p className={styles.muted}>No seed programs configured.</p> : null}

@@ -56,7 +56,10 @@ Runs the vitest unit suite (`vitest run`) over the pure modules in `src/lib/`.
   `constants.ts` re-exports.
 - `populate.ts` — largest-remainder apportionment of a population total over
   per-organism weights, and deterministic scattering of the result onto
-  distinct free cells from a seeded PRNG.
+  distinct free cells from a seeded PRNG. The stream seed combines the config
+  seed with the composer session's own placement seed, so the layout can be
+  re-rolled without moving the run. The config editor writes the result into
+  `seed_programs` live, on every change to the mix, the grid, or either seed.
 
 Each has a `*.test.ts` beside it.
 

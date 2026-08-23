@@ -21,8 +21,13 @@ const FAMILY_TITLES: Record<string, string> = {
 
 const TOTAL_TITLE = 'How many organisms to place in all, split across the active rows by weight.';
 const EQUALIZE_TITLE = 'Set every weight back to 1 for an even mix.';
-const SCATTER_TITLE =
-  'Place the counts on distinct random free cells, drawn from the config seed. Replaces the previous scatter; hand-placed entries are kept and their cells avoided.';
+const PLACEMENT_SEED_TITLE =
+  'Which free cells the mix lands on, combined with the config seed. Same seeds, grid, and counts always give the same layout.';
+const NEW_PLACEMENT_TITLE =
+  'Re-roll which cells the mix lands on without changing the simulation seed.';
+
+/** Placement seeds are u32: the placement PRNG consumes exactly 32 bits. */
+const MAX_PLACEMENT_SEED = 2 ** 32 - 1;
 
 interface NumberCellProps {
   className: string;
@@ -107,20 +112,23 @@ interface SeedComposerProps {
   counts: Map<string, number>;
   disabled: boolean;
   library: readonly SeedOrganism[];
+  placementSeed: number;
   requested: number;
   rows: readonly ComposerRow[];
   total: number;
   onEqualize(): void;
+  onNewPlacementSeed(): void;
+  onPlacementSeedChange(placementSeed: number): void;
   onRowChange(organismId: string, patch: Partial<ComposerRow>): void;
-  onScatter(): void;
   onTotalChange(total: number): void;
 }
 
 /**
  * Population composer: a total plus per-organism weights, resolved into exact
  * counts and scattered onto distinct random cells. The composer's own state
- * lives in app state, not in `SimConfig` — pressing Scatter is what writes
- * anything into `seed_programs`.
+ * lives in app state, not in `SimConfig`; every change here is written straight
+ * through into `seed_programs`, replacing what the composer placed last time
+ * and leaving hand-placed entries alone.
  *
  * Organisms are grouped by structural family, and each row expands in place to
  * show what the organism is, how well it is evidenced, the regime it was
@@ -131,12 +139,14 @@ export function SeedComposer({
   counts,
   disabled,
   library,
+  placementSeed,
   requested,
   rows,
   total,
   onEqualize,
+  onNewPlacementSeed,
+  onPlacementSeedChange,
   onRowChange,
-  onScatter,
   onTotalChange,
 }: SeedComposerProps): JSX.Element {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -156,7 +166,9 @@ export function SeedComposer({
     <div className={styles.composer}>
       <div className={styles.composerHead}>
         <h4 className={styles.subTitle}>Population Composer</h4>
-        <span className={styles.hint}>Weights set the mix; Scatter places them on random free cells.</span>
+        <span className={styles.hint}>
+          Weights set the mix; it lands on random free cells as you edit.
+        </span>
       </div>
 
       <table className={styles.composerTable}>
@@ -257,7 +269,7 @@ export function SeedComposer({
           />
         </label>
         <button
-          className={styles.buttonSecondary}
+          className={`${styles.button} ${styles.buttonSecondary}`}
           type="button"
           title={EQUALIZE_TITLE}
           disabled={disabled}
@@ -265,14 +277,27 @@ export function SeedComposer({
         >
           Equalize
         </button>
+        <label className={styles.inlineField} title={PLACEMENT_SEED_TITLE}>
+          <span>Placement seed</span>
+          <NumberCell
+            className={styles.seedCell}
+            disabled={disabled}
+            integer
+            max={MAX_PLACEMENT_SEED}
+            min={0}
+            step={1}
+            value={placementSeed}
+            onChange={onPlacementSeedChange}
+          />
+        </label>
         <button
-          className={styles.button}
+          className={`${styles.button} ${styles.buttonSecondary}`}
           type="button"
-          title={SCATTER_TITLE}
+          title={NEW_PLACEMENT_TITLE}
           disabled={disabled}
-          onClick={onScatter}
+          onClick={onNewPlacementSeed}
         >
-          Scatter
+          New
         </button>
       </div>
 

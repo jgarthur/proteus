@@ -224,11 +224,23 @@
   border-top: 1px solid rgba(157, 176, 196, 0.1);
 }
 
+/* Two deliberate rows -- the mix above, where its placement lands below -- in a
+   2x2 grid rather than a wrapping flex row. Four controls need about 350px on
+   one line and the sidebar gives the composer 270, so a flex row would always
+   reflow into a ragged wrap; the grid makes the pairing intentional and holds
+   at any width. `end` alignment keeps the buttons on the baseline of the inputs
+   beside them. */
 .composerControls {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
   align-items: end;
   gap: 10px;
-  flex-wrap: wrap;
+}
+
+/* One column, one input width: the ten digits of a placement seed set it. */
+.composerControls .numberCell {
+  width: 104px;
 }
 
 .inlineField {
@@ -245,6 +257,21 @@
   color: #f5fbff;
   border-radius: 8px;
   padding: 6px 8px;
+}
+
+/* The placement seed carries its own class only to suppress the spinner:
+   stepping a random u32 by one is never useful, and the arrows would eat width
+   the sidebar does not have. */
+.seedCell {
+  composes: numberCell;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.seedCell::-webkit-outer-spin-button,
+.seedCell::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* Family band inside the composer table. A `th` spanning the row, so the

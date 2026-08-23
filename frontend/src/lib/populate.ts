@@ -2,10 +2,10 @@
  * Pure allocation and scattering logic behind the config editor's population
  * composer: turn a total plus per-organism weights into exact counts, then
  * place those organisms on distinct free cells, deterministically from the
- * config seed.
+ * config seed combined with the composer's own placement seed.
  *
  * Nothing here touches React or `SimConfig`; the editor calls these functions
- * and writes the result into `seed_programs`.
+ * on every change and writes the result into `seed_programs`.
  */
 
 import type { SeedProgram } from '../types';
@@ -30,19 +30,47 @@ export interface ComposerState {
  * collapses or switches to the Inspector tab.
  */
 export interface ComposerSession extends ComposerState {
+  /**
+   * Which cells the mix lands on, independent of the world seed. Re-rolling it
+   * ("New") moves the layout without touching the simulation the config
+   * describes; a u32, because that is what the placement PRNG consumes.
+   */
+  placementSeed: number;
   /** Entries the composer placed, held by identity, not by index or tag. */
   generated: SeedProgram[];
   /** Free-cell count from the last clamped scatter, else null. */
   clampedTo: number | null;
+  /**
+   * True once the user has changed the mix in this session.
+   *
+   * The composer writes into `seed_programs` live, so something has to
+   * separate "the user asked for a population" from "this session has only
+   * ever been looked at". Without it, merely opening the editor — or loading a
+   * saved config, which starts a fresh session — would place the default mix
+   * over a config the user never asked to change. A session that already owns
+   * generated entries is armed regardless; this covers the case where it owns
+   * none yet.
+   */
+  touched: boolean;
 }
 
-/** Builds a fresh composer session with every organism active at weight 1. */
-export function createComposerSession(organismIds: readonly string[]): ComposerSession {
+/**
+ * Builds a fresh composer session with every organism active at weight 1.
+ *
+ * `placementSeed` is supplied by the caller rather than drawn here so this
+ * module stays a pure function of its inputs; the app passes a random u32.
+ */
+export function createComposerSession(
+  organismIds: readonly string[],
+  placementSeed: number,
+): ComposerSession {
   return {
     total: 1,
     rows: organismIds.map((organismId) => ({ organismId, active: true, weight: 1 })),
+    placementSeed: foldSeed(placementSeed),
     generated: [],
     clampedTo: null,
+    touched: false,
   };
 }
 
@@ -174,6 +202,20 @@ export function foldSeed(seed: number): number {
   return (low ^ high) >>> 0;
 }
 
+/**
+ * The stream seed a placement is drawn from: the config seed folded into 32
+ * bits, XOR the composer's placement seed.
+ *
+ * Two independent knobs over one stream. Changing the world seed moves the
+ * layout because the whole run moves with it; pressing "New" moves only the
+ * layout, leaving the simulation the config describes untouched. XOR keeps
+ * both halves influential and the result inside the u32 mulberry32 wants, and
+ * the same (config seed, placement seed) pair always yields the same stream.
+ */
+export function combineSeeds(configSeed: number, placementSeed: number): number {
+  return (foldSeed(configSeed) ^ foldSeed(placementSeed)) >>> 0;
+}
+
 /** mulberry32: a small, fast, well-distributed seeded 32-bit generator. */
 export function mulberry32(seed: number): () => number {
   let state = seed >>> 0;
@@ -189,6 +231,7 @@ export function mulberry32(seed: number): () => number {
 export interface ScatterArgs {
   width: number;
   height: number;
+  /** Stream seed; the editor passes `combineSeeds(config.seed, placementSeed)`. */
   seed: number;
   counts: Map<string, number>;
   /** `"x,y"` keys of hand-placed entries, which are excluded from placement. */

@@ -32,7 +32,7 @@ import { createComposerSession, type ComposerSession } from '../lib/populate';
 import { SEED_LIBRARY } from '../lib/seedLibrary';
 import { parseFrame } from '../lib/frame';
 import { MetricsBuffer } from '../lib/metricsBuffer';
-import { randomSeed } from '../lib/random';
+import { randomPlacementSeed, randomSeed } from '../lib/random';
 import { useWebSocketContext } from './WebSocketContext';
 import type {
   AppState,
@@ -196,7 +196,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
   // unmounts whenever the sidebar collapses or switches to the Inspector tab,
   // which would otherwise strand every entry it had generated.
   const [composer, setComposer] = useState<ComposerSession>(() =>
-    createComposerSession(SEED_LIBRARY.map((organism) => organism.id)),
+    createComposerSession(SEED_LIBRARY.map((organism) => organism.id), randomPlacementSeed()),
   );
   const [latestMetrics, setLatestMetrics] = useState<MetricsSnapshot | null>(null);
   const [metricsVersion, setMetricsVersion] = useState(0);
@@ -246,16 +246,19 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
 
   /** Returns the composer to its initial mix with nothing generated. */
   const resetComposer = useCallback(() => {
-    setComposer(createComposerSession(SEED_LIBRARY.map((organism) => organism.id)));
+    setComposer(
+      createComposerSession(SEED_LIBRARY.map((organism) => organism.id), randomPlacementSeed()),
+    );
   }, []);
 
   /**
    * Forgets which entries the composer generated while keeping the user's mix.
    *
    * Called whenever the seed-program list stops being the one the composer
-   * produced — a saved config is loaded over it, or a simulation is created or
-   * reset from it — so a later scatter cannot resurrect entries that are no
-   * longer the composer's to replace.
+   * produced — a simulation is created or reset from it — so a later
+   * regeneration cannot resurrect entries that are no longer the composer's to
+   * replace. What it had placed stays in the config as plain hand-placed
+   * entries.
    */
   const clearComposerGenerated = useCallback(() => {
     setComposer((current) =>

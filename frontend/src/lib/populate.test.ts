@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   allocateCounts,
   cellKey,
+  combineSeeds,
   type ComposerRow,
   createComposerSession,
   foldSeed,
@@ -149,20 +150,54 @@ describe('foldSeed', () => {
   });
 });
 
+describe('combineSeeds', () => {
+  it('is the folded config seed XOR the placement seed', () => {
+    expect(combineSeeds(0, 0)).toBe(0);
+    expect(combineSeeds(0, 12345)).toBe(12345);
+    expect(combineSeeds(12345, 0)).toBe(12345);
+    expect(combineSeeds(6, 3)).toBe(5);
+    // The high half of a >32-bit config seed still reaches the stream.
+    expect(combineSeeds(2 ** 33 + 5, 1)).toBe(6);
+  });
+
+  it('stays a u32 for the largest inputs', () => {
+    const combined = combineSeeds(Number.MAX_SAFE_INTEGER, 2 ** 32 - 1);
+    expect(Number.isInteger(combined)).toBe(true);
+    expect(combined).toBeGreaterThanOrEqual(0);
+    expect(combined).toBeLessThanOrEqual(2 ** 32 - 1);
+  });
+
+  it('lets either seed alone re-roll the layout', () => {
+    const base = combineSeeds(7, 99);
+    expect(combineSeeds(8, 99)).not.toBe(base);
+    expect(combineSeeds(7, 100)).not.toBe(base);
+  });
+
+  it('gives the same stream for the same pair', () => {
+    expect(combineSeeds(7, 99)).toBe(combineSeeds(7, 99));
+  });
+});
+
 describe('createComposerSession', () => {
   it('starts with every organism active at weight 1 and nothing generated', () => {
-    const session = createComposerSession(LIBRARY.map((organism) => organism.id));
+    const session = createComposerSession(LIBRARY.map((organism) => organism.id), 4242);
     expect(session.total).toBe(1);
+    expect(session.placementSeed).toBe(4242);
     expect(session.generated).toEqual([]);
     expect(session.clampedTo).toBeNull();
+    expect(session.touched).toBe(false);
     expect(session.rows).toEqual(
       LIBRARY.map((organism) => ({ organismId: organism.id, active: true, weight: 1 })),
     );
   });
 
+  it('normalizes the placement seed into 32 bits', () => {
+    expect(createComposerSession([], 2 ** 33 + 5).placementSeed).toBe(7);
+  });
+
   it('hands out independent row arrays', () => {
-    const first = createComposerSession(['a']);
-    const second = createComposerSession(['a']);
+    const first = createComposerSession(['a'], 1);
+    const second = createComposerSession(['a'], 1);
     first.rows[0]!.weight = 9;
     expect(second.rows[0]!.weight).toBe(1);
   });
@@ -330,5 +365,74 @@ describe('scatter', () => {
     const forward = scatterOn({ width: 8, height: 8, occupied: new Set(keys) });
     const reverse = scatterOn({ width: 8, height: 8, occupied: new Set([...keys].reverse()) });
     expect(forward).toEqual(reverse);
+  });
+});
+
+const cellsOf = (result: { programs: Array<{ x: number; y: number }> }) =>
+  result.programs.map((program) => cellKey(program.x, program.y));
+
+const tallyOf = (result: { programs: Array<{ code: number[] }> }) =>
+  TRIO.map(
+    (organism) =>
+      result.programs.filter((program) => program.code.join(',') === organism.code.join(',')).length,
+  );
+
+describe('placement seeded from both seeds', () => {
+  const counts = allocateCounts(12, equalRows());
+
+  it('gives the same layout for the same pair of seeds', () => {
+    expect(scatterOn({ seed: combineSeeds(3, 100), counts })).toEqual(
+      scatterOn({ seed: combineSeeds(3, 100), counts }),
+    );
+  });
+
+  it('moves the cells but not the counts when only the placement seed changes', () => {
+    const a = scatterOn({ seed: combineSeeds(3, 100), counts });
+    const b = scatterOn({ seed: combineSeeds(3, 101), counts });
+    expect(cellsOf(a)).not.toEqual(cellsOf(b));
+    expect(tallyOf(a)).toEqual([4, 4, 4]);
+    expect(tallyOf(b)).toEqual([4, 4, 4]);
+  });
+
+  it('moves the cells when only the config seed changes', () => {
+    const a = scatterOn({ seed: combineSeeds(3, 100), counts });
+    const b = scatterOn({ seed: combineSeeds(4, 100), counts });
+    expect(cellsOf(a)).not.toEqual(cellsOf(b));
+  });
+});
+
+// What the editor's live write-through does on a grid change: the entries it
+// owns are dropped wholesale and the same mix is placed again on the new grid.
+// The point is that nothing survives from the old grid, so a shrink can never
+// leave an out-of-range placement behind.
+describe('regeneration after a grid change', () => {
+  const counts = allocateCounts(30, equalRows());
+  const seed = combineSeeds(1, 777);
+
+  it('re-places the whole mix inside a smaller grid', () => {
+    const before = scatter({ width: 64, height: 64, seed, counts, occupied: EMPTY, library: LIBRARY });
+    // The shrink is only meaningful if the old layout really did use the space.
+    expect(before.programs.some((program) => program.x >= 16 || program.y >= 16)).toBe(true);
+
+    const after = scatter({ width: 16, height: 16, seed, counts, occupied: EMPTY, library: LIBRARY });
+    expect(after.clampedTo).toBeNull();
+    expect(after.programs).toHaveLength(30);
+    after.programs.forEach((program) => {
+      expect(program.x).toBeGreaterThanOrEqual(0);
+      expect(program.x).toBeLessThan(16);
+      expect(program.y).toBeGreaterThanOrEqual(0);
+      expect(program.y).toBeLessThan(16);
+    });
+  });
+
+  it('clamps to the new grid when the mix no longer fits', () => {
+    const after = scatter({ width: 4, height: 4, seed, counts, occupied: EMPTY, library: LIBRARY });
+    expect(after.clampedTo).toBe(16);
+    expect(after.programs).toHaveLength(16);
+    expect(new Set(cellsOf(after)).size).toBe(16);
+    after.programs.forEach((program) => {
+      expect(program.x).toBeLessThan(4);
+      expect(program.y).toBeLessThan(4);
+    });
   });
 });
