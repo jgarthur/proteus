@@ -13,11 +13,15 @@
 //! `start-tick` replays each fixture without observation before timing begins,
 //! which makes it possible to benchmark a bounded window of a grown ecology.
 //!
-//! Fixtures include the synthetic cases from
-//! `docs/analysis/2026-08-11_rayon-performance-profile.md` plus the exact
-//! 256x256 web scenario recorded in the 2026-08-12 results note. Timings are
-//! wall-clock means and are machine-specific; treat them as guidance, not as
-//! stable thresholds.
+//! The default fixtures, in order, are `frontend-64x64`, `empty-64x64`,
+//! `empty-256x256`, `dense-additive-128x128`, `dense-emit-64x64`, and the
+//! four-seed `web-256x256-ens`. The ensemble's takeoff/stall modes separate
+//! only after the roughly 500-3000-tick bifurcation, so use the established
+//! `start-tick` convention of 6500 for meaningful ecology comparisons. The
+//! legacy `web-256x256-single` fixture is filter-only and runs only when the
+//! filter matches its name without also matching the ensemble name. Timings
+//! are wall-clock means and are machine-specific; treat them as guidance, not
+//! as stable thresholds.
 
 use std::time::{Duration, Instant};
 
@@ -128,13 +132,20 @@ fn frontend_64x64() -> Simulation {
     })
 }
 
-/// Exact 256x256 scenario exported by the web frontend on 2026-08-12.
+/// Legacy exact 256x256 scenario exported by the web frontend on 2026-08-12.
 ///
 /// Unlike the synthetic fixtures built with `Simulation::from_grid`, this uses
 /// the production initialization and bootstrap path so tick-zero background
 /// resources and randomized program registers match the web controller.
+/// This fixture is bimodal: its seed finishes at 8,110 programs versus the
+/// 56,312 median across the 16-seed sweep, and its response to `r_energy` is
+/// non-monotone.
 fn web_256x256_single() -> Simulation {
-    let config = frontend_config(256, 256, 6_846_702_536_457_205);
+    web_256x256(6_846_702_536_457_205)
+}
+
+fn web_256x256(seed: u64) -> Simulation {
+    let config = frontend_config(256, 256, seed);
     let mut simulation = Simulation::new(config).expect("web fixture should build");
     apply_bootstrap(
         &mut simulation,
@@ -152,6 +163,34 @@ fn web_256x256_single() -> Simulation {
     .expect("web fixture bootstrap should apply");
     simulation
 }
+
+struct WebEnsembleSeed {
+    seed: u64,
+    mode: &'static str,
+}
+
+const WEB_ENSEMBLE_SEEDS: [WebEnsembleSeed; 4] = [
+    // Takeoff; docs/analysis/2026-08-21_ambient-rebalance-sweep.md §3.
+    WebEnsembleSeed {
+        seed: 33,
+        mode: "takeoff",
+    },
+    // Takeoff; docs/analysis/2026-08-21_ambient-rebalance-sweep.md §3.
+    WebEnsembleSeed {
+        seed: 55,
+        mode: "takeoff",
+    },
+    // Stall; docs/analysis/2026-08-21_ambient-rebalance-sweep.md §3.
+    WebEnsembleSeed {
+        seed: 11,
+        mode: "stall",
+    },
+    // Stall; docs/analysis/2026-08-21_ambient-rebalance-sweep.md §3 (legacy fixture seed).
+    WebEnsembleSeed {
+        seed: 6_846_702_536_457_205,
+        mode: "stall",
+    },
+];
 
 /// Empty grid isolating full-grid ambient work and fixed scheduling costs.
 fn empty(width: u32, height: u32) -> Simulation {
@@ -237,7 +276,26 @@ fn program_counts(simulation: &Simulation) -> (usize, usize) {
     (programs, live_programs)
 }
 
-fn run_fixture(name: &str, make: &dyn Fn() -> Simulation, ticks: u32, reps: u32, start_tick: u32) {
+fn median(values: &mut [f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_by(f64::total_cmp);
+    let middle = values.len() / 2;
+    if values.len().is_multiple_of(2) {
+        (values[middle - 1] + values[middle]) / 2.0
+    } else {
+        values[middle]
+    }
+}
+
+fn run_fixture(
+    name: &str,
+    make: &dyn Fn() -> Simulation,
+    ticks: u32,
+    reps: u32,
+    start_tick: u32,
+) -> f64 {
     // Warm up code paths and the Rayon pool outside the measured window.
     let mut warmup = make();
     for _ in 0..ticks.min(100) {
@@ -253,6 +311,9 @@ fn run_fixture(name: &str, make: &dyn Fn() -> Simulation, ticks: u32, reps: u32,
         checkpoint.run_tick();
     }
     (totals.start_programs, totals.start_live_programs) = program_counts(&checkpoint);
+    totals.final_cells = checkpoint.grid().len();
+    (totals.final_programs, totals.final_live_programs) =
+        (totals.start_programs, totals.start_live_programs);
     println!(
         "checkpoint ready: tick={start_tick} programs={} live_programs={}",
         totals.start_programs, totals.start_live_programs
@@ -288,6 +349,7 @@ fn run_fixture(name: &str, make: &dyn Fn() -> Simulation, ticks: u32, reps: u32,
         .collect::<Vec<_>>()
         .join(" ");
     println!("  rep total means: {reps_line}");
+    let rep_median_micros = median(&mut rep_totals);
     println!(
         "  activity: births={} deaths={} mutations={} final_packets={} start_programs={} start_live_programs={} start_occupancy={:.1}% final_programs={} final_live_programs={} final_occupancy={:.1}%",
         totals.births,
@@ -305,6 +367,51 @@ fn run_fixture(name: &str, make: &dyn Fn() -> Simulation, ticks: u32, reps: u32,
     if let Some(simulation) = final_simulation.as_ref() {
         report_census(simulation);
     }
+
+    rep_median_micros
+}
+
+fn run_web_ensemble(ticks: u32, reps: u32, start_tick: u32) {
+    let mut seed_medians_ms = Vec::with_capacity(WEB_ENSEMBLE_SEEDS.len());
+    for ensemble_seed in WEB_ENSEMBLE_SEEDS {
+        println!(
+            "ensemble seed: fixture=web-256x256-ens seed={} mode={}",
+            ensemble_seed.seed, ensemble_seed.mode
+        );
+        let seed = ensemble_seed.seed;
+        let label = format!("web-256x256-ens seed={seed}");
+        let rep_median_micros = run_fixture(&label, &|| web_256x256(seed), ticks, reps, start_tick);
+        let rep_median_ms = rep_median_micros / 1_000.0;
+        println!(
+            "  seed rep-median: seed={} mode={} {:.3} ms/tick",
+            ensemble_seed.seed, ensemble_seed.mode, rep_median_ms
+        );
+        seed_medians_ms.push(rep_median_ms);
+    }
+
+    let (min, max) = if seed_medians_ms.is_empty() {
+        (0.0, 0.0)
+    } else {
+        (
+            seed_medians_ms
+                .iter()
+                .copied()
+                .fold(f64::INFINITY, f64::min),
+            seed_medians_ms
+                .iter()
+                .copied()
+                .fold(f64::NEG_INFINITY, f64::max),
+        )
+    };
+    let ensemble_median = median(&mut seed_medians_ms);
+    if start_tick < 3000 {
+        println!(
+            "ensemble warning: start_tick={start_tick} is below 3000; takeoff/stall modes may not have separated"
+        );
+    }
+    println!(
+        "ensemble rep-median: median={ensemble_median:.3} ms/tick min-max={min:.3}-{max:.3} ms/tick"
+    );
 }
 
 /// Times one census against one metrics snapshot and reports bucket saturation.
@@ -408,9 +515,8 @@ fn main() {
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".to_owned()),
     );
 
-    let fixtures: [(&str, &dyn Fn() -> Simulation); 6] = [
+    let fixtures: [(&str, &dyn Fn() -> Simulation); 5] = [
         ("frontend-64x64", &frontend_64x64),
-        ("web-256x256-single", &web_256x256_single),
         ("empty-64x64", &|| empty(64, 64)),
         ("empty-256x256", &|| empty(256, 256)),
         ("dense-additive-128x128", &dense_additive_128x128),
@@ -422,5 +528,15 @@ fn main() {
             continue;
         }
         run_fixture(name, make, ticks, reps, start_tick);
+    }
+
+    const WEB_ENSEMBLE: &str = "web-256x256-ens";
+    if filter.is_empty() || WEB_ENSEMBLE.contains(&filter) {
+        run_web_ensemble(ticks, reps, start_tick);
+    }
+
+    const WEB_SINGLE: &str = "web-256x256-single";
+    if !filter.is_empty() && WEB_SINGLE.contains(&filter) && !WEB_ENSEMBLE.contains(&filter) {
+        run_fixture(WEB_SINGLE, &web_256x256_single, ticks, reps, start_tick);
     }
 }

@@ -37,7 +37,7 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 - [ ] CENSUS-STREAM: Opt-in WebSocket census subscription with its own cadence. See `docs/BACKLOG.md`.
 - [x] AMBIENT-REBALANCE: Swept `r_energy` x `r_mass` against the merged `d_* = 2^-7` defaults (88 runs). The post-dyadic web-scenario "collapse" is one unlucky seed, not a systematic effect; lowering `r_energy` to 0.1953125 makes the ecology significantly worse (grid fill 4/16 vs 13/16, paired p = 0.004) and `r_mass` is inert. Recommendation is to change no default. See `docs/analysis/2026-08-21_ambient-rebalance-sweep.md`.
 - [ ] MUTATION-DOSE-TUNING: Decide whether `mutation_background_log2` should move off 8; it is the only knob that separates mutation load from energy income, and raising it to 9 gave 8/8 grid fill. See `docs/BACKLOG.md`.
-- [ ] BENCH-WEB-FIXTURE-ENSEMBLE: Stop using a single-seed grown-web checkpoint as a comparison basis; `web-256x256-single` is bimodal and the fixture seed sits in the minority mode. See `docs/BACKLOG.md`.
+- [x] BENCH-WEB-FIXTURE-ENSEMBLE: `tick_bench` now defaults to a fixed two-takeoff/two-stall web ensemble with per-seed activity and median/min-max timing spread; use the tick-6500 checkpoint convention, and select the bimodal single seed only with a single-specific filter. See `docs/BACKLOG.md`.
 - [ ] CONTROLLER-LIFECYCLE: Clean up web-controller lifecycle state machine
 - [ ] SNAPSHOT-BOUNDARY: Engine snapshot boundary and web-layer snapshot store
 - [x] METRIC-PACKET-ENERGY: Add packet-energy metric

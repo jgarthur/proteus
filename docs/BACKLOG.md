@@ -232,7 +232,17 @@ References: `docs/analysis/2026-08-22_tier-2a-stride-diagnostic.md`, `rust/src/p
 
 ### BENCH-WEB-FIXTURE-ENSEMBLE: Stop using a single-seed grown-web checkpoint as a comparison basis
 
+Delivered (2026-08-22): `tick_bench` now defaults to `web-256x256-ens`, a fixed
+four-seed set spanning two takeoff and two stall outcomes from the ambient
+rebalance sweep. Each seed retains the parser-stable repetition and activity
+lines, and the fixture reports the median and min-max of per-seed repetition
+medians. Each seed builds its own checkpoint; use the established
+`start_tick = 6500` convention because the takeoff/stall modes separate only
+after the roughly 500-3000-tick bifurcation. The bimodal
+`web-256x256-single` fixture remains available by an explicit substring filter
+but no longer runs by default or when the filter also matches the ensemble.
+
 Context (2026-08-21, ambient rebalance sweep): `web-256x256-single` is bimodal. Across 88 runs its final population splits into two clusters with an 18,336-program gap and nothing in between, and the fixture seed `6846702536457205` sits in the minority mode under the current defaults — it finishes at 8,110 programs where the median seed finishes at 56,312. Worse, its response to `r_energy` is non-monotone (fills the grid at backgrounds 25, 28 and 36; stalls at 32), so a single-seed grown-web checkpoint can swing by an order of magnitude on a parameter change that barely moves the ensemble.
 
-That is what produced the misleading tick-6500 A/B in `2026-08-21_dyadic-sampler-results.md`. Dense-regime benchmarking should use a synthetic dense fixture (`dense-additive-128x128`, already the honest measurement there) or report a seed ensemble with a stated spread. Consider adding a fixed multi-seed grown-web fixture set to `tick_bench`, or documenting the bimodality inline where the fixture is defined.
+That is what produced the misleading tick-6500 A/B in `2026-08-21_dyadic-sampler-results.md`. Dense-regime benchmarking should use a synthetic dense fixture (`dense-additive-128x128`, already the honest measurement there) or report a seed ensemble with a stated spread.
 References: `docs/analysis/2026-08-21_ambient-rebalance-sweep.md`, `docs/analysis/2026-08-21_dyadic-sampler-results.md`, `rust/examples/tick_bench.rs`

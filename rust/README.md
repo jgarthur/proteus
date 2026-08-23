@@ -127,16 +127,28 @@ a fixture that silently dies or stops exercising its intended behavior is visibl
 ### Benchmarking tick phases and grown ecologies
 
 `examples/tick_bench.rs` reports whole-tick and per-phase wall time for six
-fixtures. Its `web-256x256-single` fixture is the exact growing web scenario
-recorded in `docs/analysis/2026-08-12_rayon-optimization-results.md`. An optional
-fourth argument replays an untimed checkpoint once, then clones it for each timed
-repetition:
+default fixtures, in this order: `frontend-64x64`, `empty-64x64`,
+`empty-256x256`, `dense-additive-128x128`, `dense-emit-64x64`, and
+`web-256x256-ens`. The web fixture runs two takeoff and two stall seeds from the
+ambient-rebalance sweep, preserves the standard timing and activity lines for
+each seed, and adds the median and min-max of their per-seed repetition medians.
+Those modes separate only after the roughly 500-3000-tick bifurcation, so the
+ensemble is meaningful only with a large `start_tick`; 6500 is the established
+convention. An optional fourth argument builds an untimed checkpoint once per
+ensemble seed, then clones that seed's checkpoint for every timed repetition:
 
 ```bash
-cargo run --release --example tick_bench -- 1000 3 web-256x256-single
+cargo run --release --example tick_bench -- 1000 3 web-256x256-ens
 RAYON_NUM_THREADS=4 cargo run --release --features rayon --example tick_bench -- \
-  100 3 web-256x256-single 6500
+  100 3 web-256x256-ens 6500
 ```
+
+The exact historical scenario remains selectable as
+`web-256x256-single`, but is no longer in the default fixture list. Its ecology
+is bimodal: the fixture seed finishes at 8,110 programs under current defaults,
+versus the 56,312 median across the 16-seed sweep, and its `r_energy` response is
+non-monotone. Use synthetic dense fixtures as stable regime anchors and the web
+ensemble when ecology-sensitive spread is relevant.
 
 Build through `cargo run` with explicit features: serial and Rayon examples share
 one output path, so directly invoking a stale `target/release/examples/tick_bench`
