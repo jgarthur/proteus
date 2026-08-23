@@ -25,21 +25,21 @@ const RUST_DECODE_TABLE: ReadonlyArray<[number, string]> = [
   [0x30, 'for'],
   [0x31, 'next'],
   [0x32, 'jmp'],
-  [0x33, 'jmpNz'],
+  [0x33, 'jmpNZ'],
   [0x34, 'jmpZ'],
   [0x40, 'cw'],
   [0x41, 'ccw'],
   [0x42, 'getSize'],
-  [0x43, 'getIp'],
+  [0x43, 'getIP'],
   [0x44, 'getFlag'],
   [0x45, 'getMsg'],
-  [0x46, 'getId'],
+  [0x46, 'getID'],
   [0x47, 'getSrc'],
   [0x48, 'getDst'],
   [0x49, 'setDir'],
   [0x4a, 'setSrc'],
   [0x4b, 'setDst'],
-  [0x4c, 'setId'],
+  [0x4c, 'setID'],
   [0x4d, 'getE'],
   [0x4e, 'getM'],
   [0x50, 'nop'],
@@ -54,7 +54,7 @@ const RUST_DECODE_TABLE: ReadonlyArray<[number, string]> = [
   [0x59, 'senseSize'],
   [0x5a, 'senseE'],
   [0x5b, 'senseM'],
-  [0x5c, 'senseId'],
+  [0x5c, 'senseID'],
   [0x5d, 'readAdj'],
   [0x5e, 'writeAdj'],
   [0x5f, 'appendAdj'],
@@ -188,7 +188,7 @@ describe('assemble', () => {
 
 describe('suggestMnemonics', () => {
   it('suggests by prefix', () => {
-    expect(suggestMnemonics('sense')).toEqual(['senseE', 'senseM', 'senseId']);
+    expect(suggestMnemonics('sense')).toEqual(['senseE', 'senseM', 'senseID']);
   });
 
   it('returns nothing useful for gibberish', () => {

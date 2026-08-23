@@ -26,20 +26,24 @@ pub enum Opcode {
     For,
     Next,
     Jmp,
+    #[strum(to_string = "jmpNZ")]
     JmpNz,
     JmpZ,
     Cw,
     Ccw,
     GetSize,
+    #[strum(to_string = "getIP")]
     GetIp,
     GetFlag,
     GetMsg,
+    #[strum(to_string = "getID")]
     GetId,
     GetSrc,
     GetDst,
     SetDir,
     SetSrc,
     SetDst,
+    #[strum(to_string = "setID")]
     SetId,
     GetE,
     GetM,
@@ -55,6 +59,7 @@ pub enum Opcode {
     SenseSize,
     SenseE,
     SenseM,
+    #[strum(to_string = "senseID")]
     SenseId,
     ReadAdj,
     WriteAdj,

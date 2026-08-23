@@ -85,7 +85,7 @@ The evolved 39-instruction genome observed running around and shedding offspring
 12 absorb    81      25 absorb    81      38 absorb    81
 ```
 
-Structurally: **11 of 39 instructions are `absorb`**, which saturates `absorb_count` at its cap of 4
+Structurally: **13 of 39 instructions are `absorb`**, which saturates `absorb_count` at its cap of 4
 and buys the 5-cell footprint that §5 shows is required for any viability at all. Two `move`s. The
 copy machinery is at 30–32 and 34–37.
 
@@ -313,7 +313,7 @@ Solving at `R_energy = 0.25`, `M = 1/128`:
 A stationary program that drains its own cell every tick earns `R_energy = 0.25` energy/tick, but a
 replication cycle costs ~1 energy/tick in `appendAdj` base costs alone. It is 4× short regardless of
 how efficient the genome is. Full `absorb_count = 4` buys a factor of 5 and makes sizes up to ~38
-viable — which is why evolved genomes are stuffed with `absorb` (11 of 39 in the seed-1 program
+viable — which is why evolved genomes are stuffed with `absorb` (13 of 39 in the seed-1 program
 above), and why mean size stalls in the 30–70 range rather than climbing freely.
 
 Movement is the other half. A `move` costs 1 energy and lands the program on a cell holding the full

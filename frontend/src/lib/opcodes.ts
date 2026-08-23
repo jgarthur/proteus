@@ -44,23 +44,23 @@ export const OPCODES: ReadonlyArray<OpcodeInfo> = [
   { byte: 0x30, mnemonic: 'for', summary: 'Pop count into LC; if LC <= 0, skip past the matching next.' },
   { byte: 0x31, mnemonic: 'next', summary: 'Decrement LC; if LC > 0, jump back after the matching for.' },
   { byte: 0x32, mnemonic: 'jmp', summary: 'Pop offset; jump to IP + offset.' },
-  { byte: 0x33, mnemonic: 'jmpNz', summary: 'Pop value then offset; jump if value != 0.' },
+  { byte: 0x33, mnemonic: 'jmpNZ', summary: 'Pop value then offset; jump if value != 0.' },
   { byte: 0x34, mnemonic: 'jmpZ', summary: 'Pop value then offset; jump if value == 0.' },
 
   // Direction, registers, local resource access
   { byte: 0x40, mnemonic: 'cw', summary: 'Rotate Dir 90 degrees clockwise.' },
   { byte: 0x41, mnemonic: 'ccw', summary: 'Rotate Dir 90 degrees counterclockwise.' },
   { byte: 0x42, mnemonic: 'getSize', summary: "Push this program's instruction count." },
-  { byte: 0x43, mnemonic: 'getIp', summary: 'Push IP.' },
+  { byte: 0x43, mnemonic: 'getIP', summary: 'Push IP.' },
   { byte: 0x44, mnemonic: 'getFlag', summary: 'Push Flag (0 or 1).' },
   { byte: 0x45, mnemonic: 'getMsg', summary: 'Push Msg.' },
-  { byte: 0x46, mnemonic: 'getId', summary: 'Push ID.' },
+  { byte: 0x46, mnemonic: 'getID', summary: 'Push ID.' },
   { byte: 0x47, mnemonic: 'getSrc', summary: 'Push Src.' },
   { byte: 0x48, mnemonic: 'getDst', summary: 'Push Dst.' },
   { byte: 0x49, mnemonic: 'setDir', summary: 'Pop value; set Dir to value mod 4.' },
   { byte: 0x4a, mnemonic: 'setSrc', summary: 'Pop value; set Src.' },
   { byte: 0x4b, mnemonic: 'setDst', summary: 'Pop value; set Dst.' },
-  { byte: 0x4c, mnemonic: 'setId', summary: 'Pop value; set ID (low 8 bits).' },
+  { byte: 0x4c, mnemonic: 'setID', summary: 'Pop value; set ID (low 8 bits).' },
   { byte: 0x4d, mnemonic: 'getE', summary: "Push this cell's free energy (excludes background)." },
   { byte: 0x4e, mnemonic: 'getM', summary: "Push this cell's free mass." },
 
@@ -83,7 +83,7 @@ export const OPCODES: ReadonlyArray<OpcodeInfo> = [
   { byte: 0x59, mnemonic: 'senseSize', summary: 'Push neighbor program size along Dir (0 if empty).' },
   { byte: 0x5a, mnemonic: 'senseE', summary: 'Push neighbor free energy along Dir (0 if empty).' },
   { byte: 0x5b, mnemonic: 'senseM', summary: 'Push neighbor free mass along Dir (0 if empty).' },
-  { byte: 0x5c, mnemonic: 'senseId', summary: 'Push neighbor ID along Dir (0 and Flag = 1 if empty).' },
+  { byte: 0x5c, mnemonic: 'senseID', summary: 'Push neighbor ID along Dir (0 and Flag = 1 if empty).' },
 
   // World interaction - nonlocal
   { byte: 0x5d, mnemonic: 'readAdj', summary: 'Push neighbor[Src mod size]; increment Src. Ignores protection.' },
