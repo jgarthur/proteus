@@ -185,6 +185,11 @@ Validation:
 Context: the current inspector is cell-centric. Add a mode that keeps the inspector locked onto the same program identity as it moves between cells, rather than dropping focus when the originally selected cell changes. This likely needs backend support for stable per-program identity and/or a direct "find current location for program id" path.
 References: `docs/API-SPEC.md`, `docs/FRONTEND-SPEC.md`, `frontend/src/components/inspector/InspectorTab.tsx`, `frontend/src/context/SimContext.tsx`, `rust/src/observe.rs`, `rust/src/web/mod.rs`
 
+### SEED-ORGANISMS: Design a few plausible seed organisms
+
+Context: the only hand-designed organism is the 12-instruction Seed Replicator in `docs/SPEC.md` ("Seed Replicator"), and the emergence work so far starts from it (see `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`). The goal is a small set of deliberately different organisms that are plausible under the current defaults — each with a stated survival strategy (e.g. a mobile forager that `move`s toward radiation, an `emit`/`listen` cooperative pair, a `synthesize`-driven builder that trades energy for mass) — and a headless-runner check per organism that it persists for a stated horizon with the default config. Document each genome with commented assembly like the Seed Replicator listing. Pairs naturally with SEED-PROGRAM-QOL (library/disassembly tooling) and SEED1-TRACE.
+References: `docs/SPEC.md` (Seed Replicator, instruction table), `docs/RUNNER-SPEC.md`, `rust/src/bootstrap.rs`, `frontend/src/lib/config.ts`
+
 ### SEED-PROGRAM-QOL: Add seed-program library/import-export/disassembly tooling
 
 Context: improve seed-program authoring without changing simulator semantics. Candidate scope includes a small reusable library of saved seed programs, JSON save/load for seed-program sets, and opcode/disassembly helpers so raw byte arrays are easier to inspect and edit.

@@ -23,7 +23,7 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 
 ## Next
 
-- [ ] Design 1–2 minimal self-replicating seed programs
+- [ ] SEED-ORGANISMS: Design a few plausible seed organisms beyond the 12-instruction Seed Replicator (e.g. a mobile forager, an emitter/listener pair, a synthesize-driven builder), each with a stated survival strategy and a headless-runner check that it persists under the current defaults. See `docs/BACKLOG.md`.
 - [x] CONFIG-DYADIC-K: Specify every dyadic probability config field as an integer exponent (field value k, probability 2^-k; explicit null = never), replacing the f64 fields, `dyadic_exponent` derivation, and the NotDyadicProbability validation class; includes API-SPEC bump, SPEC.md parameter-domain edits, fixture/manifest/frontend migration, and runner input-digest churn. Decide absent-vs-null serde semantics explicitly. Batch with MUTATION-ANY-QUANTUM to pay the migration churn once. See `docs/BACKLOG.md`.
 - [x] MUTATION-ANY-QUANTUM: Change background-stressed mutation from `p = min(x / 2^k, 1)` to "any of x Bernoulli(2^-k) triggers" — i.e. `binomial_pow2(x, k) > 0` — removing the saturation cliff at x = 2^k; delete the then-dead `bernoulli_ratio_pow2`. Draw streams change (version bump + sampled-literal migration). Open spec question to resolve in-task: mutate once when any quantum fires (default), or apply count mutations (escalation, off by default). Batch with CONFIG-DYADIC-K. See `docs/BACKLOG.md`.
 - [ ] MUTATION-CAUSE-SPLIT: Split the mutation metric into baseline and background-stressed counters. See `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`.
