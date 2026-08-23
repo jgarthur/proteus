@@ -60,3 +60,20 @@
 .error {
   color: #ff9d94;
 }
+
+.uidLink {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #7fb2ea;
+  font-family: 'SFMono-Regular', ui-monospace, monospace;
+  font-size: inherit;
+  text-align: right;
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+
+.uidLink:hover,
+.uidLink:focus-visible {
+  color: #a9d0ff;
+}

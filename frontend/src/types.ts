@@ -1,3 +1,5 @@
+import type { ProgramOrigin } from './lib/lineage';
+
 export type WsStatus = 'disconnected' | 'connecting' | 'connected';
 export type SimStatus = 'none' | 'created' | 'running' | 'paused';
 export type SidebarTab = 'controls' | 'inspector';
@@ -33,6 +35,19 @@ export interface AppState {
   metricsDrawerOpen: boolean;
   ticksPerSecond: number | null;
   apiError: string | null;
+  /**
+   * Counts simulation instances this session. Reset, create, and destroy each
+   * start a new uid epoch, so anything decoded from a uid is only meaningful
+   * against the epoch it was fetched under.
+   */
+  simEpoch: number;
+}
+
+/** Records the simulation instance and grid a cell inspection was fetched under. */
+export interface InspectionStamp {
+  simEpoch: number;
+  gridWidth: number;
+  gridHeight: number;
 }
 
 export interface SimStatusResponse {
@@ -145,6 +160,16 @@ export interface CellProgram {
   lc: number;
   stack: number[];
   abandonment_timer: number | null;
+  uid: number;
+  /** Null for a lineage root: a seed program or a spontaneous spawn. */
+  parent_uid: number | null;
+  /** Null while an inert body has never booted. */
+  birth_tick: number | null;
+  generation: number;
+  /** `'seed'`, `'spawn'`, or `'append'`, decoded from the uid. */
+  origin: ProgramOrigin | null;
+  /** Tick at which the program first materialized; precedes `birth_tick`. */
+  created_tick: number | null;
 }
 
 export interface CellResponse {

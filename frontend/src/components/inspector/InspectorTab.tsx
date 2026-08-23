@@ -1,12 +1,16 @@
 import { directionLabel, formatInteger } from '../../lib/format';
+import { cellIndexToCoordinates, decodeProgramSite, originLabel } from '../../lib/lineage';
 import { useSimContext } from '../../context/SimContext';
+import type { CellProgram } from '../../types';
 import styles from './InspectorTab.module.css';
 
 const MAX_RENDERED_STACK_ENTRIES = 64;
 
 export function InspectorTab(): JSX.Element {
   const {
+    selectCell,
     selectedCellData,
+    selectedCellStamp,
     selectedCellError,
     selectedCellFetchedAt,
     selectedCellLoading,
@@ -22,6 +26,15 @@ export function InspectorTab(): JSX.Element {
     );
   }
 
+  // A uid only decodes against the simulation instance and grid it was fetched
+  // under: reset, create, and destroy start a new uid epoch, and a resize makes
+  // the modulo decode land in range on the wrong cell. Retained data that
+  // predates such a boundary still renders, but its parent uid is inert text.
+  const inspectionMatchesCurrentSim =
+    selectedCellStamp !== null &&
+    selectedCellStamp.simEpoch === state.simEpoch &&
+    selectedCellStamp.gridWidth === state.gridWidth &&
+    selectedCellStamp.gridHeight === state.gridHeight;
   const isStale =
     state.simStatus === 'running' &&
     selectedCellFetchedAt !== null &&
@@ -106,6 +119,17 @@ export function InspectorTab(): JSX.Element {
           </section>
 
           <section className={styles.card}>
+            <h2 className={styles.title}>Lineage</h2>
+            <Lineage
+              program={selectedCellData.program}
+              gridWidth={state.gridWidth}
+              gridHeight={state.gridHeight}
+              canDecodeParent={inspectionMatchesCurrentSim}
+              onSelectCell={selectCell}
+            />
+          </section>
+
+          <section className={styles.card}>
             <h2 className={styles.title}>Disassembly</h2>
             <div className={styles.disassembly}>
               {selectedCellData.program.disassembly.map((instruction, index) => (
@@ -123,6 +147,58 @@ export function InspectorTab(): JSX.Element {
         </>
       ) : null}
     </div>
+  );
+}
+
+function Lineage({
+  program,
+  gridWidth,
+  gridHeight,
+  canDecodeParent,
+  onSelectCell,
+}: {
+  program: CellProgram;
+  gridWidth: number;
+  gridHeight: number;
+  canDecodeParent: boolean;
+  onSelectCell: (cell: { x: number; y: number } | null) => void;
+}): JSX.Element {
+  const parentUid = program.parent_uid;
+  const parentSite =
+    parentUid === null || !canDecodeParent ? null : decodeProgramSite(parentUid, gridWidth * gridHeight);
+  const parentCell = parentSite === null ? null : cellIndexToCoordinates(parentSite.cellIndex, gridWidth, gridHeight);
+
+  return (
+    <>
+      <KeyValue label="Origin" value={originLabel(program.origin)} />
+      <KeyValue label="Generation" value={formatInteger(program.generation)} />
+      <KeyValue label="Birth tick" value={formatInteger(program.birth_tick)} />
+      <KeyValue label="Created tick" value={formatInteger(program.created_tick)} />
+      <KeyValue label="uid" value={String(program.uid)} />
+      <div className={styles.kv}>
+        <span>Parent uid</span>
+        {parentUid === null ? (
+          <span className={styles.mono}>—</span>
+        ) : parentCell ? (
+          <button
+            type="button"
+            className={styles.uidLink}
+            title={`Inspect the cell the parent was created in (${parentCell.x}, ${parentCell.y}) at tick ${formatInteger(parentSite?.tick)}`}
+            onClick={() => onSelectCell(parentCell)}
+          >
+            {parentUid}
+          </button>
+        ) : (
+          <span className={styles.mono}>{parentUid}</span>
+        )}
+      </div>
+      {parentCell ? (
+        <p className={styles.muted}>
+          Parent created at ({parentCell.x}, {parentCell.y}) on tick {formatInteger(parentSite?.tick)}; it may have
+          since moved or died.
+        </p>
+      ) : null}
+    </>
   );
 }
 

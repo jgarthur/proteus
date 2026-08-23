@@ -45,8 +45,10 @@ References: `docs/RUNNER-SPEC.md`, `rust/src/runner/single.rs`
 
 ### INSPECTOR-LINEAGE: Surface the lineage fields in the frontend inspector
 
-Context: `GET /v1/sim/cell/:index` now returns `uid`, `parent_uid`, `birth_tick`, `generation`, `origin`, and `created_tick`. The inspector does not show them yet.
-References: `docs/FRONTEND-SPEC.md`, `frontend/src/types.ts`
+Delivered (2026-08-22): the inspector shows a Lineage card (origin, generation, birth tick, created tick, uid, parent uid) between the Program and Disassembly cards. `CellProgram` carries the six fields with the API-SPEC §12 nullability, and `frontend/src/lib/lineage.ts` decodes a uid back into its creation site, which makes the parent uid a click target that selects the cell the parent was created in. The decode declines uids past `Number.MAX_SAFE_INTEGER`, where JSON has already rounded the `u64`.
+
+Context that motivated it: `GET /v1/sim/cell/:index` returns `uid`, `parent_uid`, `birth_tick`, `generation`, `origin`, and `created_tick`, and the inspector did not show them.
+References: `docs/FRONTEND-SPEC.md`, `frontend/src/types.ts`, `frontend/src/lib/lineage.ts`, `frontend/src/components/inspector/InspectorTab.tsx`
 
 ### CENSUS-STREAM: Opt-in WebSocket census subscription with its own cadence
 

@@ -35,6 +35,7 @@ import { useWebSocketContext } from './WebSocketContext';
 import type {
   AppState,
   CellResponse,
+  InspectionStamp,
   ColorMapMode,
   GridFrame,
   MetricsMessage,
@@ -64,6 +65,7 @@ type Action =
   | { type: 'SET_TPS'; value: number | null }
   | { type: 'SET_API_ERROR'; value: string | null }
   | { type: 'SET_TICK'; value: number }
+  | { type: 'BUMP_SIM_EPOCH' }
   | { type: 'CLEAR_SIM' };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -113,6 +115,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, apiError: action.value };
     case 'SET_TICK':
       return { ...state, tick: action.value };
+    case 'BUMP_SIM_EPOCH':
+      return { ...state, simEpoch: state.simEpoch + 1 };
     case 'CLEAR_SIM':
       return {
         ...state,
@@ -141,6 +145,8 @@ interface SimContextValue {
   configIsValid: boolean;
   setConfig: React.Dispatch<React.SetStateAction<SimConfig>>;
   selectedCellData: CellResponse | null;
+  /** Null until a cell inspection lands; identifies what that data describes. */
+  selectedCellStamp: InspectionStamp | null;
   selectedCellLoading: boolean;
   selectedCellError: string | null;
   selectedCellFetchedAt: number | null;
@@ -184,6 +190,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
   const [latestMetrics, setLatestMetrics] = useState<MetricsSnapshot | null>(null);
   const [metricsVersion, setMetricsVersion] = useState(0);
   const [selectedCellData, setSelectedCellData] = useState<CellResponse | null>(null);
+  const [selectedCellStamp, setSelectedCellStamp] = useState<InspectionStamp | null>(null);
   const [selectedCellLoading, setSelectedCellLoading] = useState(false);
   const [selectedCellError, setSelectedCellError] = useState<string | null>(null);
   const [selectedCellFetchedAt, setSelectedCellFetchedAt] = useState<number | null>(null);
@@ -192,6 +199,14 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
   const stateRef = useRef(state);
   const selectedCellDataRef = useRef<CellResponse | null>(null);
   const selectedCellRequestRef = useRef(0);
+  /**
+   * Authoritative uid-epoch counter. It leads `state.simEpoch` by one commit,
+   * so a fetch reads it synchronously at start rather than waiting for the
+   * dispatched value to reach `stateRef`.
+   */
+  const simEpochRef = useRef(INITIAL_STATE.simEpoch);
+  /** True while a create/reset/destroy request is in flight. */
+  const boundaryInFlightRef = useRef(false);
   const frontendTickerRef = useRef<FrontendTickerState>({
     active: false,
     timeoutId: null,
@@ -476,6 +491,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     if (cell) {
       if (!isSameCellSelection) {
         setSelectedCellData(null);
+        setSelectedCellStamp(null);
         setSelectedCellFetchedAt(null);
       }
       setSelectedCellError(null);
@@ -484,19 +500,64 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
       dispatch({ type: 'SET_SIDEBAR_TAB', value: 'inspector' });
     } else {
       setSelectedCellData(null);
+      setSelectedCellStamp(null);
       setSelectedCellFetchedAt(null);
       setSelectedCellError(null);
       setSelectedCellLoading(false);
     }
   }, []);
 
+  /**
+   * Opens a simulation boundary (create, reset, destroy) and drops the
+   * inspection data retained across it. Each boundary starts a new uid epoch,
+   * so a parent uid decoded from the old data would point into a simulation
+   * that no longer exists — and after a resize the modulo decode would land in
+   * range on the wrong cell. Bumping the request counter discards any
+   * inspection fetch already in flight; the flag keeps the running inspector's
+   * poll from starting a new one against the simulation being replaced.
+   *
+   * The epoch itself is bumped in `endSimBoundary`, once the request has
+   * actually landed, so that a fetch which observed the pre-boundary
+   * simulation carries the pre-boundary epoch and renders as inert text.
+   */
+  const beginSimBoundary = useCallback(() => {
+    boundaryInFlightRef.current = true;
+    selectedCellRequestRef.current += 1;
+    setSelectedCellData(null);
+    setSelectedCellStamp(null);
+    setSelectedCellFetchedAt(null);
+    setSelectedCellError(null);
+    setSelectedCellLoading(false);
+  }, []);
+
+  /** Closes a simulation boundary: the new uid epoch starts here. */
+  const endSimBoundary = useCallback(() => {
+    simEpochRef.current += 1;
+    boundaryInFlightRef.current = false;
+    dispatch({ type: 'BUMP_SIM_EPOCH' });
+  }, []);
+
+  /**
+   * Reads the selection from `stateRef` rather than a closure, so a call made
+   * right after a simulation boundary refetches whatever is selected *now* —
+   * including a cell picked while the boundary request was still in flight,
+   * whose own effect returned early.
+   */
   const refreshSelectedCell = useCallback(async () => {
-    if (!state.selectedCell || state.simStatus === 'none') {
+    const { selectedCell, simStatus } = stateRef.current;
+    if (!selectedCell || simStatus === 'none' || boundaryInFlightRef.current) {
       return;
     }
 
-    const selectedCell = state.selectedCell;
     const requestId = ++selectedCellRequestRef.current;
+    // Captured at fetch start, not on response: this request observes the
+    // simulation that is current now, whatever it has become by the time the
+    // response lands.
+    const stamp: InspectionStamp = {
+      simEpoch: simEpochRef.current,
+      gridWidth: stateRef.current.gridWidth,
+      gridHeight: stateRef.current.gridHeight,
+    };
     const existingData = selectedCellDataRef.current;
     const isRefreshingCurrentCell =
       existingData !== null && existingData.x === selectedCell.x && existingData.y === selectedCell.y;
@@ -511,6 +572,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
       }
 
       setSelectedCellData(response);
+      setSelectedCellStamp(stamp);
       setSelectedCellFetchedAt(Date.now());
       setSelectedCellError(null);
     } catch (error) {
@@ -524,7 +586,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
         setSelectedCellLoading(false);
       }
     }
-  }, [state.selectedCell, state.simStatus]);
+  }, []);
 
   useEffect(() => {
     if (!state.selectedCell || state.simStatus === 'none') {
@@ -581,9 +643,24 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     metricsBufferRef.current.clear();
     setLatestMetrics(null);
     setMetricsVersion(0);
-    await runAction(async () => createSimulation(config));
-    await seedMetricsSnapshot();
-  }, [config, configErrorSummary, configIsValid, runAction, seedMetricsSnapshot]);
+    beginSimBoundary();
+    try {
+      await runAction(async () => createSimulation(config));
+      await seedMetricsSnapshot();
+    } finally {
+      endSimBoundary();
+    }
+    await refreshSelectedCell();
+  }, [
+    beginSimBoundary,
+    config,
+    configErrorSummary,
+    configIsValid,
+    endSimBoundary,
+    refreshSelectedCell,
+    runAction,
+    seedMetricsSnapshot,
+  ]);
 
   const start = useCallback(async () => {
     if (stateRef.current.targetTps === 'max') {
@@ -626,9 +703,22 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     metricsBufferRef.current.clear();
     setLatestMetrics(null);
     setMetricsVersion(0);
-    await runAction(async () => postSimulationAction('reset'));
-    await seedMetricsSnapshot();
-  }, [runAction, seedMetricsSnapshot, stopFrontendTicker]);
+    beginSimBoundary();
+    try {
+      await runAction(async () => postSimulationAction('reset'));
+      await seedMetricsSnapshot();
+    } finally {
+      endSimBoundary();
+    }
+    await refreshSelectedCell();
+  }, [
+    beginSimBoundary,
+    endSimBoundary,
+    refreshSelectedCell,
+    runAction,
+    seedMetricsSnapshot,
+    stopFrontendTicker,
+  ]);
 
   const destroy = useCallback(async () => {
     stopFrontendTicker();
@@ -638,13 +728,20 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
     metricsBufferRef.current.clear();
     setLatestMetrics(null);
     setMetricsVersion(0);
-    selectedCellRequestRef.current += 1;
-    setSelectedCellData(null);
-    setSelectedCellFetchedAt(null);
-    setSelectedCellError(null);
-    setSelectedCellLoading(false);
-    await runAction(async () => destroySimulation(), 'none');
-  }, [runAction, stopFrontendTicker, unsubscribeFrames, unsubscribeMetrics]);
+    beginSimBoundary();
+    try {
+      await runAction(async () => destroySimulation(), 'none');
+    } finally {
+      endSimBoundary();
+    }
+  }, [
+    beginSimBoundary,
+    endSimBoundary,
+    runAction,
+    stopFrontendTicker,
+    unsubscribeFrames,
+    unsubscribeMetrics,
+  ]);
 
   const setMaxFps = useCallback(
     (value: number) => {
@@ -728,6 +825,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
       configIsValid,
       setConfig,
       selectedCellData,
+      selectedCellStamp,
       selectedCellLoading,
       selectedCellError,
       selectedCellFetchedAt,
@@ -767,6 +865,7 @@ export function SimProvider({ children }: PropsWithChildren): JSX.Element {
       selectedCellError,
       selectedCellFetchedAt,
       selectedCellLoading,
+      selectedCellStamp,
       setColorMap,
       setControlsConfigOpen,
       setEveryNTicks,

@@ -2,7 +2,9 @@
 
 **Status**: Provisional — subject to change as the backend API matures.
 
-**Spec version**: 0.3.0
+**Spec version**: 0.3.1
+
+**Changed in 0.3.1**: the cell inspector gained a Lineage group showing the six lineage fields API-SPEC 0.2.5 added to cell inspection (§7).
 
 **Changed in 0.3.0**: the config editor uses the API-SPEC 0.3.0 exponent fields. Each probability exponent is an integer in `0..=63`; the optional fields may be empty/`null` for never, and all exponent inputs show a live `2^-k` probability preview (§9).
 
@@ -409,6 +411,23 @@ The inspector fetches cell data via `GET /v1/sim/cell?x={x}&y={y}` (API-SPEC §1
 | Abandonment timer | shown for inert programs |
 
 The `dir` register arrives as the API integer encoding from API-SPEC §12: `0 = right`, `1 = up`, `2 = left`, `3 = down`. The UI should render a human-readable label alongside the numeric value.
+
+**Lineage** (shown when cell has a program):
+
+| Field | Value |
+|-------|-------|
+| Origin | `Seed` / `Spawn` / `Append`, from the API `origin` tag |
+| Generation | 0 for a lineage root, otherwise the creator's generation plus one |
+| Birth tick | tick the program became live; `—` while an inert body has never booted |
+| Created tick | tick the program first materialized; precedes the birth tick for an inert body |
+| uid | monospace, exact digits |
+| Parent uid | monospace; `—` for a lineage root (seed or spawn) |
+
+The nullability follows API-SPEC §12: `parent_uid`, `birth_tick`, `origin`, and `created_tick` may be null, `uid` and `generation` are always present. A null field renders as `—`.
+
+A uid encodes its creation site as `1 + ((tick × cell_count + cell_index) × 4 + origin)`, and `cell_count` is `gridWidth × gridHeight`, so the frontend can decode a parent uid without another request. The parent uid is therefore a click target that selects the cell the parent was **created** in — not necessarily where the parent is now, since a program can move or die, so the panel says so. The decode is skipped (and the uid rendered as plain text) when the uid exceeds `Number.MAX_SAFE_INTEGER`, where JSON parsing has already rounded the `u64`, when the origin code is the reserved fourth one, or when the decoded cell index falls outside the current grid.
+
+Uids are epoch-scoped (API-SPEC §12), so fetched cell data is stamped with the simulation instance and grid dimensions it was fetched under; creating, resetting, or destroying a simulation drops retained inspection data along with any fetch in flight, holds the inspector's poll for the duration of the request, advances the epoch once that request lands, and then refetches the selected cell. Each inspection is stamped at fetch start, so a fetch that observed the pre-boundary simulation keeps the pre-boundary epoch. While a stamp does not match the current epoch and dimensions the parent uid renders as plain text rather than a link, because a uid from a previous epoch names a program that no longer exists and — after a resize — would decode to an in-range but wrong cell.
 
 **Disassembly view**:
 

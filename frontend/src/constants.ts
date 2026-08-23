@@ -77,4 +77,5 @@ export const INITIAL_STATE: AppState = {
   metricsDrawerOpen: false,
   ticksPerSecond: null,
   apiError: null,
+  simEpoch: 0,
 };
