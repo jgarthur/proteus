@@ -13,8 +13,8 @@ export function StatusBar(): JSX.Element {
       <div className={styles.metrics}>
         <span>Tick {formatInteger(latestMetrics?.tick ?? state.tick)}</span>
         <span>
-          Population {formatInteger(latestMetrics?.population)} ({formatInteger(latestMetrics?.live_count)} /{' '}
-          {formatInteger(latestMetrics?.inert_count)})
+          Population {formatInteger(latestMetrics?.population)} · live{' '}
+          {formatInteger(latestMetrics?.live_count)} · inert {formatInteger(latestMetrics?.inert_count)}
         </span>
         <span>Energy {formatInteger(latestMetrics?.total_energy)}</span>
         <span>Mass {formatInteger(latestMetrics?.total_mass)}</span>

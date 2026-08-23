@@ -11,7 +11,7 @@ Temporary working notes for the current frontend polish pass.
 - [ ] Inspector stack display should cap rendered entries to avoid browser slowdowns on huge stacks.
 - [x] TPS and FPS slider rows should not resize when the right-hand value label changes width.
 - [ ] Charts should resize correctly with the window and drawer width changes.
-- [ ] Chart legends should render at full contrast inside each chart card.
+- [x] Chart legends should render at full contrast inside each chart card.
 - [ ] Inspector does not work reliably while the sim is running at `max` speed.
 - [x] Config inputs should stop auto-coercing and overwriting while the user is still typing.
 - [x] Controls sidebar should use a single scrollbar; expanded config should not trap its own scroll.
@@ -39,8 +39,14 @@ Temporary working notes for the current frontend polish pass.
 
 ## Current Diagnosis
 
-- The greyed-out legend likely comes from `uPlot` applying `.u-series.u-off` state to built-in legend rows.
-- The previous CSS attempted to override legend appearance, but it was not a reliable fix.
+- **Legend: resolved.** The earlier `.u-off` theory was wrong -- the legend was
+  not greyed out, it was absent. `.legendRail` sets `overflow-x: auto`, and a
+  grid item whose overflow is not `visible` has an automatic minimum size of 0,
+  so the rail collapsed to a 0px track beside the fixed-height plot and clipped
+  the 25px legend table out of sight. Fixed with an explicit rail min-height, a
+  taller card floor, and `legend.markers.fill` set to the series colour for a
+  solid swatch (uPlot's default marker is a hollow 2px border, invisible on the
+  dark card). The legend is held to one line so it cannot re-overflow the card.
 - The overflow diagnosis is now narrower:
   - only the plot area appears to overflow
   - the legend should not be treated as the primary root cause

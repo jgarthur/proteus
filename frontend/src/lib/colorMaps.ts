@@ -1,5 +1,9 @@
 import type { ColorMapMode, GridFrame } from '../types';
 
+/// CellView byte 2 value for program size 1024 (round(17 * log2(1024)) = 170);
+/// the top of the Program Size colour ramp.
+const PROGRAM_SIZE_RAMP_BYTE = 170;
+
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, value));
 }
@@ -57,7 +61,10 @@ export function getCellColor(frame: GridFrame, offset: number, mode: ColorMapMod
     }
     case 'programSize': {
       if (!hasProgram) return rgb(0, 0, 0);
-      const value = frame.cells.getUint8(offset + 2) / 255;
+      // Byte 2 is log2-scaled: round(17 * log2(size)), so 17 steps per doubling
+      // (size 1 -> 0, 1024 -> 170, 32767 -> 255). Normalising by 170 spans the
+      // ramp over sizes 1..1024 and saturates above that.
+      const value = Math.min(1, frame.cells.getUint8(offset + 2) / PROGRAM_SIZE_RAMP_BYTE);
       return lerpColor([36, 58, 127], [255, 224, 96], value);
     }
     case 'freeEnergy':

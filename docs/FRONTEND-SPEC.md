@@ -169,7 +169,7 @@ Each CellView is 8 bytes at offset `(y * width + x) * 8` within the cells DataVi
 |------|-------|-------|
 | 0 | flags (bit 0: has_program, bit 1: is_live, bit 2: is_open) | 0–7 |
 | 1 | program_id | 0–255 |
-| 2 | program_size / 128 | 0–255 |
+| 2 | program_size, log2-scaled: `min(255, round(17 * log2(size)))`, 0 if empty | 0–255 |
 | 3 | free_energy (clamped) | 0–255 |
 | 4 | free_mass (clamped) | 0–255 |
 | 5 | bg_radiation (clamped) | 0–255 |
@@ -258,7 +258,7 @@ Eight modes, all one click away via the `ColorMapSelector` in the status bar:
 |------|---------------|---------|
 | Occupancy | flags (byte 0) | Empty → black, inert → dark gray, live → white |
 | Program ID | byte 1 | Hash-based hue (program_id → HSL, s=0.7, l=0.5). Empty → black |
-| Program Size | byte 2 | Linear blue→yellow ramp. Empty → black |
+| Program Size | byte 2 | Blue→yellow ramp over `min(1, byte / 170)`. Byte 2 is log2-scaled, so the ramp spans sizes 1..1024 and saturates above. Empty → black |
 | Free Energy | byte 3 | Linear black→green ramp |
 | Free Mass | byte 4 | Linear black→blue ramp |
 | Bg Radiation | byte 5 | Linear black→red ramp |
@@ -710,11 +710,15 @@ The frontend needs default values for config fields (API-SPEC §8) to pre-popula
 
 **Request**: Consider adding `GET /v1/defaults` that returns the default config values. This would keep the frontend in sync if defaults change. Low priority — hardcoding from the spec is acceptable for MVP.
 
-### 4. CellView program_size scaling
+### 4. ~~CellView program_size scaling~~
 
-API-SPEC §11 specifies `program_size / 128` for the CellView byte. With the spec's size cap of 32,767, this gives ~128-instruction resolution. However, most programs in early simulation are small (< 128 instructions), which means the size byte is 0 for nearly all programs, making the Program Size color map useless in practice.
+**Resolved.** The linear `program_size / 128` byte was 0 for every program under 128 instructions, so the Program Size color map had no dynamic range in practice. The CellView byte is now log2-scaled:
 
-**Request**: Consider changing the scaling to `size / 4` (0–255 maps to 0–1020, with clamping above) or a nonlinear mapping like `min(255, floor(sqrt(size) * 8))`. This would give useful resolution for small programs while still distinguishing large ones.
+```
+byte = size == 0 ? 0 : min(255, round(17 * log2(size)))
+```
+
+17 steps per doubling: size 1 → 0, 2 → 17, 3 → 27, 4 → 34, 128 → 119, 1024 → 170, 32767 (the size cap) → 255. The frontend color map normalises by 170 (clamped to 1), so sizes 1..1024 span the blue→yellow ramp and larger programs saturate at the yellow end. Empty cells stay black.
 
 ### 5. program_id collision at scale
 

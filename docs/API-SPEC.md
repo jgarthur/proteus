@@ -536,7 +536,7 @@ Each `CellView` is 8 bytes:
 |--------|------|------|-------------|
 | 0 | 1 | u8 | Flags: bit 0 = has_program, bit 1 = is_live, bit 2 = is_open |
 | 1 | 1 | u8 | Program ID (0 if empty) |
-| 2 | 1 | u8 | Program size / 128 (scaled, 0–255; 0 if empty) |
+| 2 | 1 | u8 | Program size, log2-scaled: `0` if empty, else `min(255, round(17 * log2(size)))` (17 steps per doubling; 0–255) |
 | 3 | 1 | u8 | Free energy (clamped to 255) |
 | 4 | 1 | u8 | Free mass (clamped to 255) |
 | 5 | 1 | u8 | Background radiation (clamped to 255) |
@@ -808,7 +808,7 @@ These are acknowledged but not yet specified:
 
 ## 16. Open Questions
 
-1. **Frame CellView program_size scaling.** The current spec scales program size to fit u8 (size / 128, capped at 255). With the spec's size cap of 32767, this gives ~128-instruction resolution. Is this sufficient for visualization, or should the scaling factor be configurable?
+1. ~~**Frame CellView program_size scaling.**~~ Resolved: the byte is now log2-scaled, `min(255, round(17 * log2(size)))` with `0` for an empty cell. The former linear `size / 128` encoding was 0 for every program under 128 instructions, which covers nearly all early-simulation programs. At 17 steps per doubling, size 1 → 0, 2 → 17, 4 → 34, 128 → 119, 1024 → 170, and the 32767 size cap → 255.
 
 2. **Snapshot storage.** When snapshot routes are implemented, the spec does not prescribe where snapshots are stored. File-based storage (one file per snapshot in a configured directory) is the likely implementation, but the API intentionally hides this. Should snapshots support export/import (download/upload raw snapshot data) for portability between server instances?
 

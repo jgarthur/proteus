@@ -241,6 +241,16 @@ function MetricsChart({
       ],
       legend: {
         show: true,
+        // Series 0 is the x ("Tick") series, which uPlot never gives a marker,
+        // so legend index i corresponds to chart.series[i - 1].
+        markers: {
+          show: true,
+          width: 0,
+          fill: (_self: uPlot, seriesIdx: number) =>
+            chart.series[seriesIdx - 1]?.color ?? 'transparent',
+          stroke: (_self: uPlot, seriesIdx: number) =>
+            chart.series[seriesIdx - 1]?.color ?? 'transparent',
+        },
         mount: (_self: uPlot, legendTable: HTMLElement) => {
           if (legendTable.parentElement !== legendHost) {
             legendHost.replaceChildren(legendTable);

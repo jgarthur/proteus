@@ -27,15 +27,29 @@
 
 .grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  /* minmax(0, 1fr) rather than 1fr: a wide hint (the 2^-63 probability preview)
+     must never push the column wider than its share of the sidebar. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-auto-rows: auto;
+  gap: 6px 10px;
 }
 
 .field {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: #c7d7e7;
   font-size: 0.9rem;
+}
+
+/* Each field contributes three rows -- label, input, hint -- to the parent grid
+   and adopts them via subgrid. Neighbouring fields therefore share row tracks,
+   so their inputs keep a common top edge no matter how the labels wrap or how
+   tall the hints are. Every `.grid > .field` must render exactly three row
+   children for this to line up. */
+.grid > .field {
+  grid-template-rows: subgrid;
+  grid-row: span 3;
 }
 
 .input,
@@ -53,9 +67,37 @@
   resize: vertical;
 }
 
+.hint {
+  min-width: 0;
+  color: #8ea1b6;
+  font-size: 0.8rem;
+}
+
 .error {
   color: #ff9d94;
   font-size: 0.8rem;
+}
+
+/* The dyadic probability preview. Always two lines -- `Probability:` then the
+   value, `never`, or the error -- with a min-height pinned to two lines so a
+   field with a preview and one without keep the same row height. */
+.preview {
+  display: block;
+  min-width: 0;
+  color: #8ea1b6;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  min-height: 2.8em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.preview > span {
+  display: block;
+}
+
+.previewError {
+  color: #ff9d94;
 }
 
 .banner {

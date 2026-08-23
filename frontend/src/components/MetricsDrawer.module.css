@@ -55,7 +55,9 @@
   padding: 12px;
   display: grid;
   grid-template-rows: auto auto;
-  min-height: 210px;
+  /* Must clear padding + title + legend rail + gap + the fixed 180px plot.
+     The old 210px floor was shorter than that, which squeezed the body. */
+  min-height: 260px;
   min-width: 0;
   width: min(100%, 520px);
 }
@@ -68,7 +70,6 @@
 
 .chartBody {
   min-width: 0;
-  min-height: 0;
   display: grid;
   grid-template-rows: auto auto;
   gap: 10px;
@@ -77,11 +78,31 @@
 .legendRail {
   min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  /* A grid item whose overflow is not `visible` has an automatic minimum size of
+     0, so this rail collapsed to a 0px track beside the fixed-height plot and
+     clipped the legend out of sight entirely. An explicit floor keeps the row. */
+  min-height: 1.75rem;
   color: #dce7f2;
 }
 
 .legendRail :global(.u-legend) {
   margin: 0;
+  text-align: left;
+  /* Keep the legend on one line. A wrapped legend cannot drive the card's height
+     (the rail's non-visible overflow zeroes its automatic minimum size, so the
+     card's row track is sized from the rail's min-height floor and the second
+     line spills outside the card). One line always fits that floor, and a legend
+     wider than the card scrolls horizontally, which is what the rail is for. */
+  white-space: nowrap;
+}
+
+/* Solid colour swatch. uPlot's default marker is a hollow 2px border, which is
+   near-invisible on this dark background; the fill comes from legend.markers. */
+.legendRail :global(.u-marker) {
+  width: 0.85em;
+  height: 0.85em;
+  border-radius: 3px;
 }
 
 .legendRail :global(.u-series th),

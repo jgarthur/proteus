@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import {
   type ConfigErrors,
   getDyadicExponentError,
@@ -8,6 +8,7 @@ import {
   validateConfig,
 } from '../../lib/config';
 import { fetchSimulationConfig } from '../../lib/api';
+import { formatDyadicProbability } from '../../lib/format';
 import { useSimContext } from '../../context/SimContext';
 import type { SeedProgram, SimConfig } from '../../types';
 import styles from './ConfigEditor.module.css';
@@ -34,6 +35,69 @@ const INTEGER_FIELDS = new Set<keyof SimConfig>([
   'mutation_base_log2',
   'mutation_background_log2',
 ]);
+
+/// Tooltip copy for the config fields. Applied to the whole `<label>`, so it
+/// covers the label text and its input. The dyadic `*_log2` exponent fields
+/// deliberately have none.
+const FIELD_TITLES: Partial<Record<keyof SimConfig, string>> = {
+  width: 'Grid size in cells.',
+  height: 'Grid size in cells.',
+  seed: 'World RNG seed. Same seed + config reproduces the run exactly.',
+  r_energy:
+    'Mean background-radiation units arriving per cell per tick. Higher = more energy income.',
+  r_mass: 'Mean background-mass units arriving per cell per tick. Higher = more building material.',
+  t_cap: 'Free energy/mass above t_cap \u00d7 program size decays. Higher = programs can hoard more.',
+  maintenance_exponent:
+    'Maintenance quanta per tick = size^\u03b2. Above 1, big programs pay disproportionately more upkeep.',
+  local_action_exponent:
+    'Instructions per tick = max(1, floor(size^\u03b1)). Above 1, big programs run faster.',
+  n_synth: 'Extra energy consumed per mass produced by `synthesize`. Higher = mass is costlier.',
+  inert_grace_ticks:
+    'Ticks an inert (dead) program is exempt from maintenance after its last incoming write.',
+  d_energy_log2:
+    'Per-tick decay probability for each background-radiation unit and for free energy above t_cap \u00d7 size. Higher k = slower decay; empty = never decays.',
+  d_mass_log2:
+    'Per-tick decay probability for each background-mass unit and for free mass above t_cap \u00d7 size. Higher k = slower decay; empty = never decays.',
+  maintenance_rate_log2:
+    'Each of a program\u2019s size^\u03b2 maintenance quanta is charged with this probability per tick (paid in energy, then mass, then instructions). Higher k = cheaper upkeep; empty = no maintenance.',
+  p_spawn_log2:
+    'Probability that an empty cell which just received background mass nucleates a new single-nop program at end of tick. Higher k = rarer spontaneous life; empty = never.',
+  mutation_base_log2: 'Baseline mutation probability per program per tick. Higher k = rarer mutations.',
+  mutation_background_log2:
+    'Each unit of background radiation spent on instruction base costs triggers a mutation with this probability; at most one mutation per tick. Higher k = paying with radiation is safer.',
+};
+
+const SEED_PROGRAM_CELL_TITLE = '0-indexed cell of the seed program.';
+const SEED_PROGRAM_RESOURCE_TITLE = 'Starting free energy/mass in the seed cell.';
+
+/// A config field row.
+///
+/// Renders exactly three row children -- label text, input, hint/error slot --
+/// so `.grid > .field` can subgrid onto the parent grid's rows and keep the
+/// inputs of neighbouring columns on a shared top edge. `children` must supply
+/// the input and the hint slot (see `HintSlot` / `ExponentInput`).
+function Field({
+  children,
+  label,
+  title,
+}: {
+  children: ReactNode;
+  label: string;
+  title?: string;
+}): JSX.Element {
+  return (
+    <label className={styles.field} title={title}>
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+/// The third row of a field. Always rendered, empty when there is nothing to
+/// say, so every field keeps its three-row shape.
+function HintSlot({ error }: { error?: string }): JSX.Element {
+  return <span className={error ? styles.error : styles.hint}>{error ?? ''}</span>;
+}
 
 function parseBufferedNumber(value: string, integer: boolean): number | null {
   const trimmed = value.trim();
@@ -161,14 +225,18 @@ interface ExponentInputProps {
   allowNever: boolean;
   className: string;
   disabled: boolean;
+  error?: string;
   onCommit(value: number | null): void;
   value: number | null;
 }
 
+/// Renders the exponent input plus its two-line probability preview -- exactly
+/// two row children, so it slots straight into `Field`.
 function ExponentInput({
   allowNever,
   className,
   disabled,
+  error,
   onCommit,
   value,
 }: ExponentInputProps): JSX.Element {
@@ -213,17 +281,19 @@ function ExponentInput({
 
   const displayed = draft ?? (value === null ? '' : String(value));
   const previewExponent = draft === null ? value : parseBufferedNumber(draft, true);
-  const preview =
-    allowNever && displayed.trim() === ''
-      ? 'Probability: never'
-      : previewExponent !== null &&
-          previewExponent >= 0 &&
-          previewExponent <= MAX_DYADIC_EXPONENT
-        ? 'Probability: 2^-' +
-          String(previewExponent) +
-          ' = ' +
-          String(2 ** -previewExponent)
-        : 'Enter an integer from 0 to 63';
+  const isNever = allowNever && displayed.trim() === '';
+  const hasValidExponent =
+    previewExponent !== null && previewExponent >= 0 && previewExponent <= MAX_DYADIC_EXPONENT;
+  // Line 2 of the preview. Errors take over the line rather than adding a
+  // fourth row child, so the field keeps its three-row shape for subgrid.
+  const detail = draftError
+    ? draftError
+    : isNever
+      ? 'never'
+      : hasValidExponent
+        ? `2^-${String(previewExponent)} = ${formatDyadicProbability(previewExponent!)}`
+        : error ?? 'Enter an integer from 0 to 63';
+  const detailIsError = Boolean(draftError) || (!isNever && !hasValidExponent);
 
   return (
     <>
@@ -255,8 +325,10 @@ function ExponentInput({
           }
         }}
       />
-      <span className={styles.muted}>{preview}</span>
-      {draftError ? <span className={styles.error}>{draftError}</span> : null}
+      <span className={styles.preview}>
+        <span>Probability:</span>
+        <span className={detailIsError ? styles.previewError : undefined}>{detail}</span>
+      </span>
     </>
   );
 }
@@ -380,8 +452,7 @@ export function ConfigEditor(): JSX.Element {
       <div className={styles.group}>
         <h3 className={styles.groupTitle}>Grid</h3>
         <div className={styles.grid}>
-          <label className={styles.field}>
-            <span>Width</span>
+          <Field label="Width" title={FIELD_TITLES.width}>
             <BufferedNumberInput
               className={styles.input}
               integer
@@ -389,10 +460,9 @@ export function ConfigEditor(): JSX.Element {
               disabled={!isEditable}
               onCommit={(value) => setField('width', value)}
             />
-            {errors.width ? <span className={styles.error}>{errors.width}</span> : null}
-          </label>
-          <label className={styles.field}>
-            <span>Height</span>
+            <HintSlot error={errors.width} />
+          </Field>
+          <Field label="Height" title={FIELD_TITLES.height}>
             <BufferedNumberInput
               className={styles.input}
               integer
@@ -400,11 +470,10 @@ export function ConfigEditor(): JSX.Element {
               disabled={!isEditable}
               onCommit={(value) => setField('height', value)}
             />
-            {errors.height ? <span className={styles.error}>{errors.height}</span> : null}
-          </label>
+            <HintSlot error={errors.height} />
+          </Field>
         </div>
-        <label className={styles.field}>
-          <span>Seed</span>
+        <Field label="Seed" title={FIELD_TITLES.seed}>
           <BufferedNumberInput
             className={styles.input}
             integer
@@ -412,7 +481,8 @@ export function ConfigEditor(): JSX.Element {
             disabled={!isEditable}
             onCommit={(value) => setField('seed', value)}
           />
-        </label>
+          <HintSlot error={errors.seed} />
+        </Field>
         <div className={styles.buttonRow}>
           <button
             className={styles.buttonSecondary}
@@ -514,8 +584,7 @@ export function ConfigEditor(): JSX.Element {
           return (
             <div key={`${index}-${seedProgram.x}-${seedProgram.y}`} className={styles.seedCard}>
               <div className={styles.grid}>
-                <label className={styles.field}>
-                  <span>X</span>
+                <Field label="X" title={SEED_PROGRAM_CELL_TITLE}>
                   <BufferedNumberInput
                     className={styles.input}
                     integer
@@ -528,12 +597,9 @@ export function ConfigEditor(): JSX.Element {
                       )
                     }
                   />
-                  {errors[`seed_programs.${index}.x`] ? (
-                    <span className={styles.error}>{errors[`seed_programs.${index}.x`]}</span>
-                  ) : null}
-                </label>
-                <label className={styles.field}>
-                  <span>Y</span>
+                  <HintSlot error={errors[`seed_programs.${index}.x`]} />
+                </Field>
+                <Field label="Y" title={SEED_PROGRAM_CELL_TITLE}>
                   <BufferedNumberInput
                     className={styles.input}
                     integer
@@ -546,12 +612,9 @@ export function ConfigEditor(): JSX.Element {
                       )
                     }
                   />
-                  {errors[`seed_programs.${index}.y`] ? (
-                    <span className={styles.error}>{errors[`seed_programs.${index}.y`]}</span>
-                  ) : null}
-                </label>
-                <label className={styles.field}>
-                  <span>Free Energy</span>
+                  <HintSlot error={errors[`seed_programs.${index}.y`]} />
+                </Field>
+                <Field label="Free Energy" title={SEED_PROGRAM_RESOURCE_TITLE}>
                   <BufferedNumberInput
                     className={styles.input}
                     integer
@@ -566,9 +629,9 @@ export function ConfigEditor(): JSX.Element {
                       )
                     }
                   />
-                </label>
-                <label className={styles.field}>
-                  <span>Free Mass</span>
+                  <HintSlot />
+                </Field>
+                <Field label="Free Mass" title={SEED_PROGRAM_RESOURCE_TITLE}>
                   <BufferedNumberInput
                     className={styles.input}
                     integer
@@ -583,10 +646,10 @@ export function ConfigEditor(): JSX.Element {
                       )
                     }
                   />
-                </label>
+                  <HintSlot />
+                </Field>
               </div>
-              <label className={styles.field}>
-                <span>Code (comma-separated decimals)</span>
+              <Field label="Code (comma-separated decimals)">
                 <BufferedCodeTextarea
                   className={styles.textarea}
                   value={seedProgram.code}
@@ -600,10 +663,8 @@ export function ConfigEditor(): JSX.Element {
                     )
                   }
                 />
-                {errors[`seed_programs.${index}.code`] ? (
-                  <span className={styles.error}>{errors[`seed_programs.${index}.code`]}</span>
-                ) : null}
-              </label>
+                <HintSlot error={errors[`seed_programs.${index}.code`]} />
+              </Field>
               <div className={styles.buttonRow}>
                 <button
                   className={styles.buttonSecondary}
@@ -657,27 +718,29 @@ function ConfigGroup({ config, errors, fields, isEditable, setField, title }: Co
       <h3 className={styles.groupTitle}>{title}</h3>
       <div className={styles.grid}>
         {fields.map(([field, label]) => (
-          <label key={String(field)} className={styles.field}>
-            <span>{label}</span>
+          <Field key={String(field)} label={label} title={FIELD_TITLES[field]}>
             {EXPONENT_FIELDS.has(field) ? (
               <ExponentInput
                 allowNever={OPTIONAL_EXPONENT_FIELDS.has(field)}
                 className={styles.input}
                 disabled={!isEditable}
+                error={errors[String(field)]}
                 value={config[field] as number | null}
                 onCommit={(value) => setField(field, value as SimConfig[typeof field])}
               />
             ) : (
-              <BufferedNumberInput
-                className={styles.input}
-                integer={INTEGER_FIELDS.has(field)}
-                disabled={!isEditable}
-                value={config[field] as number}
-                onCommit={(value) => setField(field, value as SimConfig[typeof field])}
-              />
+              <>
+                <BufferedNumberInput
+                  className={styles.input}
+                  integer={INTEGER_FIELDS.has(field)}
+                  disabled={!isEditable}
+                  value={config[field] as number}
+                  onCommit={(value) => setField(field, value as SimConfig[typeof field])}
+                />
+                <HintSlot error={errors[String(field)]} />
+              </>
             )}
-            {errors[String(field)] ? <span className={styles.error}>{errors[String(field)]}</span> : null}
-          </label>
+          </Field>
         ))}
       </div>
     </div>

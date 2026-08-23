@@ -588,14 +588,28 @@ fn cell_view_program_fields(cell: &Cell) -> (u8, u8, u8) {
                 flags |= 0b100;
             }
 
-            (
-                flags,
-                program.registers.id,
-                ((u32::from(program.size()) / 128).min(255)) as u8,
-            )
+            (flags, program.registers.id, encode_program_size(program.size()))
         }
         None => (0b100, 0, 0),
     }
+}
+
+/// Encodes a program size into the log2-scaled `CellView` byte (API-SPEC Â§11).
+///
+/// The byte advances 17 steps per doubling: `round(17 * log2(size))`, clamped to
+/// 255. This keeps dynamic range for the small programs that dominate early
+/// simulation (a linear `size / 128` byte was 0 for every program under 128
+/// instructions) while still separating the largest programs.
+///
+/// Purely an observation encoding: it reads program state and never touches the
+/// RNG or any draw path.
+fn encode_program_size(size: u16) -> u8 {
+    if size == 0 {
+        return 0;
+    }
+
+    let scaled = (17.0 * f64::from(size).log2()).round();
+    scaled.clamp(0.0, 255.0) as u8
 }
 
 /// Clamps a resource count into the byte-sized frame encoding.
@@ -644,8 +658,9 @@ fn program_inspection(program: &Program, cell_count: usize) -> ProgramInspection
 mod tests {
     use super::{
         collect_census, collect_metrics, collect_metrics_with_census, disassemble,
-        encode_grid_frame, inspect_cell, BucketHistogram, EventTotals, HistogramScale,
-        MetricsSnapshot, CENSUS_OPCODE_BUCKETS, CENSUS_SIZE_BUCKETS, CENSUS_STACK_BUCKETS,
+        encode_grid_frame, encode_program_size, inspect_cell, BucketHistogram, EventTotals,
+        HistogramScale, MetricsSnapshot, CENSUS_OPCODE_BUCKETS, CENSUS_SIZE_BUCKETS,
+        CENSUS_STACK_BUCKETS,
     };
     use crate::model::{Cell, Direction, Lineage, Program, ProgramOrigin, ProgramUid};
     use crate::opcode::op;
@@ -1137,8 +1152,41 @@ mod tests {
         assert_eq!(&frame[8..12], &2_u32.to_le_bytes());
         assert_eq!(&frame[12..16], &1_u32.to_le_bytes());
         assert_eq!(frame.len(), 32);
-        assert_eq!(&frame[16..24], &[0b111, 7, 0, 255, 0, 0, 2, 0]);
+        assert_eq!(&frame[16..24], &[0b111, 7, 17, 255, 0, 0, 2, 0]);
         assert_eq!(&frame[24..32], &[0b100, 0, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn program_size_byte_is_log2_scaled() {
+        for (size, expected) in [
+            (0_u16, 0_u8),
+            (1, 0),
+            (2, 17),
+            (3, 27),
+            (4, 34),
+            (128, 119),
+            (1024, 170),
+            (32767, 255),
+        ] {
+            assert_eq!(
+                encode_program_size(size),
+                expected,
+                "size {size} should encode to {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn program_size_byte_is_monotonic_and_saturates() {
+        let mut previous = encode_program_size(1);
+        for size in 2..=32767_u16 {
+            let current = encode_program_size(size);
+            assert!(
+                current >= previous,
+                "size {size} encoded to {current} after {previous}"
+            );
+            previous = current;
+        }
     }
 
     #[test]

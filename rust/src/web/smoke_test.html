@@ -578,7 +578,8 @@
         }
         bytes[offset] = flags;
         bytes[offset + 1] = program ? program.id : 0;
-        bytes[offset + 2] = program ? Math.min(Math.floor(program.size / 128), 255) : 0;
+        bytes[offset + 2] =
+          program && program.size > 0 ? Math.min(255, Math.round(17 * Math.log2(program.size))) : 0;
         bytes[offset + 3] = Math.min(cell.free_energy, 255);
         bytes[offset + 4] = Math.min(cell.free_mass, 255);
         bytes[offset + 5] = Math.min(cell.bg_radiation, 255);
