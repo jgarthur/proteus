@@ -39,7 +39,20 @@ This produces a production bundle in `frontend/dist/`.
 npm test
 ```
 
-Runs the vitest unit suite (`vitest run`) over the pure modules in `src/lib/`.
+Runs the vitest suite (`vitest run`): the pure modules in `src/lib/`, plus the
+component tests beside the components they cover.
+
+Pure-module tests run in vitest's default `node` environment. Component tests
+opt into jsdom per file with a `// @vitest-environment jsdom` docblock — the
+`test` block is deliberately absent from `vite.config.ts`, because importing
+`defineConfig` from `vitest/config` pulls vitest's bundled vite types in
+alongside this project's vite 8 and breaks `tsc -b`.
+
+`src/components/controls/SeedComposer.test.tsx` renders `ConfigEditor` in
+StrictMode inside the real `SimProvider` — the composer session lives there, so
+its live write-through only exists once the two are mounted together. `lib/api`,
+the WebSocket context, and `lib/random` are mocked, so the tests need no backend
+and no `Math.random`: every layout they assert on is reproducible.
 
 ## Library modules
 
