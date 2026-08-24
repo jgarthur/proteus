@@ -77,7 +77,7 @@ pub struct Simulation {
 }
 
 /// Reports per-tick population and mutation statistics, including total births,
-/// boot vs. spawn birth breakdown, deaths, mutations, and the packet count.
+/// boot vs. spawn birth breakdown, deaths, mutation causes, and the packet count.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TickReport {
     pub births: u32,
@@ -85,6 +85,8 @@ pub struct TickReport {
     pub spawn_births: u32,
     pub deaths: u32,
     pub mutations: u32,
+    pub base_mutations: u32,
+    pub background_mutations: u32,
     pub packet_count: u32,
 }
 
@@ -347,7 +349,8 @@ impl Simulation {
         );
         lap(observer, &mut phase_start, TickPhase::Tail);
 
-        let mutations = mutate_end_of_tick(&mut self.grid, &self.config, self.tick, self.seed);
+        let mutation_counts =
+            mutate_end_of_tick(&mut self.grid, &self.config, self.tick, self.seed);
         lap(observer, &mut phase_start, TickPhase::Mutation);
 
         clear_newborn_flags(&mut self.grid);
@@ -365,7 +368,9 @@ impl Simulation {
             boot_births: pass2.booted_programs,
             spawn_births: tail.spontaneous_births,
             deaths: tail.deaths,
-            mutations,
+            mutations: mutation_counts.base + mutation_counts.background,
+            base_mutations: mutation_counts.base,
+            background_mutations: mutation_counts.background,
             packet_count: u32::try_from(self.packets.len()).unwrap_or(u32::MAX),
         }
     }

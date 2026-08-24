@@ -32,8 +32,8 @@ pub use opcode::{op, AdditionalCost, Locality, Opcode, SPEC_OPCODE_COUNT};
 pub use pass1::{local_action_budget, pass1_local, Pass1Output};
 pub use pass2::{pass2_nonlocal, Pass2Output};
 pub use pass3::{
-    mutate_end_of_tick, pass3_ambient, pass3_packets, pass3_tail, Pass3AmbientOutput,
-    Pass3TailContext, Pass3TailOutput,
+    mutate_end_of_tick, pass3_ambient, pass3_packets, pass3_tail, MutationCounts,
+    Pass3AmbientOutput, Pass3TailContext, Pass3TailOutput,
 };
 pub use random::{
     bernoulli_pow2, binomial_pow2, cell_rng, poisson, splitmix64, PoissonInverter, WyRand,

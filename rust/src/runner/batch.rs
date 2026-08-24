@@ -855,6 +855,8 @@ mod tests {
             spawn_births: 0,
             deaths: 0,
             mutations: 0,
+            base_mutations: 0,
+            background_mutations: 0,
             event_totals: EventTotals::default(),
             census: None,
         }

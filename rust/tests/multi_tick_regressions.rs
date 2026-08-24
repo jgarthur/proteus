@@ -3,7 +3,7 @@ mod helpers;
 
 use helpers::{run_ticks, ProgramBuilder, WorldBuilder};
 use proteus::op;
-use proteus::{Direction, Packet};
+use proteus::{Direction, EventTotals, Packet};
 
 #[test]
 fn packet_wraps_toroidally_under_full_run_tick() {
@@ -117,4 +117,60 @@ fn absorb_and_collect_accumulate_with_one_tick_arrival_lag() {
     );
     assert!(third_energy_cell.bg_radiation > 1);
     assert!(third_mass_cell.bg_mass > 1);
+}
+
+#[test]
+fn mutation_cause_totals_sum_over_multiple_real_ticks() {
+    let mut simulation = WorldBuilder::new(2, 1)
+        .seed(0x4d55_5441)
+        .configure(|config| {
+            config.r_energy = 0.0;
+            config.r_mass = 0.0;
+            config.d_energy_log2 = None;
+            config.d_mass_log2 = None;
+            config.maintenance_rate_log2 = None;
+            config.p_spawn_log2 = None;
+            config.mutation_base_log2 = 0;
+            config.mutation_background_log2 = 0;
+        })
+        .at(
+            0,
+            0,
+            ProgramBuilder::new().code(&[op::NOP; 64]).free_energy(100),
+        )
+        .at(
+            1,
+            0,
+            ProgramBuilder::new()
+                .code(&[op::EMIT; 64])
+                .bg_radiation(100),
+        )
+        .build_simulation();
+    let mut totals = EventTotals::default();
+    let mut saw_base = false;
+    let mut saw_background = false;
+
+    for _ in 0..4 {
+        let report = simulation.run_tick_report();
+        assert_eq!(
+            report.mutations,
+            report.base_mutations + report.background_mutations
+        );
+        saw_base |= report.base_mutations > 0;
+        saw_background |= report.background_mutations > 0;
+        totals.record(report);
+        assert_eq!(
+            totals.mutations,
+            totals.base_mutations + totals.background_mutations
+        );
+    }
+
+    assert!(
+        saw_base,
+        "the run must exercise baseline mutation attribution"
+    );
+    assert!(
+        saw_background,
+        "the run must exercise background-stressed mutation attribution"
+    );
 }

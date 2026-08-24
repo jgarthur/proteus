@@ -78,6 +78,8 @@ export interface MetricsSnapshot {
   spawn_births: number;
   deaths: number;
   mutations: number;
+  base_mutations: number;
+  background_mutations: number;
   event_totals: EventTotals;
 }
 
@@ -91,6 +93,8 @@ export interface EventTotals {
   spawn_births: number;
   deaths: number;
   mutations: number;
+  base_mutations: number;
+  background_mutations: number;
 }
 
 export interface ErrorMessage {
@@ -195,6 +199,8 @@ export interface MetricsBufferSnapshot {
   births_per_tick: Float64Array;
   deaths_per_tick: Float64Array;
   mutations_per_tick: Float64Array;
+  base_mutations_per_tick: Float64Array;
+  background_mutations_per_tick: Float64Array;
   mean_program_size: Float64Array;
   max_program_size: Float64Array;
   unique_genomes: Float64Array;

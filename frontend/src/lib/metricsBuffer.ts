@@ -18,6 +18,8 @@ export class MetricsBuffer {
     births_per_tick: new Float64Array(this.capacity),
     deaths_per_tick: new Float64Array(this.capacity),
     mutations_per_tick: new Float64Array(this.capacity),
+    base_mutations_per_tick: new Float64Array(this.capacity),
+    background_mutations_per_tick: new Float64Array(this.capacity),
     mean_program_size: new Float64Array(this.capacity),
     max_program_size: new Float64Array(this.capacity),
     unique_genomes: new Float64Array(this.capacity),
@@ -37,7 +39,9 @@ export class MetricsBuffer {
         message.event_totals.boot_births < previous.totals.boot_births ||
         message.event_totals.spawn_births < previous.totals.spawn_births ||
         message.event_totals.deaths < previous.totals.deaths ||
-        message.event_totals.mutations < previous.totals.mutations);
+        message.event_totals.mutations < previous.totals.mutations ||
+        message.event_totals.base_mutations < previous.totals.base_mutations ||
+        message.event_totals.background_mutations < previous.totals.background_mutations);
     const observationRegressed =
       previous !== null &&
       (message.epoch !== previous.epoch || message.tick < previous.tick || totalsRegressed);
@@ -70,6 +74,19 @@ export class MetricsBuffer {
         : isSameSample && lastIndex >= 0
           ? this.data.mutations_per_tick[lastIndex]
           : 0;
+    const baseMutationsPerTick =
+      elapsedTicks > 0
+        ? (message.event_totals.base_mutations - baseline!.totals.base_mutations) / elapsedTicks
+        : isSameSample && lastIndex >= 0
+          ? this.data.base_mutations_per_tick[lastIndex]
+          : 0;
+    const backgroundMutationsPerTick =
+      elapsedTicks > 0
+        ? (message.event_totals.background_mutations - baseline!.totals.background_mutations) /
+          elapsedTicks
+        : isSameSample && lastIndex >= 0
+          ? this.data.background_mutations_per_tick[lastIndex]
+          : 0;
 
     let index = this.count < this.capacity ? this.count : this.capacity - 1;
 
@@ -95,14 +112,24 @@ export class MetricsBuffer {
     this.data.births_per_tick[index] = birthsPerTick;
     this.data.deaths_per_tick[index] = deathsPerTick;
     this.data.mutations_per_tick[index] = mutationsPerTick;
+    this.data.base_mutations_per_tick[index] = baseMutationsPerTick;
+    this.data.background_mutations_per_tick[index] = backgroundMutationsPerTick;
     this.data.mean_program_size[index] = message.mean_program_size;
     this.data.max_program_size[index] = message.max_program_size;
     this.data.unique_genomes[index] = message.unique_genomes;
-    this.eventBaseline = {
-      epoch: message.epoch,
-      tick: message.tick,
-      totals: { ...message.event_totals },
-    };
+    // A same-epoch/tick duplicate carries its rate forward from the ORIGINAL
+    // sample (see the isSameSample branches above), so the baseline it is
+    // measured against must stay the original too. Overwriting the baseline
+    // with a duplicate's totals would make the next sample's rate compare
+    // against numbers nobody displayed, and could spuriously trip
+    // totalsRegressed if the duplicate's totals were lower than the original.
+    if (!isSameSample) {
+      this.eventBaseline = {
+        epoch: message.epoch,
+        tick: message.tick,
+        totals: { ...message.event_totals },
+      };
+    }
     return true;
   }
 
@@ -125,6 +152,8 @@ export class MetricsBuffer {
       births_per_tick: this.data.births_per_tick.slice(0, this.count),
       deaths_per_tick: this.data.deaths_per_tick.slice(0, this.count),
       mutations_per_tick: this.data.mutations_per_tick.slice(0, this.count),
+      base_mutations_per_tick: this.data.base_mutations_per_tick.slice(0, this.count),
+      background_mutations_per_tick: this.data.background_mutations_per_tick.slice(0, this.count),
       mean_program_size: this.data.mean_program_size.slice(0, this.count),
       max_program_size: this.data.max_program_size.slice(0, this.count),
       unique_genomes: this.data.unique_genomes.slice(0, this.count),

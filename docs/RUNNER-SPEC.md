@@ -2,7 +2,7 @@
 
 **Status**: Implemented MVP contract.
 
-**Targets**: Proteus v0.4.0 engine, API metrics schema v0.3.0.
+**Targets**: Proteus v0.4.0 engine, API metrics schema v0.3.1.
 
 ---
 
@@ -384,7 +384,7 @@ means the post-tick counter value, not an additional tick to execute.
 
 Every simulation tick executes even when no metrics row is written. An observation cadence of 50 means the runner records ticks 0, 50, 100, and so on; it does not skip simulation work.
 
-Metrics retain the API v0.3.0 distinction:
+Metrics retain the API v0.3.1 distinction:
 
 - gauges such as population, resources, program sizes, packet energy, and the `census` object describe the sampled tick
 - top-level birth, death, and mutation fields describe the most recently completed tick
@@ -421,12 +421,16 @@ Each JSONL line uses a runner envelope rather than a bare API object:
     "spawn_births": 0,
     "deaths": 0,
     "mutations": 0,
+    "base_mutations": 0,
+    "background_mutations": 0,
     "event_totals": {
       "births": 0,
       "boot_births": 0,
       "spawn_births": 0,
       "deaths": 0,
-      "mutations": 0
+      "mutations": 0,
+      "base_mutations": 0,
+      "background_mutations": 0
     },
     "census": {
       "live_sizes":  { "scale": "linear", "first_value": 1, "counts": [0, 1, "…256 entries…"],
@@ -463,7 +467,7 @@ a 200 k-tick run at an observation cadence of 50-500 writes on the order of
 3-36 MB of `metrics.jsonl`. Choose the cadence with that in mind; it does not change what
 the final census contains.
 
-`metrics` is the API v0.3.0 `MetricsSnapshot` object verbatim, including every
+`metrics` is the API v0.3.1 `MetricsSnapshot` object verbatim, including every
 field in that schema. `census` is described in API-SPEC section 10; it is always
 present in a runner row, unlike the web API where it is opt-in. The runner envelope makes lines safe to concatenate across
 runs without requiring their directory context. The runner has one metrics
@@ -549,7 +553,7 @@ Its exact fields are:
 | `started_at` | RFC 3339 UTC string recorded by the child before world initialization |
 | `finished_at` | RFC 3339 UTC string |
 | `wall_duration_ms` | `u64` monotonic child duration |
-| `final_metrics` | Complete API v0.3.0 `MetricsSnapshot` at `final_tick`, census included |
+| `final_metrics` | Complete API v0.3.1 `MetricsSnapshot` at `final_tick`, census included |
 
 `final_metrics.event_totals` is the authoritative cumulative-event value in the
 summary; it is not duplicated in a second top-level field.

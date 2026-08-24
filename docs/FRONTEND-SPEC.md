@@ -8,7 +8,7 @@
 
 **Changed in 0.3.0**: the config editor uses the API-SPEC 0.3.0 exponent fields. Each probability exponent is an integer in `0..=63`; the optional fields may be empty/`null` for never, and all exponent inputs show a live `2^-k` probability preview (§9).
 
-**Targets**: Proteus v0.4.0, API-SPEC v0.3.0
+**Targets**: Proteus v0.4.0, API-SPEC v0.3.1
 
 ---
 
@@ -101,6 +101,7 @@ App
     ├── PopulationChart
     ├── EnergyMassChart
     ├── BirthDeathChart
+    ├── MutationRatesChart
     ├── ProgramSizeChart
     └── DiversityChart
 ```
@@ -306,7 +307,7 @@ A slider (1–60) sets `max_fps` for the frame subscription. Changing it sends a
 
 ### Metrics sampling control
 
-A numeric input sets `every_n_ticks` for the metrics subscription. Changing it sends `unsubscribe` + re-`subscribe` on the WebSocket. Default: 1. Higher values reduce WebSocket traffic during long observation runs. Birth, death, and mutation charts remain correct at coarser sampling because they derive rates from cumulative `event_totals`, not by summing the delivered per-tick fields.
+A numeric input sets `every_n_ticks` for the metrics subscription. Changing it sends `unsubscribe` + re-`subscribe` on the WebSocket. Default: 1. Higher values reduce WebSocket traffic during long observation runs. The birth/death and mutation-rate charts remain correct at coarser sampling because they derive rates from cumulative `event_totals`, not by summing the delivered per-tick fields.
 
 ---
 
@@ -355,7 +356,8 @@ interface ChartDef {
 |-------|--------|--------|
 | Population | `live_count`, `inert_count`, `population` | Count |
 | Energy & Mass | `total_energy`, `total_mass` | Total (dual axis) |
-| Birth / Death / Mutation Rates | Differences of `event_totals.births`, `.deaths`, `.mutations` | Average events per tick over each observation interval; births aggregate both `boot` and spontaneous spawn |
+| Birth / Death Rates | Differences of `event_totals.births`, `.deaths` | Average events per tick over each observation interval; births aggregate both `boot` and spontaneous spawn |
+| Mutation Rates | Differences of `event_totals.base_mutations`, `.background_mutations`, `.mutations` | Average events per tick over each observation interval; mutations split into baseline (fired from the per-program mutation probability) and background-stressed (fired because the program consumed background radiation that tick), which sum to the total |
 | Program Size | `mean_program_size`, `max_program_size` | Instructions (dual axis) |
 | Diversity | `unique_genomes` | Count |
 
@@ -632,7 +634,7 @@ These are per-frame render times for the color pass + draw. The 16.6ms budget (6
 | Grid frame buffer (1024×1024) | 8 MB (1M × 8 bytes) |
 | Offscreen canvas ImageData (1024×1024) | 4 MB (1M × 4 bytes RGBA) |
 | Metrics rolling buffer (10K points × 12 series) | ~1 MB |
-| uPlot chart instances (5 charts) | ~5 MB |
+| uPlot chart instances (6 charts) | ~5 MB |
 | Application overhead | ~10 MB |
 | **Total** | **< 30 MB** |
 
@@ -669,7 +671,7 @@ Switch from Canvas 2D to WebGL when any of these conditions are met:
 | Config editor with defaults | `POST /v1/sim` | All fields from API-SPEC §8 |
 | Cell inspector with disassembly | `GET /v1/sim/cell` | Auto-refresh on step |
 | Status bar with key metrics | Metrics subscription | Tick, population, energy, mass, TPS |
-| Expandable metrics charts | uPlot + metrics subscription | 5 chart definitions |
+| Expandable metrics charts | uPlot + metrics subscription | 6 chart definitions |
 | Snapshot save/load/list/delete | REST endpoints | Minimal UI in controls tab |
 | Frame rate control (max_fps) | Frame subscription | Slider 1–60 |
 | Metrics sampling control (every_n_ticks) | Metrics subscription | Numeric input |

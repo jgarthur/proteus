@@ -9,6 +9,8 @@ use crate::random::{
 };
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
+use std::iter::Sum;
+use std::ops::Add;
 
 const LISTEN_CAPTURE_SALT: u64 = 0x5d17_2ef3_94ab_c881;
 const BG_RADIATION_SALT: u64 = 0x1f03_86da_b9c7_e251;
@@ -72,6 +74,30 @@ impl Pass3AmbientOutput {
 pub struct Pass3TailOutput {
     pub deaths: u32,
     pub spontaneous_births: u32,
+}
+
+/// Attributes end-of-tick mutations to their configured cause.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MutationCounts {
+    pub base: u32,
+    pub background: u32,
+}
+
+impl Add for MutationCounts {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            base: self.base + rhs.base,
+            background: self.background + rhs.background,
+        }
+    }
+}
+
+impl Sum<MutationCounts> for MutationCounts {
+    fn sum<I: Iterator<Item = MutationCounts>>(iter: I) -> Self {
+        iter.fold(Self::default(), Add::add)
+    }
 }
 
 /// Bundles the immutable inputs needed by the Pass 3 tail.
@@ -214,7 +240,12 @@ pub fn pass3_tail(grid: &mut Grid, context: Pass3TailContext<'_>) -> Pass3TailOu
 }
 
 /// Applies end-of-tick mutation to programs that were live at tick start.
-pub fn mutate_end_of_tick(grid: &mut Grid, config: &SimConfig, tick: u64, seed: u64) -> u32 {
+pub fn mutate_end_of_tick(
+    grid: &mut Grid,
+    config: &SimConfig,
+    tick: u64,
+    seed: u64,
+) -> MutationCounts {
     #[cfg(feature = "rayon")]
     {
         grid.cells_mut()
@@ -549,27 +580,39 @@ fn mutate_end_of_tick_cell(
     tick: u64,
     seed: u64,
     cell_index: usize,
-) -> u32 {
+) -> MutationCounts {
     let Some(program) = cell.program.as_ref() else {
-        return 0;
+        return MutationCounts::default();
     };
     if !program.tick.was_live_at_tick_start {
-        return 0;
+        return MutationCounts::default();
     }
 
     let background_consumed = program.tick.bg_radiation_consumed;
     let mut rng = cell_rng(seed ^ MUTATION_SALT, tick, cell_index as u64);
-    let should_mutate = if background_consumed > 0 {
-        background_mutation_fires(
-            &mut rng,
-            background_consumed,
-            config.mutation_background_log2,
+    let (should_mutate, count) = if background_consumed > 0 {
+        (
+            background_mutation_fires(
+                &mut rng,
+                background_consumed,
+                config.mutation_background_log2,
+            ),
+            MutationCounts {
+                base: 0,
+                background: 1,
+            },
         )
     } else {
-        bernoulli_pow2(&mut rng, config.mutation_base_log2)
+        (
+            bernoulli_pow2(&mut rng, config.mutation_base_log2),
+            MutationCounts {
+                base: 1,
+                background: 0,
+            },
+        )
     };
     if !should_mutate {
-        return 0;
+        return MutationCounts::default();
     }
 
     let program = cell
@@ -579,7 +622,7 @@ fn mutate_end_of_tick_cell(
     let instruction_index = (rng.next_u64() % program.code.len() as u64) as usize;
     let bit_index = (rng.next_u64() % 8) as u8;
     program.code[instruction_index] ^= 1_u8 << bit_index;
-    1
+    count
 }
 
 fn resolve_background_radiation_cell(
@@ -820,12 +863,130 @@ mod tests {
 
     use super::{
         background_mutation_fires, mutate_end_of_tick_cell, pass3_ambient, pass3_packets,
-        resolve_packets_bucketed, resolve_spontaneous_creation_cell, Pass3AmbientOutput,
-        BACKGROUND_MUTATION_CALLS, MUTATION_SALT, SPAWN_SALT,
+        resolve_packets_bucketed, resolve_spontaneous_creation_cell, MutationCounts,
+        Pass3AmbientOutput, BACKGROUND_MUTATION_CALLS, MUTATION_SALT, SPAWN_SALT,
     };
     use crate::model::{Lineage, ProgramOrigin, ProgramSite, ProgramUid};
     use crate::opcode::op;
     use crate::random::{bernoulli_pow2, binomial_pow2, cell_rng};
+
+    #[test]
+    fn base_mutation_is_attributed_to_the_base_counter() {
+        let mut cell = Cell::with_program(
+            Program::new_live(vec![op::NOP], Direction::Up, 1).expect("program should build"),
+        );
+        cell.program
+            .as_mut()
+            .expect("program should exist")
+            .tick
+            .was_live_at_tick_start = true;
+        let config = SimConfig {
+            mutation_base_log2: 0,
+            ..SimConfig::default()
+        };
+
+        assert_eq!(
+            mutate_end_of_tick_cell(&mut cell, &config, 9, 17, 0),
+            MutationCounts {
+                base: 1,
+                background: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn background_mutation_is_attributed_to_the_background_counter() {
+        let mut cell = Cell::with_program(
+            Program::new_live(vec![op::NOP], Direction::Up, 1).expect("program should build"),
+        );
+        let program = cell.program.as_mut().expect("program should exist");
+        program.tick.was_live_at_tick_start = true;
+        program.tick.bg_radiation_consumed = 1;
+        let config = SimConfig {
+            mutation_background_log2: 0,
+            ..SimConfig::default()
+        };
+
+        assert_eq!(
+            mutate_end_of_tick_cell(&mut cell, &config, 9, 17, 0),
+            MutationCounts {
+                base: 0,
+                background: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn non_firing_mutation_has_zero_cause_counts() {
+        let tick = 9;
+        let cell_index = 0;
+        let seed = (0_u64..)
+            .find(|seed| {
+                let mut rng = cell_rng(*seed ^ MUTATION_SALT, tick, cell_index as u64);
+                !bernoulli_pow2(&mut rng, 1)
+            })
+            .expect("a non-firing base-mutation stream should exist");
+        let mut cell = Cell::with_program(
+            Program::new_live(vec![op::NOP], Direction::Up, 1).expect("program should build"),
+        );
+        cell.program
+            .as_mut()
+            .expect("program should exist")
+            .tick
+            .was_live_at_tick_start = true;
+        let config = SimConfig {
+            mutation_base_log2: 1,
+            ..SimConfig::default()
+        };
+
+        assert_eq!(
+            mutate_end_of_tick_cell(&mut cell, &config, tick, seed, cell_index),
+            MutationCounts::default()
+        );
+    }
+
+    /// Covers the base branch where the sampler actually draws *and* fires.
+    ///
+    /// `base_mutation_is_attributed_to_the_base_counter` pins attribution at
+    /// `mutation_base_log2 = 0`, where `bernoulli_pow2` short-circuits to `true`
+    /// without consuming a draw, so on its own it never exercises the drawing
+    /// path through to a flip.
+    #[test]
+    fn drawn_base_mutation_is_attributed_to_the_base_counter_and_flips_a_bit() {
+        let tick = 9;
+        let cell_index = 0;
+        let seed = (0_u64..)
+            .find(|seed| {
+                let mut rng = cell_rng(*seed ^ MUTATION_SALT, tick, cell_index as u64);
+                bernoulli_pow2(&mut rng, 1)
+            })
+            .expect("a firing base-mutation stream should exist");
+        let mut cell = Cell::with_program(
+            Program::new_live(vec![op::NOP], Direction::Up, 1).expect("program should build"),
+        );
+        cell.program
+            .as_mut()
+            .expect("program should exist")
+            .tick
+            .was_live_at_tick_start = true;
+        let config = SimConfig {
+            mutation_base_log2: 1,
+            ..SimConfig::default()
+        };
+
+        assert_eq!(
+            mutate_end_of_tick_cell(&mut cell, &config, tick, seed, cell_index),
+            MutationCounts {
+                base: 1,
+                background: 0,
+            }
+        );
+        assert_ne!(
+            cell.program.expect("program should exist").code,
+            vec![op::NOP],
+            "a firing mutation should have flipped one bit of the program"
+        );
+    }
 
     #[test]
     fn background_stressed_mutation_routes_through_any_quantum_sampler() {
@@ -844,7 +1005,10 @@ mod tests {
         BACKGROUND_MUTATION_CALLS.with(|calls| calls.set(0));
         assert_eq!(
             mutate_end_of_tick_cell(&mut always_cell, &always_config, 9, 17, 0),
-            1
+            MutationCounts {
+                base: 0,
+                background: 1,
+            }
         );
         BACKGROUND_MUTATION_CALLS.with(|calls| assert_eq!(calls.get(), 1));
         assert_ne!(
@@ -878,7 +1042,10 @@ mod tests {
 
         assert_eq!(
             mutate_end_of_tick_cell(&mut partial_cell, &partial_config, tick, seed, cell_index),
-            1
+            MutationCounts {
+                base: 0,
+                background: 1,
+            }
         );
         assert_ne!(
             partial_cell

@@ -24,6 +24,7 @@ fn app() -> (SimulationController, axum::Router) {
 #[tokio::test]
 async fn rest_lifecycle_flow_and_inspection_work() {
     let (_controller, app) = app();
+    assert_eq!(API_VERSION, "0.3.1");
 
     let create_response = app
         .clone()
@@ -479,6 +480,10 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     assert_eq!(initial["epoch"], 0);
     assert_eq!(initial["tick"], 0);
     assert_eq!(initial["event_totals"]["births"], 0);
+    assert_eq!(initial["base_mutations"], 0);
+    assert_eq!(initial["background_mutations"], 0);
+    assert_eq!(initial["event_totals"]["base_mutations"], 0);
+    assert_eq!(initial["event_totals"]["background_mutations"], 0);
 
     controller
         .step(5)
@@ -491,6 +496,21 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     assert_eq!(sampled["event_totals"]["births"], 1);
     assert_eq!(sampled["event_totals"]["boot_births"], 0);
     assert_eq!(sampled["event_totals"]["spawn_births"], 1);
+    assert!(sampled.get("base_mutations").is_some());
+    assert!(sampled.get("background_mutations").is_some());
+    assert!(sampled["event_totals"].get("base_mutations").is_some());
+    assert!(sampled["event_totals"]
+        .get("background_mutations")
+        .is_some());
+    assert_eq!(
+        sampled["mutations"].as_u64().expect("mutation total"),
+        sampled["base_mutations"]
+            .as_u64()
+            .expect("base mutation count")
+            + sampled["background_mutations"]
+                .as_u64()
+                .expect("background mutation count")
+    );
 
     let latest = controller
         .metrics(false)
@@ -503,6 +523,10 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
         latest.event_totals.births,
         latest.event_totals.boot_births + latest.event_totals.spawn_births
     );
+    assert_eq!(
+        latest.event_totals.mutations,
+        latest.event_totals.base_mutations + latest.event_totals.background_mutations
+    );
 
     let rest_response = rest_app
         .clone()
@@ -514,6 +538,8 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     assert_eq!(rest_metrics["epoch"], sampled["epoch"]);
     assert_eq!(rest_metrics["tick"], sampled["tick"]);
     assert_eq!(rest_metrics["event_totals"], sampled["event_totals"]);
+    assert!(rest_metrics.get("base_mutations").is_some());
+    assert!(rest_metrics.get("background_mutations").is_some());
     assert!(
         rest_metrics.get("census").is_none(),
         "the census is opt-in and must be absent by default: {rest_metrics}"
@@ -565,6 +591,8 @@ async fn cumulative_event_totals_survive_sampling_and_reset_epochs() {
     assert_eq!(reset["event_totals"]["births"], 0);
     assert_eq!(reset["event_totals"]["deaths"], 0);
     assert_eq!(reset["event_totals"]["mutations"], 0);
+    assert_eq!(reset["event_totals"]["base_mutations"], 0);
+    assert_eq!(reset["event_totals"]["background_mutations"], 0);
 
     controller.destroy().await.expect("destroy should succeed");
     controller

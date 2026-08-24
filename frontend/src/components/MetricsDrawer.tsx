@@ -51,11 +51,19 @@ const CHARTS: ChartDef[] = [
   },
   {
     id: 'birth-death',
-    title: 'Birth / Death / Mutation Rates',
+    title: 'Birth / Death Rates',
     series: [
       { key: 'births_per_tick', label: 'Births/tick', color: '#f7c75d' },
       { key: 'deaths_per_tick', label: 'Deaths/tick', color: '#ff8a7a' },
-      { key: 'mutations_per_tick', label: 'Mutations/tick', color: '#d28cff' },
+    ],
+  },
+  {
+    id: 'mutation-rates',
+    title: 'Mutation Rates',
+    series: [
+      { key: 'base_mutations_per_tick', label: 'Baseline/tick', color: '#ffb454' },
+      { key: 'background_mutations_per_tick', label: 'Bg-stressed/tick', color: '#5fe3ff' },
+      { key: 'mutations_per_tick', label: 'Total/tick', color: '#d28cff' },
     ],
   },
   {

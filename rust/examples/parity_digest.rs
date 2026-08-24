@@ -40,6 +40,12 @@ fn digest_fixture(name: &str, mut simulation: Simulation, ticks: u32) {
     let mut max_packets = 0_u32;
     for _ in 0..ticks {
         let report = simulation.run_tick_report();
+        // Hash the whole report. Every `TickReport` field must reach this digest:
+        // it is the only serial-vs-Rayon comparison in the repo, so a field left
+        // out is a field whose two accumulations are never compared. Adding a
+        // field therefore changes `reports=` by design — reconcile that against
+        // the `grid=` / `packets=` digests and the totals below, which do not
+        // depend on `TickReport`'s Debug layout.
         reports = fnv1a(format!("{report:?}").as_bytes(), reports);
         births += u64::from(report.births);
         boot_births += u64::from(report.boot_births);

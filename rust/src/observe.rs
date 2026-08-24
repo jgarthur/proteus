@@ -43,6 +43,8 @@ pub struct EventTotals {
     pub spawn_births: u64,
     pub deaths: u64,
     pub mutations: u64,
+    pub base_mutations: u64,
+    pub background_mutations: u64,
 }
 
 impl EventTotals {
@@ -68,6 +70,14 @@ impl EventTotals {
             .mutations
             .checked_add(u64::from(report.mutations))
             .expect("cumulative mutation count should fit in u64");
+        self.base_mutations = self
+            .base_mutations
+            .checked_add(u64::from(report.base_mutations))
+            .expect("cumulative base-mutation count should fit in u64");
+        self.background_mutations = self
+            .background_mutations
+            .checked_add(u64::from(report.background_mutations))
+            .expect("cumulative background-mutation count should fit in u64");
     }
 }
 
@@ -91,6 +101,8 @@ pub struct MetricsSnapshot {
     pub spawn_births: u32,
     pub deaths: u32,
     pub mutations: u32,
+    pub base_mutations: u32,
+    pub background_mutations: u32,
     pub event_totals: EventTotals,
     /// Point-in-time program census, present only where it was asked for.
     ///
@@ -393,6 +405,8 @@ pub fn collect_metrics(
         spawn_births: report.spawn_births,
         deaths: report.deaths,
         mutations: report.mutations,
+        base_mutations: report.base_mutations,
+        background_mutations: report.background_mutations,
         event_totals,
         census: None,
     }
@@ -588,7 +602,11 @@ fn cell_view_program_fields(cell: &Cell) -> (u8, u8, u8) {
                 flags |= 0b100;
             }
 
-            (flags, program.registers.id, encode_program_size(program.size()))
+            (
+                flags,
+                program.registers.id,
+                encode_program_size(program.size()),
+            )
         }
         None => (0b100, 0, 0),
     }
@@ -1087,14 +1105,17 @@ mod tests {
         assert_eq!(restored, metrics);
         assert!(restored.census.is_some());
 
-        // A row written before this field existed still reads back.
+        // A row written before the census field existed still reads back, while
+        // all current event fields remain required.
         let legacy = serde_json::json!({
             "epoch": 0, "tick": 5, "population": 0, "live_count": 0, "inert_count": 0,
             "total_energy": 0, "packet_energy": 0, "total_mass": 0,
             "mean_program_size": 0.0, "max_program_size": 0, "unique_genomes": 0,
             "births": 0, "boot_births": 0, "spawn_births": 0, "deaths": 0, "mutations": 0,
+            "base_mutations": 0, "background_mutations": 0,
             "event_totals": { "births": 0, "boot_births": 0, "spawn_births": 0,
-                              "deaths": 0, "mutations": 0 }
+                              "deaths": 0, "mutations": 0,
+                              "base_mutations": 0, "background_mutations": 0 }
         });
         let legacy: MetricsSnapshot =
             serde_json::from_value(legacy).expect("legacy rows should still deserialize");
@@ -1230,6 +1251,8 @@ mod tests {
                 spawn_births: 1,
                 deaths: 2,
                 mutations: 3,
+                base_mutations: 1,
+                background_mutations: 2,
                 packet_count: 5,
             },
             EventTotals {
@@ -1238,6 +1261,8 @@ mod tests {
                 spawn_births: 10,
                 deaths: 12,
                 mutations: 8,
+                base_mutations: 3,
+                background_mutations: 5,
             },
         );
 
@@ -1256,11 +1281,23 @@ mod tests {
         assert_eq!(metrics.spawn_births, 1);
         assert_eq!(metrics.deaths, 2);
         assert_eq!(metrics.mutations, 3);
+        assert_eq!(metrics.base_mutations, 1);
+        assert_eq!(metrics.background_mutations, 2);
+        assert_eq!(
+            metrics.mutations,
+            metrics.base_mutations + metrics.background_mutations
+        );
         assert_eq!(metrics.event_totals.births, 30);
         assert_eq!(metrics.event_totals.boot_births, 20);
         assert_eq!(metrics.event_totals.spawn_births, 10);
         assert_eq!(metrics.event_totals.deaths, 12);
         assert_eq!(metrics.event_totals.mutations, 8);
+        assert_eq!(metrics.event_totals.base_mutations, 3);
+        assert_eq!(metrics.event_totals.background_mutations, 5);
+        assert_eq!(
+            metrics.event_totals.mutations,
+            metrics.event_totals.base_mutations + metrics.event_totals.background_mutations
+        );
     }
 
     #[test]
@@ -1272,6 +1309,8 @@ mod tests {
             spawn_births: 1,
             deaths: 4,
             mutations: 5,
+            base_mutations: 2,
+            background_mutations: 3,
             packet_count: 99,
         });
         totals.record(TickReport {
@@ -1280,6 +1319,8 @@ mod tests {
             spawn_births: 1,
             deaths: 8,
             mutations: 9,
+            base_mutations: 4,
+            background_mutations: 5,
             packet_count: 1,
         });
 
@@ -1288,7 +1329,13 @@ mod tests {
         assert_eq!(totals.spawn_births, 2);
         assert_eq!(totals.deaths, 12);
         assert_eq!(totals.mutations, 14);
+        assert_eq!(totals.base_mutations, 6);
+        assert_eq!(totals.background_mutations, 8);
         assert_eq!(totals.births, totals.boot_births + totals.spawn_births);
+        assert_eq!(
+            totals.mutations,
+            totals.base_mutations + totals.background_mutations
+        );
     }
 
     #[test]

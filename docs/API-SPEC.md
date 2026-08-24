@@ -2,7 +2,9 @@
 
 **Status**: Provisional — subject to change as the engine implementation matures.
 
-**Spec version**: 0.3.0
+**Spec version**: 0.3.1
+
+**Added in 0.3.1**: metrics split mutation events into additive `base_mutations` and `background_mutations` cause counters while retaining `mutations` as their total (§10).
 
 **Changed in 0.3.0**: the simulation config contract replaces floating probability fields with optional integer exponent fields `d_energy_log2`, `d_mass_log2`, `maintenance_rate_log2`, and `p_spawn_log2`. Integer `k` means probability `2^-k`; explicit `null` means never. Absent decay and maintenance fields default to 7, while absent `p_spawn_log2` defaults to `null` (§8). This is a breaking field rename.
 
@@ -62,7 +64,7 @@ The API is independent of any specific frontend implementation.
 
 All REST endpoints are prefixed with `/v1`.
 
-All responses include the header `X-Proteus-API-Version: 0.3.0`.
+All responses include the header `X-Proteus-API-Version: 0.3.1`.
 
 The API is provisional and pre-1.0, so the breaking 0.3.0 config-field migration deliberately retains the `/v1` URL prefix. Once the API is stable, breaking changes increment the major URL version (`/v2`); additive changes do not.
 
@@ -373,12 +375,16 @@ Server pushes JSON:
   "spawn_births": 3,
   "deaths": 8,
   "mutations": 3,
+  "base_mutations": 1,
+  "background_mutations": 2,
   "event_totals": {
     "births": 89231,
     "boot_births": 64010,
     "spawn_births": 25221,
     "deaths": 87384,
-    "mutations": 1439
+    "mutations": 1439,
+    "base_mutations": 400,
+    "background_mutations": 1039
   }
 }
 ```
@@ -401,13 +407,17 @@ Server pushes JSON:
 | `spawn_births` | u32 | Programs that became live this tick via spontaneous spawn | stable |
 | `deaths` | u32 | Programs destroyed (maintenance/decay) this tick | stable |
 | `mutations` | u32 | Mutation events this tick | stable |
+| `base_mutations` | u32 | Mutations caused by baseline probability this tick | stable |
+| `background_mutations` | u32 | Mutations caused by background-radiation stress this tick | stable |
 | `event_totals.births` | u64 | Cumulative live births in this epoch | stable |
 | `event_totals.boot_births` | u64 | Cumulative births caused by `boot` in this epoch | stable |
 | `event_totals.spawn_births` | u64 | Cumulative spontaneous spawn births in this epoch | stable |
 | `event_totals.deaths` | u64 | Cumulative program deaths in this epoch | stable |
 | `event_totals.mutations` | u64 | Cumulative mutation events in this epoch | stable |
+| `event_totals.base_mutations` | u64 | Cumulative mutations caused by baseline probability in this epoch | stable |
+| `event_totals.background_mutations` | u64 | Cumulative mutations caused by background-radiation stress in this epoch | stable |
 
-The top-level `births`, `boot_births`, `spawn_births`, `deaths`, and `mutations` fields remain counts for the single delivered tick. `event_totals` count every completed tick since the start of the current epoch, independent of observation cadence. Programs placed by `seed_programs` during creation or reset are bootstrap state and are not births. The invariant `births = boot_births + spawn_births` holds for both the per-tick and cumulative fields.
+The top-level `births`, `boot_births`, `spawn_births`, `deaths`, `mutations`, `base_mutations`, and `background_mutations` fields remain counts for the single delivered tick. `event_totals` count every completed tick since the start of the current epoch, independent of observation cadence. Programs placed by `seed_programs` during creation or reset are bootstrap state and are not births. The invariant `births = boot_births + spawn_births` holds for both the per-tick and cumulative fields. The invariant `mutations = base_mutations + background_mutations` holds for both the per-tick and cumulative fields.
 
 To derive an event rate between two snapshots in the same epoch, clients divide the difference between cumulative totals by the difference in ticks. The first snapshot establishes a baseline. Clients discard out-of-order snapshots whose tick is older than the current baseline. They discard the baseline and begin a new series if `epoch` changes or any cumulative total regresses.
 
