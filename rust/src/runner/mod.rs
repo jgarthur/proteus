@@ -805,7 +805,12 @@ pub(crate) fn path_string(path: &Path) -> Result<String, RunnerError> {
 pub(crate) fn sha256_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    format!("sha256:{:x}", hasher.finalize())
+    let digest: String = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    format!("sha256:{digest}")
 }
 
 #[cfg(test)]

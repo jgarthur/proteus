@@ -4,7 +4,7 @@ React + TypeScript frontend for observing and controlling the Proteus simulator.
 
 ## Requirements
 
-- Node.js 20+ recommended
+- Node.js 22.23.4+, 24.22.1+, or 26.12.1+
 - npm 10+
 - Proteus backend running at `http://localhost:3000` by default
 

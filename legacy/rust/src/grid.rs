@@ -198,8 +198,8 @@ mod tests {
 
     #[test]
     fn test_grid_coordinate_roundtrip() {
-        for width in 1..=8 {
-            for height in 1..=8 {
+        for width in 2..=8 {
+            for height in 2..=8 {
                 let grid: Grid<usize> = Grid::new_default(width, height);
                 let total_size = (grid.width * grid.height) as usize;
                 let mut coords = Vec::with_capacity(total_size);

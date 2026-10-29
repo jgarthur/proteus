@@ -31,7 +31,12 @@ pub fn hash_inventory(crate_root: &Path, files: &[PathBuf]) -> String {
         hasher.update((content.len() as u64).to_be_bytes());
         hasher.update(content);
     }
-    format!("sha256:{:x}", hasher.finalize())
+    let digest: String = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    format!("sha256:{digest}")
 }
 
 fn collect_source_files(crate_root: &Path, directory: &Path, files: &mut Vec<PathBuf>) {
