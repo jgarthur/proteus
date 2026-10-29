@@ -1,5 +1,11 @@
 # Ambient-rate rebalance sweep
 
+- **Question and scope:** Did the post-dyadic decay configuration require lower ambient input? Paired seeded 256×256 lithotroph worlds, 8,000 ticks, using the recorded pre-v0.4 mutation law.
+- **Answer:** Lowering energy input reduced takeoff across the paired seeds; the apparent collapse in one benchmark seed was unrepresentative. The evidence supported retaining the tested defaults.
+- **Meaning:** Compare seed ensembles, and separate energy income from background-stressed mutation exposure.
+- **Limits:** Takeoff measures population growth, not faithful reproduction or open-ended evolution. Quantitative effects belong to this organism, configuration and horizon.
+- **Disposition:** Closed. Reopen for a specific ecological question under changed rules or populations, not to recover one benchmark seed's trajectory.
+
 Date: 2026-08-21
 
 **Context**: Non-authoritative working notes. Follow-up to the ecology shift flagged in

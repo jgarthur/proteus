@@ -1,6 +1,6 @@
 # Proteus
 
-Proteus is an artificial life simulator specified as a discrete 2D world where self-replicating programs compete for mass, energy, space, and time. The core idea is that programs are not layered on top of the physics; program instructions and computational work are part of the substrate itself.
+Proteus is an artificial life simulator specified as a discrete 2D world where self-replicating programs compete for mass, energy, space, and time. The core idea is that programs are not layered on top of the physics; program instructions and computational work are part of the substrate itself. The research aim is open-ended evolution and emergence: reproducing organizations arising and sustaining evolutionary innovation.
 
 This README is a high-level orientation only. It was updated for spec `v0.4.0`.
 
@@ -9,7 +9,7 @@ This README is a high-level orientation only. It was updated for spec `v0.4.0`.
 ## Project Orientation
 
 - `STATUS.md` tracks what is done and what is next. Keep it current.
-- `docs/` contains the active specification and related working documentation. See `docs/README.md`.
+- `docs/` contains the active specification and related working documentation. See `docs/README.md`; start with [Research findings](docs/analysis/README.md) for the experimental picture.
 - `frontend/` contains the active React + TypeScript simulator UI. See `frontend/README.md`.
 - `rust/` contains the active Rust backend implementation surface. See `rust/README.md`.
 - `legacy/` contains archived implementation prototypes and experiments that are kept for reference during the upcoming rewrite. See `legacy/README.md`.

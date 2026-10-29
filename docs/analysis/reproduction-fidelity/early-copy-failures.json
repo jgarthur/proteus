@@ -1,0 +1,38 @@
+[
+  {
+    "run": "squarestep-no-maintenance-seed-1",
+    "single_creator_mismatches": 21,
+    "first_mismatch_tick": 43,
+    "first_mismatch_uid": 582023
+  },
+  {
+    "run": "squarestep-no-maintenance-seed-2",
+    "single_creator_mismatches": 22,
+    "first_mismatch_tick": 66,
+    "first_mismatch_uid": 941967
+  },
+  {
+    "run": "squarestep-no-maintenance-seed-3",
+    "single_creator_mismatches": 16,
+    "first_mismatch_tick": 67,
+    "first_mismatch_uid": 958335
+  },
+  {
+    "run": "wildstep-no-maintenance-seed-1",
+    "single_creator_mismatches": 11,
+    "first_mismatch_tick": 79,
+    "first_mismatch_uid": 1122687
+  },
+  {
+    "run": "wildstep-no-maintenance-seed-2",
+    "single_creator_mismatches": 9,
+    "first_mismatch_tick": 66,
+    "first_mismatch_uid": 1007487
+  },
+  {
+    "run": "wildstep-no-maintenance-seed-3",
+    "single_creator_mismatches": 8,
+    "first_mismatch_tick": 66,
+    "first_mismatch_uid": 925567
+  }
+]

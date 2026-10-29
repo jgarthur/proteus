@@ -1,5 +1,11 @@
 # Tier 2a upper-bound diagnostic — results
 
+- **Question and scope:** Would reducing cell stride justify the proposed hot-field layout rewrite? A 128-byte to 24-byte diagnostic on the recorded `tick_bench` fixtures and hardware.
+- **Answer:** Empty-256×256 tick time fell only 2.3% serial and 3.5% with four Rayon threads, below the stated 10%/15% decision thresholds. Ambient RNG computation dominated.
+- **Meaning:** The measurements did not justify the layout rewrite.
+- **Limits:** This bounds the proposed sweep optimization in the tested implementation, not every possible layout or workload.
+- **Disposition:** Closed negative result; diagnostic unmerged. Reopen if profiling shows cell stride has become a material bottleneck.
+
 **Date:** 2026-08-22
 **Branch:** `diag/boxed-program` @ `b204e35`, based on `main` @ `0e3092f`
 **Worktree:** session scratchpad (measurement branch; kept unmerged for reference)

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 
 use crate::config::{ConfigError, SimConfig};
+use crate::genome_observe::{GenomeObserver, GenomePhase};
 use crate::grid::{Grid, GridError};
 use crate::model::{Cell, CellSnapshot, Lineage, Packet, ProgramOrigin, ProgramUid, QueuedAction};
 use crate::pass1::{pass1_local, Pass1Output};
@@ -311,11 +312,33 @@ impl Simulation {
     /// Simulation behavior is identical to [`Self::run_tick_report`]; the
     /// observer only receives timing callbacks and cannot influence state.
     pub fn run_tick_report_observed<O: TickObserver>(&mut self, observer: &mut O) -> TickReport {
+        self.run_tick_observers(observer, &mut ())
+    }
+
+    /// Advances one tick with read-only genome observations at pass boundaries.
+    ///
+    /// Uses the same driver and random streams as ordinary execution. See
+    /// [`GenomeObserver`] for tick numbering and the meaning of queued actions.
+    pub fn run_tick_report_with_genomes<G: GenomeObserver>(
+        &mut self,
+        observer: &mut G,
+    ) -> TickReport {
+        self.run_tick_observers(&mut (), observer)
+    }
+
+    fn run_tick_observers<O: TickObserver, G: GenomeObserver>(
+        &mut self,
+        observer: &mut O,
+        genomes: &mut G,
+    ) -> TickReport {
         let total_start = O::ENABLED.then(Instant::now);
         let mut phase_start = total_start;
 
         self.prepare_tick();
         lap(observer, &mut phase_start, TickPhase::Prepare);
+        if G::ENABLED {
+            genomes.observe(self.tick, GenomePhase::Start, &self.grid, &[]);
+        }
 
         let pass1 = pass1_local(
             &mut self.grid,
@@ -326,9 +349,15 @@ impl Simulation {
             self.seed,
         );
         lap(observer, &mut phase_start, TickPhase::Pass1);
+        if G::ENABLED {
+            genomes.observe(self.tick, GenomePhase::Local, &self.grid, &pass1.actions);
+        }
 
         let pass2 = pass2_nonlocal(&mut self.grid, &pass1.actions, self.tick, self.seed);
         lap(observer, &mut phase_start, TickPhase::Pass2);
+        if G::ENABLED {
+            genomes.observe(self.tick, GenomePhase::Nonlocal, &self.grid, &pass1.actions);
+        }
 
         self.packets.extend(pass1.emitted_packets);
         pass3_packets(&mut self.grid, &mut self.packets, self.tick, self.seed);
@@ -348,10 +377,16 @@ impl Simulation {
             },
         );
         lap(observer, &mut phase_start, TickPhase::Tail);
+        if G::ENABLED {
+            genomes.observe(self.tick, GenomePhase::Maintenance, &self.grid, &[]);
+        }
 
         let mutation_counts =
             mutate_end_of_tick(&mut self.grid, &self.config, self.tick, self.seed);
         lap(observer, &mut phase_start, TickPhase::Mutation);
+        if G::ENABLED {
+            genomes.observe(self.tick, GenomePhase::Mutation, &self.grid, &[]);
+        }
 
         clear_newborn_flags(&mut self.grid);
         lap(observer, &mut phase_start, TickPhase::NewbornClear);

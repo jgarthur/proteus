@@ -5,12 +5,13 @@
  * carries — and the human-readable listing is derived with `disassemble` so
  * there is exactly one source of truth for each genome.
  *
- * The seven verified organisms come from the seed-organism ladder in
+ * The seven ladder organisms come from
  * `docs/analysis/2026-08-23_seed-organisms.md`, which derived each one by hand
  * (budget, then Pass trace), ran it, and reported a five-seed horizon result at
  * tick 20,000. Their `free_energy` / `free_mass` are the root preloads those
  * runs actually used, so picking one and scattering it reproduces the tested
- * starting condition rather than an invented one.
+ * starting condition rather than an invented one. Guardstep has its own
+ * copying-fidelity evidence in docs/analysis/2026-10-29_reliable-copying.md.
  */
 
 /**
@@ -198,6 +199,19 @@ export const SEED_LIBRARY: readonly SeedOrganism[] = [
     code: [81, 83, 66, 48, 85, 95, 49, 100, 20, 73, 99],
     free_energy: 16,
     free_mass: 16,
+  },
+  {
+    id: 'guardstep',
+    name: 'Guardstep',
+    description:
+      'A mobile copier that retries missing bytes, rejects unexpected target lengths, funds its child, and checks every byte before booting. Slower reproduction buys fidelity; foreign early boots and writes after a byte was checked can bypass its safeguards.',
+    provenance: 'docs/analysis/2026-10-29_reliable-copying.md',
+    family: 'Mobile',
+    evidence: 'All births and survivors exact in ten single-founder 20,000-tick runs: five seeds with maintenance and five without; zero observed mutations.',
+    regime: '64x64, rE=.5, rM=.3, d*=7, t_cap=4, alpha=.55, maintenance_log2=14 or null, mutation 63/63; root 0E/0M.',
+    code: [64, 99, 0, 75, 81, 83, 89, 72, 35, 67, 5, 32, 34, 18, 52, 72, 74, 85, 95, 68, 38, 72, 32, 75, 72, 66, 36, 4, 16, 32, 16, 32, 16, 32, 34, 18, 51, 7, 97, 0, 74, 66, 48, 85, 71, 1, 33, 74, 93, 68, 75, 35, 72, 38, 39, 67, 5, 32, 34, 18, 52, 49, 0, 97, 89, 66, 35, 2, 18, 52, 100],
+    free_energy: 0,
+    free_mass: 0,
   },
 ];
 

@@ -1,5 +1,7 @@
 # Post-RAYON-PERFORMANCE roadmap
 
+> **Scope:** Historical roadmap, partly superseded. The layout speedup estimates below were rejected by [inline-storage measurements](2026-08-22_inline-program-storage-results.md) and [the stride diagnostic](2026-08-22_tier-2a-stride-diagnostic.md). See [Research findings](README.md) for the current synthesis.
+
 Date: 2026-08-13
 
 Records the agreed performance strategy after the clone-free Pass 2 and fused

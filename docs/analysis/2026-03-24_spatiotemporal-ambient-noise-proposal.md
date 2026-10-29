@@ -1,5 +1,7 @@
 # Spatiotemporal Ambient Noise Proposal
 
+> **Scope:** Proposal. Environmental heterogeneity has not been established here as a remedy for open-endedness. See [Research findings](README.md) for the current synthesis.
+
 **Status**: Non-authoritative design proposal recorded March 24, 2026. This document does not change the simulator specification.
 
 ## Overview

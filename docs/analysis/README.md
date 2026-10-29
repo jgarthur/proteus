@@ -1,24 +1,72 @@
-# docs/analysis/
+# Research findings
 
-Non-authoritative working notes that support the spec.
+Start here; use [the catalog](ARCHIVE.md) for detailed studies, historical plans
+and implementation records. [SPEC.md](../SPEC.md) and
+[SPEC-COMPANION.md](../SPEC-COMPANION.md) define the rules.
 
-- Dated files are point-in-time plans or synthesis notes.
-- Named topic files are longer-lived critiques or theory notes.
+## Research aim
 
-Use this folder for context only. `SPEC.md` and `SPEC-COMPANION.md` remain the source of truth.
+Open-ended evolution and emergence: reproducing organizations arising and
+sustaining evolutionary innovation. Occupancy, sequence diversity and clever
+hand-designed seeds are intermediate observations.
 
-## Dated Notes
+The working concern is **evolutionary accessibility**: can viable intermediate
+forms lead to reproduction and further adaptation? Guardstep raises this concern
+but does not prove the rules prohibit open-endedness. Its evolutionary origin
+was not tested.
 
-- `2026-03-16_simulation-observations.md` records exploratory v0.2.0 behavior, notable seeds, resource settings, and program-growth pathologies.
-- `2026-03-24_spatiotemporal-ambient-noise-proposal.md` proposes spatially and temporally varying Poisson resource-arrival fields driven by layered simplex noise.
-- `2026-08-11_rayon-performance-profile.md` records phase-level Rayon profiling and the A/B experiments behind the RAYON-PERFORMANCE backlog item.
-- `2026-08-12_rayon-optimization-plan.md` is the executed step-by-step implementation plan for RAYON-PERFORMANCE.
-- `2026-08-12_rayon-optimization-results.md` records the implementation, fixture and instruction-coverage audit, exact growing-web-scenario benchmarks, deep parity results, and line-profile findings.
-- `2026-08-13_dyadic-sampler-plan.md` is the implementable hand-off plan for DYADIC-SAMPLERS: exact `2^-k` Bernoulli/binomial bit samplers, Poisson inversion, config validation, call-site map, and migration steps.
-- `2026-08-21_dyadic-sampler-results.md` records the completed DYADIC-SAMPLERS implementation, draw-stream migration, verification digests, and benchmark deferral.
-- `2026-08-21_config-k-migration.md` records the CONFIG-DYADIC-K and MUTATION-ANY-QUANTUM schema, digest, probability-law, and draw-stream migration results.
-- `2026-08-13_performance-roadmap.md` records the tiered performance strategy after RAYON-PERFORMANCE: sampler work, SoA hot-field split, inline program storage behind data-justified caps, Pass 1 dispatch, and expected ceilings.
-- `2026-08-22_tier-2a-stride-diagnostic.md` bounds RAYON-HOTSPOTS Tier 2a from above with a boxed-program build (cell stride 128 B → 24 B, parity-identical): −2.3% serial / −3.5% Rayon-4 on an empty 256x256 grid, NO-GO; shows `ambient` is 88% of an empty-grid tick and RNG-compute-bound (~70 ns/cell), so the remaining lever is the sampler, not the layout.
-- `2026-08-22_inline-program-storage-results.md` records the RAYON-HOTSPOTS Tier 2b attempt (inline program code storage): correct and parity-identical, but a measured regression at caps 512/256/64, so it was shelved; also records that a 256-instruction cap binds in a grown 256x256 world.
-- `2026-08-21_ambient-rebalance-sweep.md` sweeps `r_energy` x `r_mass` against the merged `d_* = 2^-7` decay defaults over 80 headless-runner runs, shows the post-dyadic web-scenario collapse is a single-seed artifact rather than a systematic effect, refutes the constant-background rebalance, establishes that the ambient background level is simultaneously the energy income and the mutation dose, and recommends changing no default.
-- `2026-08-13_mutation-load-and-emergence-milestones.md` preserves the August 2026 exploratory observations, defines the M0–M6 emergence milestone ladder (reserving *abiogenesis* for self-replication), measures the realized background-stressed mutation rate against the configured baseline, explains the boom-bust plateau as space saturation unwinding toward an attractor, derives why `move` and multi-cell `absorb` are required for viability, and shows that spontaneous accretion past size 1 is governed by mutations × occupancy rather than by `mutation_base_log2` alone.
+## Findings to carry forward
+
+### Emergence: animation is not self-reproduction
+
+Earlier sweeps observed spontaneous accretion and animation of multi-instruction
+bodies, but did not demonstrate self-reproduction arising from them. Keep
+persistence, construction, reproduction and sustained evolution separate.
+Their numerical thresholds belong to older rules, not automatically to v0.4.0.
+[Evidence and milestones](2026-08-13_mutation-load-and-emergence-milestones.md).
+
+### Copying and Guardstep: chapter closed
+
+Under v0.4.0, Squarestep and Wildstep lose their sequences even with zero
+observed mutations and maintenance disabled. Failed appends, unconditional boots,
+shared construction and live editing explain the loss.
+[Mechanism study](2026-10-28_reproduction-fidelity.md).
+
+The 71-byte Guardstep retries, verifies and provisions its child. Ten
+single-founder 20,000-tick runs across five seeds produced 40,734 exact births,
+with zero observed mutations and every surviving genome exact. Reproduction was
+slower. It produced no exact descendants in five mixed worlds with Squarestep;
+only one of five Wildstep worlds produced one. Neighbors can boot unfinished
+children before verification.
+[Comparison and counterexamples](2026-10-29_reliable-copying.md).
+
+**Meaning:** colonization is weak evidence for heritable adaptive organization.
+An engineered solution does not establish an evolutionary path. This chapter is
+complete; boot-tolerant seed design is parked, not the default next task.
+
+### Environment: separate causes and compare seeds
+
+The ambient study found takeoff/stall outcomes across seeds. Background energy
+also affects stressed mutation exposure. Its evidence supported retaining the
+tested defaults, not maximizing occupancy as a proxy for emergence.
+[Configuration-specific results](2026-08-21_ambient-rebalance-sweep.md).
+
+### Performance: measured negatives supersede estimates
+
+Inline code storage regressed the tested `tick_bench` fixtures; a stride diagnostic
+did not justify a layout rewrite. Read these before repeating the roadmap's
+optimistic proposals.
+[Inline storage](2026-08-22_inline-program-storage-results.md),
+[stride diagnostic](2026-08-22_tier-2a-stride-diagnostic.md).
+
+## Keeping this useful
+
+Use one report per question, led by **question, answer, significance, limits,
+and disposition**. Promote durable conclusions here; catalog everything else.
+A proposal or a closed report's final suggestion is not an active assignment.
+[Authoring rules](../AGENTS.md#closing-experiments).
+
+Keep compact evidence and rerun instructions. Full traces, genome dumps and
+copied executables are scratch data; extract evidence for unresolved findings
+before cleanup. The copying chapter retains about 1 MiB of evidence; bulk archives
+are unavailable. Provenance hashes identify original files, not retained copies.

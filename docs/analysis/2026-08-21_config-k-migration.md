@@ -1,5 +1,11 @@
 # Config exponent and any-quantum mutation migration
 
+- **Question and scope:** How should dyadic probabilities cross configuration boundaries, and how should background quanta trigger mutation? Simulator/spec v0.4.0 migration.
+- **Answer:** Optional integer exponents encode probabilities; `null` means never. Background mutation fires once if any consumed quantum succeeds, removing the old linear saturation cliff.
+- **Meaning:** Configuration has an explicit probability contract, and mutation exposure follows the specified independent-quantum law.
+- **Limits:** This is an implementation and parity record, not evidence that the mutation law improves emergence. No performance benchmark was run for the migration.
+- **Disposition:** Closed. Use the specifications for the current contract; revisit ecological consequences through a separately selected experiment.
+
 Date: 2026-08-21
 
 ## Summary

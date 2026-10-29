@@ -1,3 +1,5 @@
+> **Scope:** Historical interpretation of early theory and reviews. Its numerical premises need rechecking against the current rules. See [Research findings](README.md) for the current synthesis.
+
 Yes — and the synthesis is pretty coherent.
 
 My overall read is that your spec is strong, your theory note is doing real science rather than storytelling, and Claude/Gemini are mostly converging on the same central diagnosis:

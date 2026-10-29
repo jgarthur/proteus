@@ -1,5 +1,7 @@
 # Proteus v0 — Merged Critique Analysis
 
+> **Scope:** Historical critique of the v0 rules. These are not automatically defects in the current specification. See [Research findings](README.md) for the current synthesis.
+
 Three LLMs (Claude, GPT, Gemini) independently reviewed the Proteus v0 spec. This document synthesizes their critiques, highlighting consensus, partial overlap, and contradictions.
 
 ---

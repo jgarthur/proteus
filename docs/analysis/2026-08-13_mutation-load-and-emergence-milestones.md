@@ -1,5 +1,11 @@
 # Effective Mutation Rate, Saturation Dynamics, and the Emergence Milestones — August 13, 2026
 
+- **Question and scope:** What limits spontaneous growth and seeded persistence? Historical v0.2.1 analysis, with runner configurations recorded below.
+- **Answer:** Sweeps produced accretion and animation, without demonstrated self-reproduction. Realized mutation exposure and turnover explained behavior better than the baseline mutation setting alone.
+- **Meaning:** Distinguish construction, animation, reproduction and sustained evolution when evaluating emergence.
+- **Limits:** Numerical thresholds and energetic arguments depend on the older rules and tested regimes. The Driftkin first-body prediction was [corrected by direct traces](2026-10-28_reproduction-fidelity.md#driftkin-byte-39-is-confirmed-the-first-body-has-two-bytes).
+- **Disposition:** Closed historical study. Revisit quantitative claims only for a selected experiment under explicitly specified rules.
+
 **Context**: Non-authoritative working notes. **Written by Claude (Opus 5)** from Joey's unstructured
 observation notes and follow-up questions; the observations in §1 are his, the derivations,
 measurements, and milestone vocabulary are the model's. Structural claims cite `SPEC.md` v0.2.1;
@@ -115,6 +121,8 @@ Such an offspring is a live size-1 program that dies when maintenance takes its 
 left inert instead gets `inert_grace_ticks` first, for ~138 ticks. Either way: babies that quickly
 decay, exactly as observed. Both the misaligned pop and the boot-before-copy ordering are testable
 by inspecting a live offspring's code at boot time.
+
+The [controlled fresh-start trace](2026-10-28_reproduction-fidelity.md#driftkin-byte-39-is-confirmed-the-first-body-has-two-bytes) resolves the byte and ordering predictions: the root appends literal `39` twice, at executed ticks 3 and 4, then first boots `[39,39]` at tick 23. The one-byte first-offspring prediction above does not hold in that scenario. These traces use the observed genome in fresh worlds, not the historical evolved-world snapshot.
 
 ## 2. Milestone ladder
 
@@ -544,5 +552,4 @@ decades, with only one point between 6,773 and 11,011 to locate the onset.
 - ~~**ATTRACTOR-CONVERGENCE**~~ — done (§5). Mutations-per-lifetime and mean genome size converge as
   predicted; density does not settle within 200k ticks. The open follow-on is where occupancy
   asymptotes, which needs a longer run or a smaller grid.
-- **SEED1-TRACE** — verify the two §1 predictions about the seed-1 genome (offspring receive the
-  literal byte `39`; `boot` fires before the copy loop) by inspecting a live offspring at boot time.
+- **SEED1-TRACE — resolved:** the [fresh-start trace](2026-10-28_reproduction-fidelity.md#driftkin-byte-39-is-confirmed-the-first-body-has-two-bytes) confirms literal `39` and boot-before-copy ordering, but the first booted body is `[39,39]`, not one byte.

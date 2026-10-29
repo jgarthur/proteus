@@ -1,5 +1,11 @@
 # RAYON-PERFORMANCE results
 
+- **Question and scope:** Can grid traversal and allocation overhead be reduced while preserving execution? Serial and Rayon `tick_bench` fixtures and parity checks, under the recorded implementation and hardware.
+- **Answer:** Removing the Pass 2 clone and fusing compatible Rayon traversals improved measured timings. The direct serial path remained faster than a one-thread Rayon pool.
+- **Meaning:** Keep the serial path and use comparable world states for performance decisions.
+- **Limits:** Timings are fixture- and machine-specific; a grown world's occupancy must match before attributing a speed difference to implementation.
+- **Disposition:** Closed implementation study. Reopen the serial-path decision only with representative measurements supporting a different result.
+
 Date: 2026-08-12
 
 This note closes the `RAYON-PERFORMANCE` implementation plan in

@@ -1,5 +1,7 @@
 # Rayon performance profile
 
+> **Scope:** Historical pre-optimization profile. See [the completed results](2026-08-12_rayon-optimization-results.md) for the outcome. See [Research findings](README.md) for the current synthesis.
+
 Date: 2026-08-11
 
 This is a point-in-time, non-authoritative performance note for the Rayon branch. It records phase-level profiling and temporary A/B experiments intended to identify remaining performance headroom. No profiling hooks or experimental implementations were retained in the source tree.

@@ -1,5 +1,11 @@
 # Dyadic sampler implementation results
 
+- **Question and scope:** Can exact dyadic sampling and small-rate Poisson inversion reduce sampler cost? v0.3.0 migration, tested with serial/Rayon parity and the recorded `tick_bench` fixtures.
+- **Answer:** The samplers improved measured timings; the migration intentionally changed draw streams. Structural checks and cross-thread parity passed.
+- **Meaning:** Empty and synthetic dense fixtures provide comparable performance evidence when grown ecologies diverge.
+- **Limits:** The tick-6500 web worlds were incomparable. The proposed ambient rebalance was subsequently rejected by the [paired-seed study](2026-08-21_ambient-rebalance-sweep.md); configuration and mutation semantics were superseded by [v0.4.0](2026-08-21_config-k-migration.md).
+- **Disposition:** Closed implementation record. Further sampler work needs a measured bottleneck and explicit draw-stream accounting.
+
 Date: 2026-08-21
 
 ## Summary

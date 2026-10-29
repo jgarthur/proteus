@@ -1,0 +1,60 @@
+{
+  "runner_schema_version": "0.2.0",
+  "run_id": "retrystep-reference-seed-1",
+  "simulation": {
+    "width": 64,
+    "height": 64,
+    "seed": 1,
+    "r_energy": 0.5,
+    "r_mass": 0.3,
+    "d_energy_log2": 7,
+    "d_mass_log2": 7,
+    "t_cap": 4.0,
+    "maintenance_rate_log2": 14,
+    "maintenance_exponent": 1.0,
+    "local_action_exponent": 0.55,
+    "n_synth": 1,
+    "inert_grace_ticks": 10,
+    "p_spawn_log2": null,
+    "mutation_base_log2": 63,
+    "mutation_background_log2": 63
+  },
+  "bootstrap": {
+    "programs": [
+      {
+        "x": 32,
+        "y": 32,
+        "code": [
+          83,
+          0,
+          74,
+          66,
+          48,
+          85,
+          83,
+          16,
+          95,
+          68,
+          10,
+          18,
+          51,
+          17,
+          49,
+          100,
+          64,
+          99
+        ],
+        "free_energy": 0,
+        "free_mass": 0
+      }
+    ],
+    "environment": []
+  },
+  "limits": {
+    "ticks": 20000
+  },
+  "observation": {
+    "every_n_ticks": 1000
+  },
+  "output_directory": "unused-normal-runner/retrystep-reference-seed-1"
+}

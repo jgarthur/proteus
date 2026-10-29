@@ -1,5 +1,7 @@
 # RAYON-PERFORMANCE implementation plan
 
+> **Scope:** Executed plan. See [the completed results](2026-08-12_rayon-optimization-results.md); the steps below are not a task queue. See [Research findings](README.md) for the current synthesis.
+
 Date: 2026-08-12
 
 This is the implementation plan for the `RAYON-PERFORMANCE` status item: remove Pass 2 grid-clone overhead and fuse compatible Rayon Pass 3 traversals. It builds on the measurements and recommended design in `docs/analysis/2026-08-11_rayon-performance-profile.md` and is written to be executed by someone without prior context.

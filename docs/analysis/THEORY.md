@@ -1,3 +1,5 @@
+> **Scope:** Historical theory for v0.1. Its defaults, instruction names and budget assumptions are not a current model of v0.4.0. See [Research findings](README.md) for the current synthesis.
+
 ## Viability And Decay Notes
 
 ### Scope

@@ -1,0 +1,474 @@
+{
+  "long": {
+    "archive": "rust/runs/reliable-copying-2026-10-29/long",
+    "experiment_sha256": "ada13b7911f3335d5b742ecf8f856cc93fe926f58f76040b352657d018e1c024",
+    "ticks": 20000,
+    "seeds": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "matrix": [
+      [
+        "guardstep",
+        "reference",
+        1
+      ],
+      [
+        "guardstep",
+        "reference",
+        2
+      ],
+      [
+        "guardstep",
+        "reference",
+        3
+      ],
+      [
+        "guardstep",
+        "reference",
+        4
+      ],
+      [
+        "guardstep",
+        "reference",
+        5
+      ],
+      [
+        "guardstep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "guardstep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "guardstep",
+        "no-maintenance",
+        3
+      ],
+      [
+        "guardstep",
+        "no-maintenance",
+        4
+      ],
+      [
+        "guardstep",
+        "no-maintenance",
+        5
+      ],
+      [
+        "retrystep",
+        "reference",
+        1
+      ],
+      [
+        "retrystep",
+        "reference",
+        2
+      ],
+      [
+        "retrystep",
+        "reference",
+        3
+      ],
+      [
+        "retrystep",
+        "reference",
+        4
+      ],
+      [
+        "retrystep",
+        "reference",
+        5
+      ],
+      [
+        "retrystep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "retrystep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "retrystep",
+        "no-maintenance",
+        3
+      ],
+      [
+        "retrystep",
+        "no-maintenance",
+        4
+      ],
+      [
+        "retrystep",
+        "no-maintenance",
+        5
+      ],
+      [
+        "squarestep",
+        "reference",
+        1
+      ],
+      [
+        "squarestep",
+        "reference",
+        2
+      ],
+      [
+        "squarestep",
+        "reference",
+        3
+      ],
+      [
+        "squarestep",
+        "reference",
+        4
+      ],
+      [
+        "squarestep",
+        "reference",
+        5
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        3
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        4
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        5
+      ],
+      [
+        "wildstep",
+        "reference",
+        1
+      ],
+      [
+        "wildstep",
+        "reference",
+        2
+      ],
+      [
+        "wildstep",
+        "reference",
+        3
+      ],
+      [
+        "wildstep",
+        "reference",
+        4
+      ],
+      [
+        "wildstep",
+        "reference",
+        5
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        3
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        4
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        5
+      ],
+      [
+        "guardstep-unfunded",
+        "reference",
+        1
+      ],
+      [
+        "guardstep-unfunded",
+        "reference",
+        2
+      ],
+      [
+        "guardstep-unfunded",
+        "reference",
+        3
+      ],
+      [
+        "guardstep-unfunded",
+        "reference",
+        4
+      ],
+      [
+        "guardstep-unfunded",
+        "reference",
+        5
+      ],
+      [
+        "guardstep-unfunded",
+        "no-maintenance",
+        1
+      ],
+      [
+        "guardstep-unfunded",
+        "no-maintenance",
+        2
+      ],
+      [
+        "guardstep-unfunded",
+        "no-maintenance",
+        3
+      ],
+      [
+        "guardstep-unfunded",
+        "no-maintenance",
+        4
+      ],
+      [
+        "guardstep-unfunded",
+        "no-maintenance",
+        5
+      ]
+    ],
+    "regime": "Squarestep, all organisms share .5/.3, alpha .55, root 0E/0M",
+    "build": {
+      "runner_schema_version": "0.2.0",
+      "execution_digest": "sha256:39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+      "build": {
+        "engine_crate_version": "0.4.0",
+        "simulator_spec_version": "0.4.0",
+        "git_commit": "e91e01b5e714f5a9b49fad4a6acc16a3dd706164",
+        "source_dirty": true,
+        "source_digest": "sha256:80409c4b46053d4392917a47ae908af871c1fa96da7cdaa9f253cd7bca1b1a61",
+        "cargo_profile": "release",
+        "cargo_features": [
+          "default"
+        ],
+        "target_triple": "aarch64-apple-darwin",
+        "rustc_version": "rustc 1.99.0 (b940084d7 2026-09-28)"
+      },
+      "rayon_available": false
+    },
+    "file_sha256": {
+      "proteus-audit": "39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+      "proteus-reliable-batch.py": "2d3da5d35bfe9c6c4acbc5cbeac7b4f6bc1d03e7f28f22c61e76c41b4f6324cd",
+      "reproduction_experiment.py": "467c390c881f50914ae99e9d5585a56e8d9b0c6cbf9095ff66265d9c6e08d30f",
+      "genomes.json": "653ebf1ddcaf06430859d342ffd9e638d3e38ae44ea44c2d6bc1fc760694e8df"
+    },
+    "archive_retained": false
+  },
+  "zero-gift": {
+    "archive": "rust/runs/reliable-copying-2026-10-29/zero-gift",
+    "experiment_sha256": "8d89e3b9db1d4624662d5a779da2d13b494f8f8cec54222e0a3fbf2a60ba92b3",
+    "ticks": 20000,
+    "seeds": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "matrix": [
+      [
+        "guardstep-zero-gift",
+        "reference",
+        1
+      ],
+      [
+        "guardstep-zero-gift",
+        "reference",
+        2
+      ],
+      [
+        "guardstep-zero-gift",
+        "reference",
+        3
+      ],
+      [
+        "guardstep-zero-gift",
+        "reference",
+        4
+      ],
+      [
+        "guardstep-zero-gift",
+        "reference",
+        5
+      ],
+      [
+        "guardstep-zero-gift",
+        "no-maintenance",
+        1
+      ],
+      [
+        "guardstep-zero-gift",
+        "no-maintenance",
+        2
+      ],
+      [
+        "guardstep-zero-gift",
+        "no-maintenance",
+        3
+      ],
+      [
+        "guardstep-zero-gift",
+        "no-maintenance",
+        4
+      ],
+      [
+        "guardstep-zero-gift",
+        "no-maintenance",
+        5
+      ]
+    ],
+    "regime": "Squarestep, all organisms share .5/.3, alpha .55, root 0E/0M",
+    "build": {
+      "runner_schema_version": "0.2.0",
+      "execution_digest": "sha256:39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+      "build": {
+        "engine_crate_version": "0.4.0",
+        "simulator_spec_version": "0.4.0",
+        "git_commit": "e91e01b5e714f5a9b49fad4a6acc16a3dd706164",
+        "source_dirty": true,
+        "source_digest": "sha256:80409c4b46053d4392917a47ae908af871c1fa96da7cdaa9f253cd7bca1b1a61",
+        "cargo_profile": "release",
+        "cargo_features": [
+          "default"
+        ],
+        "target_triple": "aarch64-apple-darwin",
+        "rustc_version": "rustc 1.99.0 (b940084d7 2026-09-28)"
+      },
+      "rayon_available": false
+    },
+    "file_sha256": {
+      "proteus-audit": "39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+      "proteus-reliable-batch.py": "2d3da5d35bfe9c6c4acbc5cbeac7b4f6bc1d03e7f28f22c61e76c41b4f6324cd",
+      "reproduction_experiment.py": "467c390c881f50914ae99e9d5585a56e8d9b0c6cbf9095ff66265d9c6e08d30f",
+      "genomes.json": "b166e881d5da6610923b50a9314196226dbd536a58d43ceac372f6c417e15839"
+    },
+    "archive_retained": false
+  },
+  "mixed": {
+    "archive": "rust/runs/reliable-copying-2026-10-29/mixed",
+    "experiment_sha256": "735a7c06b09583df0afc0ad8e1a5b57497ea7a6f6310449e9717a668d31731f7",
+    "ticks": 10000,
+    "matrix": [
+      [
+        "guardstep",
+        1
+      ],
+      [
+        "guardstep",
+        2
+      ],
+      [
+        "guardstep",
+        3
+      ],
+      [
+        "guardstep",
+        4
+      ],
+      [
+        "guardstep",
+        5
+      ],
+      [
+        "squarestep",
+        1
+      ],
+      [
+        "squarestep",
+        2
+      ],
+      [
+        "squarestep",
+        3
+      ],
+      [
+        "squarestep",
+        4
+      ],
+      [
+        "squarestep",
+        5
+      ],
+      [
+        "wildstep",
+        1
+      ],
+      [
+        "wildstep",
+        2
+      ],
+      [
+        "wildstep",
+        3
+      ],
+      [
+        "wildstep",
+        4
+      ],
+      [
+        "wildstep",
+        5
+      ]
+    ],
+    "build": {
+      "runner_schema_version": "0.2.0",
+      "execution_digest": "sha256:39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+      "build": {
+        "engine_crate_version": "0.4.0",
+        "simulator_spec_version": "0.4.0",
+        "git_commit": "e91e01b5e714f5a9b49fad4a6acc16a3dd706164",
+        "source_dirty": true,
+        "source_digest": "sha256:80409c4b46053d4392917a47ae908af871c1fa96da7cdaa9f253cd7bca1b1a61",
+        "cargo_profile": "release",
+        "cargo_features": [
+          "default"
+        ],
+        "target_triple": "aarch64-apple-darwin",
+        "rustc_version": "rustc 1.99.0 (b940084d7 2026-09-28)"
+      },
+      "rayon_available": false
+    },
+    "file_sha256": {
+      "proteus-audit": "39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+      "proteus-mixed-copying.py": "f5525ee367cfeb78a14c347ad22b9ac2a1a108c3619677c9e3f036494267d5ef",
+      "reproduction_experiment.py": "467c390c881f50914ae99e9d5585a56e8d9b0c6cbf9095ff66265d9c6e08d30f",
+      "genomes.json": "653ebf1ddcaf06430859d342ffd9e638d3e38ae44ea44c2d6bc1fc760694e8df"
+    },
+    "archive_retained": false
+  }
+}

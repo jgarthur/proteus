@@ -59,3 +59,18 @@ jobs:
       # Cannot live in a test binary, since the two paths never coexist in one build.
       - name: Check Rayon Parity
         run: ./scripts/check-rayon-parity.sh
+
+      - name: Test genome analysis tools
+        run: python3 -m unittest discover -s scripts -p 'test_genome_tools.py' -v
+
+      - name: Check genome audit parity
+        run: ./scripts/check-genome-audit-parity.sh
+
+      - name: Smoke test archived reproduction experiment
+        run: |
+          cargo build --bin proteus-audit
+          AUDIT_SMOKE=$(mktemp -d)
+          trap 'rm -rf "$AUDIT_SMOKE"' EXIT
+          python3 scripts/reproduction_experiment.py --binary target/debug/proteus-audit \
+            --output "$AUDIT_SMOKE/run" --organisms radchain --conditions reference \
+            --seeds 1 --ticks 20 --cadence 10 --jobs 1

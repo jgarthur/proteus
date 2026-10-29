@@ -1,5 +1,7 @@
 # Dyadic sampler implementation plan
 
+> **Scope:** Executed design. See [sampler results](2026-08-21_dyadic-sampler-results.md) and [the v0.4.0 migration](2026-08-21_config-k-migration.md) for implementation scope. See [Research findings](README.md) for the current synthesis.
+
 Date: 2026-08-13
 
 This plan specifies the next RAYON-HOTSPOTS performance step: replacing the

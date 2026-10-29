@@ -1,5 +1,11 @@
 # Seed-organism ladder and library variants for Proteus v0.4.0
 
+- **Question and scope:** Which small hand-designed organisms persist in Proteus v0.4.0? Seven designs, each tested in its stated regime on 64×64 worlds across five seeds for 20,000 ticks.
+- **Answer:** Stationary, synthesis and mobile designs supported construction and persistence; Squarestep and Wildstep passed the population criterion in all five seeds, while losing sequence fidelity when dense.
+- **Meaning:** The ladder supplies examples and instruction-budget constraints. Colonization alone does not establish heritable reproduction.
+- **Limits:** Regimes differ between organisms; verified points are not parameter minima. No evolutionary path from spontaneous bodies was tested.
+- **Disposition:** Closed design study. Copying mechanisms were investigated in the [fidelity study](2026-10-28_reproduction-fidelity.md); further seed engineering is parked.
+
 Date: 2026-08-23. This analysis targets the current `docs/SPEC.md` and Rust
 engine. The v0.2 sketches in `2026-03-15_claude_seeds.md` supplied ideas only.
 Every organism labeled verified below was re-derived and run; recommendation

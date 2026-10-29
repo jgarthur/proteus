@@ -1,0 +1,400 @@
+{
+  "matrix": {
+    "schema": "1.0.0",
+    "ticks": 5000,
+    "cadence": 250,
+    "source_digest": "sha256:80409c4b46053d4392917a47ae908af871c1fa96da7cdaa9f253cd7bca1b1a61",
+    "script_sha256": {
+      "reproduction_experiment.py": "467c390c881f50914ae99e9d5585a56e8d9b0c6cbf9095ff66265d9c6e08d30f",
+      "analyze_genomes.py": "f80315570c0f60ec85b2439fffea3f382a2b17833fc10b2015bee8a46b0644a9"
+    },
+    "engine_threads": 1,
+    "matrix": [
+      [
+        "squarestep",
+        "reference",
+        1
+      ],
+      [
+        "squarestep",
+        "reference",
+        2
+      ],
+      [
+        "squarestep",
+        "reference",
+        3
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        3
+      ],
+      [
+        "squarestep",
+        "mutation-default",
+        1
+      ],
+      [
+        "squarestep",
+        "mutation-default",
+        2
+      ],
+      [
+        "squarestep",
+        "mutation-default",
+        3
+      ],
+      [
+        "squarestep",
+        "mutation-default-no-maintenance",
+        1
+      ],
+      [
+        "squarestep",
+        "mutation-default-no-maintenance",
+        2
+      ],
+      [
+        "squarestep",
+        "mutation-default-no-maintenance",
+        3
+      ],
+      [
+        "wildstep",
+        "reference",
+        1
+      ],
+      [
+        "wildstep",
+        "reference",
+        2
+      ],
+      [
+        "wildstep",
+        "reference",
+        3
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        3
+      ],
+      [
+        "wildstep",
+        "mutation-default",
+        1
+      ],
+      [
+        "wildstep",
+        "mutation-default",
+        2
+      ],
+      [
+        "wildstep",
+        "mutation-default",
+        3
+      ],
+      [
+        "wildstep",
+        "mutation-default-no-maintenance",
+        1
+      ],
+      [
+        "wildstep",
+        "mutation-default-no-maintenance",
+        2
+      ],
+      [
+        "wildstep",
+        "mutation-default-no-maintenance",
+        3
+      ],
+      [
+        "radchain",
+        "reference",
+        1
+      ],
+      [
+        "radchain",
+        "reference",
+        2
+      ],
+      [
+        "radchain",
+        "reference",
+        3
+      ],
+      [
+        "radchain",
+        "no-maintenance",
+        1
+      ],
+      [
+        "radchain",
+        "no-maintenance",
+        2
+      ],
+      [
+        "radchain",
+        "no-maintenance",
+        3
+      ],
+      [
+        "radchain",
+        "mutation-default",
+        1
+      ],
+      [
+        "radchain",
+        "mutation-default",
+        2
+      ],
+      [
+        "radchain",
+        "mutation-default",
+        3
+      ],
+      [
+        "radchain",
+        "mutation-default-no-maintenance",
+        1
+      ],
+      [
+        "radchain",
+        "mutation-default-no-maintenance",
+        2
+      ],
+      [
+        "radchain",
+        "mutation-default-no-maintenance",
+        3
+      ]
+    ],
+    "trace_start": 0,
+    "trace_end": 0,
+    "binary_sha256": "39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+    "archive_retained": false
+  },
+  "long": {
+    "schema": "1.0.0",
+    "ticks": 20000,
+    "cadence": 1000,
+    "source_digest": "sha256:80409c4b46053d4392917a47ae908af871c1fa96da7cdaa9f253cd7bca1b1a61",
+    "script_sha256": {
+      "reproduction_experiment.py": "467c390c881f50914ae99e9d5585a56e8d9b0c6cbf9095ff66265d9c6e08d30f",
+      "analyze_genomes.py": "f80315570c0f60ec85b2439fffea3f382a2b17833fc10b2015bee8a46b0644a9"
+    },
+    "engine_threads": 1,
+    "matrix": [
+      [
+        "squarestep",
+        "reference",
+        1
+      ],
+      [
+        "squarestep",
+        "reference",
+        2
+      ],
+      [
+        "squarestep",
+        "reference",
+        3
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        3
+      ],
+      [
+        "wildstep",
+        "reference",
+        1
+      ],
+      [
+        "wildstep",
+        "reference",
+        2
+      ],
+      [
+        "wildstep",
+        "reference",
+        3
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        3
+      ],
+      [
+        "radchain",
+        "reference",
+        1
+      ],
+      [
+        "radchain",
+        "reference",
+        2
+      ],
+      [
+        "radchain",
+        "reference",
+        3
+      ],
+      [
+        "radchain",
+        "no-maintenance",
+        1
+      ],
+      [
+        "radchain",
+        "no-maintenance",
+        2
+      ],
+      [
+        "radchain",
+        "no-maintenance",
+        3
+      ]
+    ],
+    "trace_start": 0,
+    "trace_end": 0,
+    "binary_sha256": "39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+    "archive_retained": false
+  },
+  "traces": {
+    "schema": "1.0.0",
+    "ticks": 150,
+    "cadence": 25,
+    "source_digest": "sha256:80409c4b46053d4392917a47ae908af871c1fa96da7cdaa9f253cd7bca1b1a61",
+    "script_sha256": {
+      "reproduction_experiment.py": "467c390c881f50914ae99e9d5585a56e8d9b0c6cbf9095ff66265d9c6e08d30f",
+      "analyze_genomes.py": "f80315570c0f60ec85b2439fffea3f382a2b17833fc10b2015bee8a46b0644a9"
+    },
+    "engine_threads": 1,
+    "matrix": [
+      [
+        "squarestep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "squarestep",
+        "no-maintenance",
+        3
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        1
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        2
+      ],
+      [
+        "wildstep",
+        "no-maintenance",
+        3
+      ]
+    ],
+    "trace_start": 0,
+    "trace_end": 150,
+    "binary_sha256": "39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+    "archive_retained": false
+  },
+  "driftkin": {
+    "schema": "1.0.0",
+    "ticks": 1000,
+    "cadence": 100,
+    "source_digest": "sha256:80409c4b46053d4392917a47ae908af871c1fa96da7cdaa9f253cd7bca1b1a61",
+    "script_sha256": {
+      "reproduction_experiment.py": "467c390c881f50914ae99e9d5585a56e8d9b0c6cbf9095ff66265d9c6e08d30f",
+      "analyze_genomes.py": "f80315570c0f60ec85b2439fffea3f382a2b17833fc10b2015bee8a46b0644a9"
+    },
+    "engine_threads": 1,
+    "matrix": [
+      [
+        "driftkin",
+        "reference",
+        1
+      ],
+      [
+        "driftkin",
+        "reference",
+        2
+      ],
+      [
+        "driftkin",
+        "reference",
+        3
+      ],
+      [
+        "driftkin",
+        "mutation-default",
+        1
+      ],
+      [
+        "driftkin",
+        "mutation-default",
+        2
+      ],
+      [
+        "driftkin",
+        "mutation-default",
+        3
+      ]
+    ],
+    "trace_start": 0,
+    "trace_end": 1000,
+    "binary_sha256": "39ac91f3198f7b1d865114cf4cef46d978928f935bb0cfab2d9694159238acc0",
+    "archive_retained": false
+  }
+}

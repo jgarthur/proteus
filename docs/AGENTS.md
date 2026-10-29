@@ -38,3 +38,29 @@ Do not combine large spec edits with large implementation changes in one task un
 Treat `analysis/` as supporting material, not authority. Verify any behavioral claim there against **SPEC.md** and **SPEC-COMPANION.md** before relying on it.
 
 If `analysis/NOTEBOOK.md` exists, treat it as append-only unless the user explicitly asks for cleanup or restructuring.
+
+### Closing experiments
+
+- Keep one report per research question. Lead with its answer, scope, implications, limits, and disposition; update it instead of accumulating session handoffs.
+- At closure, reconcile durable findings into `analysis/README.md` and catalog the detailed report in `analysis/ARCHIVE.md`. Keep speculative next steps distinct from active work.
+- Mark the corresponding `STATUS.md` item done. Put only selected follow-ups in its **Next** section; park unselected ideas in `BACKLOG.md`. A closed investigation needs no successor task.
+- Preserve compact evidence for conclusions and unresolved conflicts. Raw traces, per-tick dumps, copied binaries and exploratory outputs are scratch artifacts; extract needed examples before cleanup and state when original archives are unavailable. Do not regenerate bulk archives merely to restore a historical path.
+- In the report or its evidence README, identify retained inputs, result tables, decisive examples and rerun commands. Record whether raw archives remain available; hashes identify files but do not substitute for retained evidence. Check references after cleanup.
+
+Use these fields for the opening finding card:
+
+- **Question and scope:** the test, rules version and material conditions.
+- **Answer:** observed results, including negative or conflicting outcomes.
+- **Meaning:** implications for emergence or the engineering decision.
+- **Limits:** inference, hypothesis, and what remains untested.
+- **Disposition:** active, closed, or superseded; evidence that would reopen it.
+
+Keep the findings overview short. Link to measured results rather than carrying
+forward an untested plan's estimates. Label older assumptions at their source
+when a reader could mistake them for the current rules.
+
+Use this structure inside the report; do not create a separate summary, closure
+log or handoff for each session. Extend the same report while pursuing the same
+question, preserving unresolved findings and distinguishing observations from
+interpretation. Historical plans need a scope/status label and a link to their
+results, rather than a retrospective finding card.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { disassemble } from './opcodes';
+import copyingGenomes from '../../../docs/analysis/reliable-copying/genomes.json';
 import {
   DEFAULT_LITHOTROPH_CODE,
   findLibraryOrganismByCode,
@@ -37,6 +38,7 @@ describe('SEED_LIBRARY', () => {
       'mixedforge',
       'squarestep',
       'wildstep',
+      'guardstep',
     ]);
     expect(new Set(SEED_LIBRARY.map((organism) => organism.id)).size).toBe(SEED_LIBRARY.length);
     expect(new Set(SEED_LIBRARY.map((organism) => organism.name)).size).toBe(SEED_LIBRARY.length);
@@ -61,6 +63,13 @@ describe('SEED_LIBRARY', () => {
     expect(byId.get('mixedforge')).toEqual([81, 81, 83, 66, 48, 88, 85, 95, 49, 100]);
     expect(byId.get('squarestep')).toEqual([83, 66, 48, 85, 95, 49, 100, 64, 99]);
     expect(byId.get('wildstep')).toEqual([81, 83, 66, 48, 85, 95, 49, 100, 20, 73, 99]);
+  });
+
+  it('offers exactly the Guardstep genome exercised by the engine interference assays', () => {
+    const guardstep = SEED_LIBRARY.find((organism) => organism.id === 'guardstep')!;
+    expect(guardstep.code).toEqual(copyingGenomes.guardstep);
+    expect([guardstep.free_energy, guardstep.free_mass]).toEqual([0, 0]);
+    expect(guardstep.family).toBe('Mobile');
   });
 
   it('matches the sizes the analysis summary table quotes', () => {
@@ -178,7 +187,7 @@ describe('seedLibraryByFamily', () => {
     const sizes = Object.fromEntries(
       seedLibraryByFamily().map((group) => [group.family, group.organisms.length]),
     );
-    expect(sizes).toEqual({ Classic: 3, Chain: 2, Synthesis: 3, Mobile: 2 });
+    expect(sizes).toEqual({ Classic: 3, Chain: 2, Synthesis: 3, Mobile: 3 });
   });
 
   it('skips families with no members', () => {

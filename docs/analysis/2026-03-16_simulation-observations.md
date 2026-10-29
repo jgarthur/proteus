@@ -1,5 +1,7 @@
 # Simulation Observations — March 16, 2026
 
+> **Scope:** Historical observations in the recorded configurations, not a current default baseline. See [Research findings](README.md) for the current synthesis.
+
 **Context**: Non-authoritative experiment notes from Proteus v0.2.0 commit `1fdc90c050e098aa0815fc46ab2391a15be57e8a` plus frontend changes.
 
 ## Observations

@@ -4,6 +4,7 @@
 
 pub mod bootstrap;
 pub mod config;
+pub mod genome_observe;
 pub mod grid;
 pub mod model;
 pub mod observe;

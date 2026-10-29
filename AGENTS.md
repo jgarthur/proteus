@@ -3,9 +3,10 @@
 ## STATUS.md
 
 - `STATUS.md` at the repo root is the project status log. Read it at the start of a conversation to understand what is done and what is next.
+- For research or experiment work, read `docs/analysis/README.md` for the current synthesis before following older notes. Its catalog distinguishes findings, historical assumptions and proposals. A closed report's suggested follow-up is not an active assignment.
 - Before working on a named status item, run `rg -n '<ITEM-NAME>' .` to find its code and documentation breadcrumbs.
 - When you complete a task that corresponds to a status item, mark it done (`[x]`).
-- If new follow-up work emerges, add it to the **Next** section.
+- Put selected, actionable follow-up work in **Next**. Keep unselected research ideas in `docs/BACKLOG.md`, explicitly marked parked; a report's suggestion alone does not select a task.
 
 ## README.md files
 

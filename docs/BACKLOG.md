@@ -8,6 +8,10 @@ Items are referenced by name from `STATUS.md` at the repo root. Use the exact it
 
 ## Items
 
+### SEED-BOOT-TOLERANCE: Parked after the copying investigation
+
+A partial body might tolerate an early foreign boot and continue development or repair. This is a possible hand-designed seed exercise, not the selected next research task: it would not by itself demonstrate an evolutionary route from abiogenesis. The copying chapter is closed; prioritize the project's open-endedness and emergence questions when choosing further experiments. See [the findings overview](analysis/README.md) and [the mixed-population results](analysis/2026-10-29_reliable-copying.md#mixed-populations-expose-the-early-boot-limit).
+
 ### HEADLESS-RUNNER: Implement deterministic single-run and fixed-batch execution
 
 Context: add `proteus-run` for one fully specified engine-direct run and `proteus-batch` for bounded subprocess supervision. Keep parameter search, scoring, and emergence optimization in an external outer loop. Share bootstrap and environmental preload semantics with the web controller rather than duplicating them.
@@ -40,8 +44,7 @@ References: `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md`
 
 ### LINEAGE-DUMP: Per-program lineage artifact for offline reconstruction
 
-Context: the census aggregates lineage; reconstructing actual family trees offline needs per-program rows (`lineage.jsonl`) at a coarse cadence. Needs a runner schema bump, which is exactly what EMERGENCE-CENSUS avoided, so it is its own item.
-References: `docs/RUNNER-SPEC.md`, `rust/src/runner/single.rs`
+The separate `proteus-audit` command emits sampled `lineage.jsonl`, a deduplicated genome dictionary, and every boot genome with its construction contributors. `analyze_genomes.py --uid` reconstructs creation ancestry and identifies missing ancestors. Audit artifacts use schema 1.0.0; ordinary runner rows retain schema 0.2.0. See [Genome observation](GENOME-OBSERVATION.md).
 
 ### INSPECTOR-LINEAGE: Surface the lineage fields in the frontend inspector
 

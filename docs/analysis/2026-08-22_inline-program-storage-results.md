@@ -1,5 +1,11 @@
 # Inline program storage (RAYON-HOTSPOTS Tier 2b): negative result
 
+- **Question and scope:** Does inline program storage improve `tick_bench` performance? Fixed-capacity variants compared with heap storage on the recorded fixtures and hardware.
+- **Answer:** Every tested cap regressed measured performance; wider cells outweighed the expected allocation savings.
+- **Meaning:** Keep heap-backed program storage for this implementation.
+- **Limits:** The cap-256 grown-world comparison also changed ecology. These measurements do not rule out every alternative representation.
+- **Disposition:** Closed negative result; branch unmerged. The proposed hot-field-layout follow-up was rejected by the [stride diagnostic](2026-08-22_tier-2a-stride-diagnostic.md). Reopen only with evidence of a materially different bottleneck or design.
+
 Date: 2026-08-22. Branch `task/inline-code` (`0f43b74`, fixes `149cb80`), not merged.
 
 ## What was tried

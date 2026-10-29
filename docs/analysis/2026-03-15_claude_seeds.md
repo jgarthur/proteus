@@ -1,4 +1,7 @@
 # Prompt
+
+> **Scope:** Historical v0.2 seed sketches. Evaluated v0.4.0 designs are in the [seed-organism ladder](2026-08-23_seed-organisms.md). See [Research findings](README.md) for the current synthesis.
+
 ```
 below is my ALIFE spec. read it carefully and propose some seed replicators. do not consider the simulation parameters as fixed. i'm just getting started. currently i think the existing seed organism starves for energy and mass pretty quickly. the seed should be efficient enough (or simulation abundant enough) that most simulations end up with life spreading
 

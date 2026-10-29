@@ -69,6 +69,13 @@ machine-readable runner build identity. Interrupted or otherwise incomplete
 batches resume whole runs with `--retry-incomplete`, archiving the prior attempt
 before restarting it.
 
+## Genome and Lineage Audits
+
+`proteus-audit` runs a headless manifest with deterministic pass-boundary
+observation, complete birth records, sampled lineage and genome sequences, and
+optional detailed event traces. See [Genome and lineage observation](../docs/GENOME-OBSERVATION.md)
+for commands and interpretation.
+
 ## Running the Web Backend
 
 From `rust/`:
