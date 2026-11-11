@@ -8,6 +8,19 @@ Items are referenced by name from `STATUS.md` at the repo root. Use the exact it
 
 ## Items
 
+### MINI-SUBSTRATE: Stripped-back substrate for studying how behaviour depends on the laws
+
+Context (2026-11-11): Joey proposed stripping Proteus back to its most basic idea (programs in cells, a speed of light, ticks) with a heavily reduced instruction set in the spirit of BFF (Agüera y Arcas et al., arXiv:2406.19108), then varying the laws and measuring what each variant produces. `mini/` is a first sandbox for that. It is a separate crate and changes nothing in the v0.4.0 engine or spec. Its README lists the laws, the tests that pin them, and the first observations.
+
+Parked ideas, none selected:
+
+- **A measure of interesting behaviour.** High-order entropy detects the arrival of replicators but ranks a degenerate takeover almost as high as one with working copy loops. Candidates: an epiplexity estimate (Finzi et al., arXiv:2601.03220: prequential code length above the final loss for a bounded learner) over `--dump` snapshots; the closed-form reservoir-and-ridge variant (Zhang and Levin, arXiv:2607.18433); or ASAL-style novelty of `--frames` images in a foundation-model embedding (Kumar et al., arXiv:2412.17799).
+- **Laws to add back, one at a time.** Machine state that survives a tick together with a small step budget, so that replication takes time; empty cells and movement, so that space is a resource; an energy budget for steps. Each should be a switchable law so its effect can be measured against the same baseline.
+- **A program with a self.** In the join-and-run model the instruction pointer simply flows from one tape into the next, so a replicator overwrites itself when it runs from the second tape. Giving each cell its own instruction pointer would restore the Proteus notion of a program acting on a neighbour, at the price of conflict rules.
+- **Fate of the v0.4.0 engine.** Undecided. Nothing in `rust/`, `frontend/` or the spec should be removed on the strength of this sandbox alone.
+
+References: `mini/README.md`, `mini/src/lib.rs`, `docs/analysis/README.md` (the evolutionary-accessibility concern this speaks to)
+
 ### SEED-BOOT-TOLERANCE: Parked after the copying investigation
 
 A partial body might tolerate an early foreign boot and continue development or repair. This is a possible hand-designed seed exercise, not the selected next research task: it would not by itself demonstrate an evolutionary route from abiogenesis. The copying chapter is closed; prioritize the project's open-endedness and emergence questions when choosing further experiments. See [the findings overview](analysis/README.md) and [the mixed-population results](analysis/2026-10-29_reliable-copying.md#mixed-populations-expose-the-early-boot-limit).
