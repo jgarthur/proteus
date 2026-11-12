@@ -4,11 +4,10 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 
 ## Research direction
 
-Open-ended evolution and emergence are the aim. Read [Research findings](docs/analysis/README.md) for the experimental TL;DR. The copying/Guardstep chapter is closed; further hand-designed seed work is parked. The unresolved scientific concern is evolutionary accessibility under the rules, not maximizing occupancy. An exploratory stripped-back substrate (`mini/`, MINI-SUBSTRATE below) was started on 2026-11-11 to study how a world's behaviour depends on its laws. The v0.4.0 engine is unchanged, and no decision has been made to replace it.
+Open-ended evolution and emergence are the aim. Read [Research findings](docs/analysis/README.md) for the experimental TL;DR. The copying/Guardstep chapter is closed; further hand-designed seed work is parked. The unresolved scientific concern is evolutionary accessibility under the rules, not maximizing occupancy. No replacement experiment is selected yet.
 
 ## Next
 
-- [ ] MINI-SUBSTRATE: Exploratory stripped-back substrate in `mini/`: tapes on a grid, a speed of light, ticks, and BFF's ten instructions by default. Landed: the interpreter, the pair-run-mutate tick with two pairing schedules, a high-order-entropy census, PNG frames, raw tape dumps, law-level tests and a CI job; first observations are in `mini/README.md`. Undecided (Joey's call): whether this line informs or replaces the v0.4.0 spec, which laws to add back first, and which measure of interesting behaviour to adopt. See `docs/BACKLOG.md`.
 - [ ] Update the web server's upstream SHA-1 dependency when Axum supports a patched `block-buffer` release. Axum 0.7 and 0.8 retain `block-buffer` 0.10.4 through `sha1` 0.10; [GHSA-qwgh-2vcv-g2f7](https://github.com/advisories/GHSA-qwgh-2vcv-g2f7) is fixed in 0.12.1 and requires a panic followed by reuse of the affected buffer.
 - [ ] CENSUS-STREAM: Opt-in WebSocket census subscription with its own cadence. See `docs/BACKLOG.md`.
 - [ ] MUTATION-DOSE-TUNING: Decide whether `mutation_background_log2` should move off 8; it is the only knob that separates mutation load from energy income, and raising it to 9 gave 8/8 grid fill. See `docs/BACKLOG.md`.

@@ -12,7 +12,6 @@ This README is a high-level orientation only. It was updated for spec `v0.4.0`.
 - `docs/` contains the active specification and related working documentation. See `docs/README.md`; start with [Research findings](docs/analysis/README.md) for the experimental picture.
 - `frontend/` contains the active React + TypeScript simulator UI. See `frontend/README.md`.
 - `rust/` contains the active Rust backend implementation surface. See `rust/README.md`.
-- `mini/` contains an experimental stripped-back substrate (tapes on a grid, a speed of light, ticks) for studying how a world's behaviour depends on its laws. It is independent of the `v0.4.0` engine. See `mini/README.md`.
 - `legacy/` contains archived implementation prototypes and experiments that are kept for reference during the upcoming rewrite. See `legacy/README.md`.
 
 ## Quick Start
