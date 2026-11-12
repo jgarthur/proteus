@@ -1,0 +1,18 @@
+[package]
+name = "proteus-mini"
+version = "0.1.0"
+edition = "2021"
+description = "Proteus stripped back: one instruction per tick, mass and energy, death by wear"
+license = "MIT"
+publish = false
+
+[profile.dev]
+# Match the main crate: plain `cargo run` should already be fast.
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[lints.clippy]
+all = "warn"

@@ -8,6 +8,29 @@ Items are referenced by name from `STATUS.md` at the repo root. Use the exact it
 
 ## Items
 
+### MINI-PROTEUS: A stripped-back Proteus as a quick test bed
+
+Context (2026-11-12): Joey wants a very small Proteus, still Proteus and not a BFF-style soup. Agreed in conversation: no stack; one general register `A`, as wide as an instruction; an explicit `copy` instruction; a child that wakes by itself when complete; both mass and energy kept, with a dead body's mass returning to its cell; one instruction per program per tick; room made by senescence through mutation and not by attack or displacement; a mutation on execution that replaces the instruction, and wrong-instruction, skip or repeat errors on copying; and an instruction code one bit wider than needed, so that at least half its values are no-ops. `mini/` implements that as a separate crate. The v0.4.0 engine and spec are untouched.
+
+Choices made while building it that Joey has not confirmed:
+
+- **The instruction set.** `absorb`, `collect`, `copy`, `turn`, `look`, `weigh`, `dec`, `skip`: eight, so a four-bit code. The three that use `A` (`look`, `weigh`, `dec`) are the most arbitrary.
+- **What costs energy.** Only `copy` and upkeep. Every live program executes every tick whether or not it has energy. The alternative is that every instruction costs energy, so that energy buys time.
+- **Where a child is built.** In the facing cell, as agreed. That needed three further rules: one child at a time; only the builder extends it; an unfinished child is inert and exempt from upkeep and decay. Building inside the parent and releasing the child whole would need none of them.
+- **Mass is open.** It arrives and dissipates like energy, at the v0.4.0 rates. A closed cycle with no arrival was considered and not built.
+- **One decay law** for all loose energy and mass, held or lying in a cell, replacing the v0.4.0 storage threshold.
+- **Death.** Unpaid upkeep dissolves the last instruction, and that is the only way anything dies.
+- **Copy errors.** Half wrong instruction, a quarter skip, a quarter repeat, at one shared rate.
+
+Parked ideas, none selected:
+
+- **The squatter share.** About 60% of live programs feed and cannot breed, at every slip rate tried. Candidates: make staying alive depend on more than `absorb`; let an execution slip delete an instruction (indels on execution were deferred); let a birth displace a weaker neighbour (not Joey's preference); or leave it and see whether programs evolve to stop feeding once they cannot breed.
+- **Why code grows.** No-ops accumulate at the default upkeep. Whether that is drift or protection against slips is untested.
+- **Things deliberately absent:** movement, any attack, giving, messages, more registers, and size-scaled execution.
+- **A measure of interesting behaviour**, for comparing variants of the laws: epiplexity (Finzi et al., arXiv:2601.03220) or ASAL-style novelty (Kumar et al., arXiv:2412.17799).
+
+References: `mini/README.md`, `mini/src/lib.rs`, `docs/analysis/2026-08-13_mutation-load-and-emergence-milestones.md` (the earlier senescence question)
+
 ### SEED-BOOT-TOLERANCE: Parked after the copying investigation
 
 A partial body might tolerate an early foreign boot and continue development or repair. This is a possible hand-designed seed exercise, not the selected next research task: it would not by itself demonstrate an evolutionary route from abiogenesis. The copying chapter is closed; prioritize the project's open-endedness and emergence questions when choosing further experiments. See [the findings overview](analysis/README.md) and [the mixed-population results](analysis/2026-10-29_reliable-copying.md#mixed-populations-expose-the-early-boot-limit).

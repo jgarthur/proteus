@@ -4,10 +4,11 @@ Living document. Mark items done (`[x]`) as they are completed. Backlog items re
 
 ## Research direction
 
-Open-ended evolution and emergence are the aim. Read [Research findings](docs/analysis/README.md) for the experimental TL;DR. The copying/Guardstep chapter is closed; further hand-designed seed work is parked. The unresolved scientific concern is evolutionary accessibility under the rules, not maximizing occupancy. No replacement experiment is selected yet.
+Open-ended evolution and emergence are the aim. Read [Research findings](docs/analysis/README.md) for the experimental TL;DR. The copying/Guardstep chapter is closed; further hand-designed seed work is parked. The unresolved scientific concern is evolutionary accessibility under the rules, not maximizing occupancy. A much smaller Proteus is being explored in `mini/` (MINI-PROTEUS below, started 2026-11-12). The v0.4.0 engine and spec are unchanged, and no decision has been made to replace them.
 
 ## Next
 
+- [ ] MINI-PROTEUS: Quick test bed for a stripped-back Proteus in `mini/`: eight instructions in a four-bit code, one register, one instruction per tick, an explicit `copy`, children that wake when complete, mass and energy, and death only by wearing out (a slip on execution, then unpaid upkeep). Landed: the engine, a law-by-law test suite, a command-line runner with pictures, a CI job, and first observations in `mini/README.md`. Open (Joey's call): whether a standing squatter share near 60% is acceptable, and the provisional choices listed in `docs/BACKLOG.md`.
 - [ ] Update the web server's upstream SHA-1 dependency when Axum supports a patched `block-buffer` release. Axum 0.7 and 0.8 retain `block-buffer` 0.10.4 through `sha1` 0.10; [GHSA-qwgh-2vcv-g2f7](https://github.com/advisories/GHSA-qwgh-2vcv-g2f7) is fixed in 0.12.1 and requires a panic followed by reuse of the affected buffer.
 - [ ] CENSUS-STREAM: Opt-in WebSocket census subscription with its own cadence. See `docs/BACKLOG.md`.
 - [ ] MUTATION-DOSE-TUNING: Decide whether `mutation_background_log2` should move off 8; it is the only knob that separates mutation load from energy income, and raising it to 9 gave 8/8 grid fill. See `docs/BACKLOG.md`.
